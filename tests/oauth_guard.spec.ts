@@ -1,14 +1,20 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
 import type { ApplicationService } from '@adonisjs/core/types'
-import { createApp, setupDatabase, teardownDatabase, createManager } from './helpers.ts'
+import {
+  createApp,
+  setupDatabase,
+  teardownDatabase,
+  createManager,
+  createTestClient,
+  mockCtx,
+} from './helpers.ts'
 import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
 import { OAuthClient } from '../src/models/oauth_client.ts'
 import { OAuthConsent } from '../src/models/oauth_consent.ts'
 import { OAuthRefreshToken } from '../src/models/oauth_refresh_token.ts'
 import { OAuthAuthorizationCode } from '../src/models/oauth_authorization_code.ts'
 import { TokenService } from '../src/services/token_service.ts'
-import { ClientService } from '../src/services/client_service.ts'
 import { OAuthGuard } from '../src/guard/guard.ts'
 import { errors, symbols } from '@adonisjs/auth'
 import type { EmitterLike } from '@adonisjs/core/types/events'
@@ -50,24 +56,6 @@ class FakeUserProvider implements OAuthUserProviderContract<{ id: string; name: 
   }
 }
 
-function createFakeCtx(options: { headers?: Record<string, string> } = {}) {
-  const responseHeaders: Record<string, string> = {}
-
-  return {
-    request: {
-      header(name: string) {
-        return options.headers?.[name.toLowerCase()]
-      },
-    },
-    response: {
-      header(name: string, value: string) {
-        responseHeaders[name] = value
-      },
-    },
-    __responseHeaders: responseHeaders,
-  } as any
-}
-
 function createFakeEmitter() {
   const events: { name: string; data: any }[] = []
   const emitter: EmitterLike<OAuthGuardEvents<{ id: string; name: string }>> & {
@@ -89,25 +77,6 @@ function createFakeEmitter() {
   }
 
   return emitter
-}
-
-async function createTestClient() {
-  const clientService = new ClientService()
-  return OAuthClient.create({
-    id: crypto.randomUUID(),
-    clientId: 'test-client',
-    clientSecret: clientService.hashSecret('test-secret'),
-    name: 'Test Client',
-    redirectUris: ['https://app.example.com/callback'],
-    scopes: ['read', 'write'],
-    grantTypes: ['authorization_code', 'refresh_token'],
-    isPublic: false,
-    isDisabled: false,
-    requirePkce: true,
-    type: 'confidential',
-    metadata: null,
-    userId: null,
-  })
 }
 
 test.group('OAuthGuard', (group) => {
@@ -145,7 +114,7 @@ test.group('OAuthGuard', (group) => {
       expiresAt: DateTime.now().plus({ hours: 1 }),
     })
 
-    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${raw}` } })
+    const ctx = mockCtx({ headers: { authorization: `Bearer ${raw}` } })
     const emitter = createFakeEmitter()
     const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
@@ -161,7 +130,7 @@ test.group('OAuthGuard', (group) => {
 
   test('throws on missing authorization header', async ({ assert }) => {
     const manager = createManager()
-    const ctx = createFakeCtx()
+    const ctx = mockCtx()
     const emitter = createFakeEmitter()
     const provider = new FakeUserProvider([])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
@@ -171,7 +140,7 @@ test.group('OAuthGuard', (group) => {
 
   test('throws on unknown token', async ({ assert }) => {
     const manager = createManager()
-    const ctx = createFakeCtx({ headers: { authorization: 'Bearer some-random-token' } })
+    const ctx = mockCtx({ headers: { authorization: 'Bearer some-random-token' } })
     const emitter = createFakeEmitter()
     const provider = new FakeUserProvider([])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
@@ -196,7 +165,7 @@ test.group('OAuthGuard', (group) => {
       revokedAt: DateTime.now(),
     })
 
-    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${raw}` } })
+    const ctx = mockCtx({ headers: { authorization: `Bearer ${raw}` } })
     const emitter = createFakeEmitter()
     const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
@@ -208,7 +177,7 @@ test.group('OAuthGuard', (group) => {
     const manager = createManager()
     await createTestClient()
 
-    const ctx = createFakeCtx({ headers: { authorization: 'Bearer nonexistent-token' } })
+    const ctx = mockCtx({ headers: { authorization: 'Bearer nonexistent-token' } })
     const emitter = createFakeEmitter()
     const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
@@ -237,7 +206,7 @@ test.group('OAuthGuard', (group) => {
       expiresAt: DateTime.now().plus({ hours: 1 }),
     })
 
-    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${raw}` } })
+    const ctx = mockCtx({ headers: { authorization: `Bearer ${raw}` } })
     const emitter = createFakeEmitter()
     const provider = new FakeUserProvider([])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
@@ -261,7 +230,7 @@ test.group('OAuthGuard', (group) => {
       expiresAt: DateTime.now().plus({ hours: 1 }),
     })
 
-    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${raw}` } })
+    const ctx = mockCtx({ headers: { authorization: `Bearer ${raw}` } })
     const emitter = createFakeEmitter()
     const provider = new FakeUserProvider([])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
@@ -271,7 +240,7 @@ test.group('OAuthGuard', (group) => {
 
   test('check() returns false instead of throwing', async ({ assert }) => {
     const manager = createManager()
-    const ctx = createFakeCtx()
+    const ctx = mockCtx()
     const emitter = createFakeEmitter()
     const provider = new FakeUserProvider([])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
@@ -297,7 +266,7 @@ test.group('OAuthGuard', (group) => {
       expiresAt: DateTime.now().plus({ hours: 1 }),
     })
 
-    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${raw}` } })
+    const ctx = mockCtx({ headers: { authorization: `Bearer ${raw}` } })
     const emitter = createFakeEmitter()
     const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
@@ -323,7 +292,7 @@ test.group('OAuthGuard', (group) => {
       expiresAt: DateTime.now().plus({ hours: 1 }),
     })
 
-    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${raw}` } })
+    const ctx = mockCtx({ headers: { authorization: `Bearer ${raw}` } })
     const emitter = createFakeEmitter()
     const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
@@ -349,7 +318,7 @@ test.group('OAuthGuard', (group) => {
       expiresAt: DateTime.now().plus({ hours: 1 }),
     })
 
-    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${raw}` } })
+    const ctx = mockCtx({ headers: { authorization: `Bearer ${raw}` } })
     const emitter = createFakeEmitter()
     const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
@@ -378,7 +347,7 @@ test.group('OAuthGuard', (group) => {
       expiresAt: DateTime.now().plus({ hours: 1 }),
     })
 
-    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${raw}` } })
+    const ctx = mockCtx({ headers: { authorization: `Bearer ${raw}` } })
     const emitter = createFakeEmitter()
     const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
@@ -392,7 +361,7 @@ test.group('OAuthGuard', (group) => {
 
   test('sets WWW-Authenticate header on authentication failure', async ({ assert }) => {
     const manager = createManager()
-    const ctx = createFakeCtx()
+    const ctx = mockCtx()
     const emitter = createFakeEmitter()
     const provider = new FakeUserProvider([])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
@@ -407,7 +376,7 @@ test.group('OAuthGuard', (group) => {
 
   test('getUserOrFail throws when not authenticated', async ({ assert }) => {
     const manager = createManager()
-    const ctx = createFakeCtx()
+    const ctx = mockCtx()
     const emitter = createFakeEmitter()
     const provider = new FakeUserProvider([])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
@@ -431,7 +400,7 @@ test.group('OAuthGuard', (group) => {
       expiresAt: DateTime.now().plus({ hours: 1 }),
     })
 
-    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${raw}` } })
+    const ctx = mockCtx({ headers: { authorization: `Bearer ${raw}` } })
     const emitter = createFakeEmitter()
     const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
@@ -457,7 +426,7 @@ test.group('OAuthGuard', (group) => {
       expiresAt: DateTime.now().plus({ hours: 1 }),
     })
 
-    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${raw}` } })
+    const ctx = mockCtx({ headers: { authorization: `Bearer ${raw}` } })
     const emitter = createFakeEmitter()
     const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
@@ -472,7 +441,7 @@ test.group('OAuthGuard', (group) => {
 
   test('emits authentication_failed event on failure', async ({ assert }) => {
     const manager = createManager()
-    const ctx = createFakeCtx()
+    const ctx = mockCtx()
     const emitter = createFakeEmitter()
     const provider = new FakeUserProvider([])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
@@ -485,7 +454,7 @@ test.group('OAuthGuard', (group) => {
 
   test('WWW-Authenticate omits error attributes when no token is sent', async ({ assert }) => {
     const manager = createManager()
-    const ctx = createFakeCtx()
+    const ctx = mockCtx()
     const emitter = createFakeEmitter()
     const provider = new FakeUserProvider([])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
@@ -505,7 +474,7 @@ test.group('OAuthGuard', (group) => {
     assert,
   }) => {
     const manager = createManager()
-    const ctx = createFakeCtx({ headers: { authorization: 'Bearer some-invalid-token' } })
+    const ctx = mockCtx({ headers: { authorization: 'Bearer some-invalid-token' } })
     const emitter = createFakeEmitter()
     const provider = new FakeUserProvider([])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
@@ -535,7 +504,7 @@ test.group('OAuthGuard', (group) => {
       revokedAt: DateTime.now(),
     })
 
-    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${raw}` } })
+    const ctx = mockCtx({ headers: { authorization: `Bearer ${raw}` } })
     const emitter = createFakeEmitter()
     const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)

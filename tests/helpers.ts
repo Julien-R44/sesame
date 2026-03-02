@@ -95,19 +95,29 @@ export function mockCtx(options: {
     pull: (key: string) => any
     forget: (keys: string | string[]) => void
   }
-}) {
+} = {}) {
   const headers: Record<string, string> = { ...options.headers }
   const manager = options.manager ?? createManager()
+  const responseHeaders: Record<string, string> = {}
 
-  return {
+  const ctx: any = {
     request: {
       body: () => options.body ?? {},
       qs: () => options.query ?? {},
       header: (name: string) => headers[name.toLowerCase()],
     },
     response: {
-      header: () => {},
-      status: () => {},
+      header(name: string, value: string) {
+        responseHeaders[name] = value
+      },
+      status(code: number) {
+        ctx.__responseStatus = code
+        return {
+          json(data: any) {
+            ctx.__responseBody = data
+          },
+        }
+      },
       ok: (data: any) => data,
       json: (data: any) => data,
       redirect: () => ({ toPath: (url: string) => ({ redirectUrl: url }) }),
@@ -124,7 +134,12 @@ export function mockCtx(options: {
         throw new Error(`Unknown binding: ${binding}`)
       },
     },
-  } as any
+    __responseHeaders: responseHeaders,
+    __responseStatus: 0,
+    __responseBody: undefined as any,
+  }
+
+  return ctx
 }
 
 export function createMockSession() {

@@ -736,44 +736,12 @@ test.group('Integration | Revocation', (group) => {
 })
 
 test.group('E_INVALID_CLIENT | WWW-Authenticate header', () => {
-  function createHandleCtx(options: { authorizationHeader?: string } = {}) {
-    const responseHeaders: Record<string, string> = {}
-    let responseStatus = 0
-    let responseBody: any
-
-    const ctx = {
-      request: {
-        header(name: string) {
-          if (name.toLowerCase() === 'authorization') return options.authorizationHeader
-        },
-      },
-      response: {
-        status(code: number) {
-          responseStatus = code
-          return {
-            json(data: any) {
-              responseBody = data
-            },
-          }
-        },
-        header(name: string, value: string) {
-          responseHeaders[name] = value
-        },
-      },
-      __responseHeaders: responseHeaders,
-      __responseStatus: responseStatus,
-      __responseBody: responseBody,
-    } as any
-
-    return ctx
-  }
-
   test('sets WWW-Authenticate: Basic when client used Authorization header', async ({
     assert,
   }) => {
     const error = new E_INVALID_CLIENT('Client not found')
-    const ctx = createHandleCtx({
-      authorizationHeader: 'Basic dGVzdC1jbGllbnQ6dGVzdC1zZWNyZXQ=',
+    const ctx = mockCtx({
+      headers: { authorization: 'Basic dGVzdC1jbGllbnQ6dGVzdC1zZWNyZXQ=' },
     })
 
     error.handle(error, ctx)
@@ -785,7 +753,7 @@ test.group('E_INVALID_CLIENT | WWW-Authenticate header', () => {
     assert,
   }) => {
     const error = new E_INVALID_CLIENT('Client not found')
-    const ctx = createHandleCtx()
+    const ctx = mockCtx({})
 
     error.handle(error, ctx)
 

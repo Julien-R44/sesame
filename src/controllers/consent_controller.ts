@@ -1,5 +1,6 @@
 /// <reference types="@adonisjs/auth/initialize_auth_middleware" />
 
+import vine from '@vinejs/vine'
 import { DateTime } from 'luxon'
 import type { HttpContext } from '@adonisjs/core/http'
 import { SesameManager } from '../sesame_manager.ts'
@@ -23,6 +24,10 @@ import { E_INVALID_CLIENT, E_INVALID_GRANT, E_INVALID_REQUEST } from '../oauth_e
  * @see https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.1
  */
 export default class ConsentController {
+  static validator = vine.create({
+    auth_token: vine.string(),
+  })
+
   /**
    * Retrieve the session from the HTTP context, ensuring
    * session middleware is active.
@@ -86,16 +91,15 @@ export default class ConsentController {
   async handle(ctx: HttpContext) {
     const manager = await ctx.containerResolver.make(SesameManager)
     const session = this.#getAuthorizationSession(ctx)
-    const body = ctx.request.body()
 
     await ctx.auth.check()
     const user = ctx.auth.user as { id: string | number } | undefined
     if (!user) throw new E_INVALID_REQUEST('User must be authenticated')
 
-    const accept = body.accept
-    const authToken = body.auth_token
+    const [error, body] = await ConsentController.validator.tryValidate(ctx.request.body())
+    if (error) throw new E_INVALID_REQUEST('Missing required parameter: auth_token')
 
-    if (!authToken) throw new E_INVALID_REQUEST('Missing required parameter: auth_token')
+    const accept = ctx.request.body().accept
 
     const expectedAuthToken = session.pull('sesame.authToken')
     const authorizationRequest = session.pull('sesame.authRequest') as
@@ -109,7 +113,7 @@ export default class ConsentController {
         }
       | undefined
 
-    if (!expectedAuthToken || expectedAuthToken !== authToken) {
+    if (!expectedAuthToken || expectedAuthToken !== body.auth_token) {
       session.forget(['sesame.authToken', 'sesame.authRequest'])
       throw new E_INVALID_GRANT('Authorization request token mismatch')
     }

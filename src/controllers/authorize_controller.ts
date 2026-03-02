@@ -1,5 +1,6 @@
 /// <reference types="@adonisjs/auth/initialize_auth_middleware" />
 
+import vine from '@vinejs/vine'
 import { DateTime } from 'luxon'
 import type { HttpContext } from '@adonisjs/core/http'
 import { SesameManager } from '../sesame_manager.ts'
@@ -8,7 +9,11 @@ import { ClientService } from '../services/client_service.ts'
 import { OAuthClient } from '../models/oauth_client.ts'
 import { OAuthAuthorizationCode } from '../models/oauth_authorization_code.ts'
 import { OAuthConsent } from '../models/oauth_consent.ts'
-import { E_INVALID_CLIENT, E_INVALID_REQUEST, E_UNSUPPORTED_RESPONSE_TYPE } from '../oauth_error.ts'
+import {
+  E_INVALID_CLIENT,
+  E_INVALID_REQUEST,
+  E_UNSUPPORTED_RESPONSE_TYPE,
+} from '../oauth_error.ts'
 
 /**
  * Handles the OAuth 2.0 Authorization Endpoint (RFC 6749 §3.1).
@@ -26,6 +31,16 @@ import { E_INVALID_CLIENT, E_INVALID_REQUEST, E_UNSUPPORTED_RESPONSE_TYPE } from
  * @see https://datatracker.ietf.org/doc/html/rfc9207
  */
 export default class AuthorizeController {
+  static validator = vine.create({
+    client_id: vine.string(),
+    response_type: vine.string(),
+    redirect_uri: vine.string(),
+    scope: vine.string().optional(),
+    state: vine.string().optional(),
+    code_challenge: vine.string().optional(),
+    code_challenge_method: vine.string().optional(),
+  })
+
   /**
    * Retrieve the session from the HTTP context, ensuring
    * session middleware is active.
@@ -170,79 +185,69 @@ export default class AuthorizeController {
   async handle(ctx: HttpContext) {
     const manager = await ctx.containerResolver.make(SesameManager)
     const clientService = new ClientService()
-    const query = ctx.request.qs()
 
-    const clientId = query.client_id
-    const responseType = query.response_type
-    const redirectUri = query.redirect_uri
-    const scope = query.scope
-    const state = query.state
-    const codeChallenge = query.code_challenge
-    const codeChallengeMethod = query.code_challenge_method
+    const [error, query] = await AuthorizeController.validator.tryValidate(ctx.request.qs())
+    if (error) throw new E_INVALID_REQUEST('Invalid authorization request parameters')
 
-    // Validate required parameters
-    if (!clientId) throw new E_INVALID_REQUEST('Missing required parameter: client_id')
-    if (!responseType) throw new E_INVALID_REQUEST('Missing required parameter: response_type')
-    if (responseType !== 'code') throw new E_UNSUPPORTED_RESPONSE_TYPE('Only "code" is supported')
-    if (!redirectUri) throw new E_INVALID_REQUEST('Missing required parameter: redirect_uri')
+    if (query.response_type !== 'code') throw new E_UNSUPPORTED_RESPONSE_TYPE('Only "code" is supported')
 
     // Lookup and validate the client
-    const client = await OAuthClient.query().where('clientId', clientId).first()
+    const client = await OAuthClient.query().where('clientId', query.client_id).first()
     if (!client) throw new E_INVALID_CLIENT('Client not found')
     if (client.isDisabled) throw new E_INVALID_CLIENT('Client is disabled')
 
-    if (!client.redirectUris.includes(redirectUri)) {
+    if (!client.redirectUris.includes(query.redirect_uri)) {
       throw new E_INVALID_REQUEST('Invalid redirect_uri')
     }
     if (!client.grantTypes.includes('authorization_code')) {
       return this.#redirectWithError(
         ctx,
         manager,
-        redirectUri,
+        query.redirect_uri,
         'unauthorized_client',
         'Client is not allowed to use the authorization_code grant',
-        state
+        query.state
       )
     }
 
     // Validate scopes (errors redirect back to client per spec)
-    const requestedScopes = scope ? scope.split(' ') : manager.config.defaultScopes
+    const requestedScopes = query.scope ? query.scope.split(' ') : manager.config.defaultScopes
     const invalidScopes = manager.validateScopes(requestedScopes)
     if (invalidScopes.length > 0) {
       return this.#redirectWithError(
         ctx,
         manager,
-        redirectUri,
+        query.redirect_uri,
         'invalid_scope',
         `Invalid scopes: ${invalidScopes.join(', ')}`,
-        state
+        query.state
       )
     }
     try {
       clientService.validateClientScopes(requestedScopes, client.scopes)
     } catch (error: any) {
-      return this.#redirectWithError(ctx, manager, redirectUri, 'invalid_scope', error.message, state)
+      return this.#redirectWithError(ctx, manager, query.redirect_uri, 'invalid_scope', error.message, query.state)
     }
 
     // PKCE is mandatory for all clients (OAuth 2.1)
-    if (!codeChallenge) {
+    if (!query.code_challenge) {
       return this.#redirectWithError(
         ctx,
         manager,
-        redirectUri,
+        query.redirect_uri,
         'invalid_request',
         'PKCE code_challenge is required',
-        state
+        query.state
       )
     }
-    if (codeChallengeMethod !== 'S256') {
+    if (query.code_challenge_method !== 'S256') {
       return this.#redirectWithError(
         ctx,
         manager,
-        redirectUri,
+        query.redirect_uri,
         'invalid_request',
         'Only S256 code_challenge_method is supported',
-        state
+        query.state
       )
     }
 
@@ -251,7 +256,7 @@ export default class AuthorizeController {
     const user = ctx.auth.user as { id: string | number } | undefined
     if (!user) {
       const params = new URLSearchParams()
-      this.#copyAuthorizeDisplayParams(params, query)
+      this.#copyAuthorizeDisplayParams(params, ctx.request.qs())
       const loginPage = this.#resolvePageUrl(manager.config.loginPage, ctx, params)
 
       return ctx.response.redirect().toPath(loginPage)
@@ -271,10 +276,10 @@ export default class AuthorizeController {
           client,
           userId: String(user.id),
           scopes: requestedScopes,
-          redirectUri,
-          codeChallenge,
-          codeChallengeMethod,
-          state,
+          redirectUri: query.redirect_uri,
+          codeChallenge: query.code_challenge,
+          codeChallengeMethod: query.code_challenge_method,
+          state: query.state,
         })
       }
     }
@@ -282,13 +287,13 @@ export default class AuthorizeController {
     // New or expanded scopes — redirect to consent page
     const params = this.#buildAuthorizationRequestParams(ctx, manager, {
       clientId: client.clientId,
-      redirectUri,
+      redirectUri: query.redirect_uri,
       scopes: requestedScopes,
-      state,
-      codeChallenge,
-      codeChallengeMethod,
+      state: query.state,
+      codeChallenge: query.code_challenge,
+      codeChallengeMethod: query.code_challenge_method,
     })
-    this.#copyAuthorizeDisplayParams(params, query)
+    this.#copyAuthorizeDisplayParams(params, ctx.request.qs())
     const consentPage = this.#resolvePageUrl(manager.config.consentPage, ctx, params)
 
     return ctx.response.redirect().toPath(consentPage)

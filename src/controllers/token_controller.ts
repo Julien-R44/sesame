@@ -1,3 +1,4 @@
+import vine from '@vinejs/vine'
 import type { HttpContext } from '@adonisjs/core/http'
 import { SesameManager } from '../sesame_manager.ts'
 import { handleAuthorizationCodeGrant } from '../grants/authorization_code_grant.ts'
@@ -27,17 +28,22 @@ const grantHandlers: Record<string, GrantHandler> = {
  * @see https://datatracker.ietf.org/doc/html/rfc6749#section-5.1
  */
 export default class TokenController {
+  static validator = vine.create({
+    grant_type: vine.string(),
+  })
+
   async handle(ctx: HttpContext) {
     const manager = await ctx.containerResolver.make(SesameManager)
-    const grantType = ctx.request.body().grant_type
 
-    if (!grantType) throw new E_UNSUPPORTED_GRANT_TYPE('Missing required parameter: grant_type')
-    if (!manager.isGrantTypeEnabled(grantType)) {
-      throw new E_UNSUPPORTED_GRANT_TYPE(`Grant type "${grantType}" is not enabled`)
+    const [error, body] = await TokenController.validator.tryValidate(ctx.request.body())
+    if (error) throw new E_UNSUPPORTED_GRANT_TYPE('Missing required parameter: grant_type')
+
+    if (!manager.isGrantTypeEnabled(body.grant_type)) {
+      throw new E_UNSUPPORTED_GRANT_TYPE(`Grant type "${body.grant_type}" is not enabled`)
     }
 
-    const handler = grantHandlers[grantType]
-    if (!handler) throw new E_UNSUPPORTED_GRANT_TYPE(`Unsupported grant type: ${grantType}`)
+    const handler = grantHandlers[body.grant_type]
+    if (!handler) throw new E_UNSUPPORTED_GRANT_TYPE(`Unsupported grant type: ${body.grant_type}`)
 
     const result = await handler(ctx, manager)
 
