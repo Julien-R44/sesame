@@ -7,6 +7,10 @@ settings:
 importers:
 
   .:
+    dependencies:
+      luxon:
+        specifier: ^3.7.2
+        version: 3.7.2
     devDependencies:
       '@adonisjs/assembler':
         specifier: ^8.0.0
@@ -59,9 +63,6 @@ importers:
       cross-env:
         specifier: ^10.1.0
         version: 10.1.0
-      luxon:
-        specifier: ^3.7.2
-        version: 3.7.2
       oxfmt:
         specifier: ^0.36.0
         version: 0.36.0
