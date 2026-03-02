@@ -1,5 +1,5 @@
 {
-  "name": "@adonisjs/sesame",
+  "name": "@julr/sesame",
   "description": "OAuth 2.1 + OIDC server for AdonisJS",
   "version": "0.0.0",
   "engines": {

@@ -22,6 +22,6 @@ export async function configure(command: Configure) {
 
   // Register provider and commands
   await codemods.updateRcFile((rcFile) => {
-    rcFile.addProvider('@adonisjs/sesame/sesame_provider').addCommand('@adonisjs/sesame/commands')
+    rcFile.addProvider('@julr/sesame/sesame_provider').addCommand('@julr/sesame/commands')
   })
 }
