@@ -1,0 +1,152 @@
+{
+  "name": "@julr/sesame",
+  "description": "OAuth 2.1 + OIDC server for AdonisJS",
+  "version": "0.3.1",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "packageManager": "pnpm@10.26.2",
+  "type": "module",
+  "files": [
+    "build",
+    "!build/bin",
+    "!build/tests"
+  ],
+  "main": "build/index.js",
+  "exports": {
+    ".": "./build/index.js",
+    "./types": "./build/src/types.js",
+    "./sesame_provider": "./build/providers/sesame_provider.js",
+    "./guard": "./build/src/guard/main.js",
+    "./scope_middleware": "./build/src/middleware/scope_middleware.js",
+    "./any_scope_middleware": "./build/src/middleware/any_scope_middleware.js",
+    "./services/main": "./build/services/main.js",
+    "./commands/*": "./build/commands/*.js",
+    "./commands": "./build/commands/main.js"
+  },
+  "scripts": {
+    "copy:templates": "copyfiles \"stubs/**/*.stub\" build",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint .",
+    "format": "oxfmt --write .",
+    "quick:test": "node --import=@poppinss/ts-exec --enable-source-maps bin/test.ts",
+    "pretest": "npm run lint",
+    "test": "c8 npm run quick:test",
+    "precompile": "npm run lint",
+    "index:commands": "adonis-kit index build/commands",
+    "compile": "tsdown && tsc --emitDeclarationOnly --declaration",
+    "postcompile": "npm run copy:templates && npm run index:commands",
+    "build": "npm run compile",
+    "release": "release-it",
+    "version": "npm run build",
+    "prepublishOnly": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Julien-R44/sesame.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Julien-R44/sesame/issues"
+  },
+  "homepage": "https://github.com/Julien-R44/sesame#readme",
+  "keywords": [],
+  "author": "Julien Ripouteau",
+  "license": "MIT",
+  "devDependencies": {
+    "@adonisjs/assembler": "^8.0.0",
+    "@adonisjs/auth": "^10.0.0",
+    "@adonisjs/core": "^7.0.0",
+    "@adonisjs/lucid": "^22.0.0",
+    "@adonisjs/prettier-config": "^1.4.5",
+    "@adonisjs/tsconfig": "^2.0.0",
+    "@japa/assert": "^4.2.0",
+    "@japa/expect-type": "^2.0.4",
+    "@japa/runner": "^5.3.0",
+    "@poppinss/ts-exec": "^1.4.4",
+    "@release-it/conventional-changelog": "^10.0.5",
+    "@types/luxon": "^3.7.1",
+    "@types/node": "^25.3.3",
+    "@vinejs/vine": "^4.3.0",
+    "better-sqlite3": "^12.6.2",
+    "c8": "^11.0.0",
+    "copyfiles": "^2.4.1",
+    "cross-env": "^10.1.0",
+    "oxfmt": "^0.36.0",
+    "oxlint": "^1.51.0",
+    "release-it": "^19.2.4",
+    "tsdown": "^0.20.3",
+    "typescript": "^5.9.3"
+  },
+  "peerDependencies": {
+    "@adonisjs/assembler": "^8.0.0",
+    "@adonisjs/auth": "^10.0.0",
+    "@adonisjs/core": "^7.0.0",
+    "@adonisjs/lucid": "^21.0.0",
+    "@vinejs/vine": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@adonisjs/assembler": {
+      "optional": true
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "tsdown": {
+    "entry": [
+      "./index.ts",
+      "./configure.ts",
+      "./providers/sesame_provider.ts",
+      "./services/main.ts",
+      "./src/guard/main.ts",
+      "./commands/sesame_purge.ts",
+      "./src/middleware/scope_middleware.ts",
+      "./src/middleware/any_scope_middleware.ts"
+    ],
+    "outDir": "./build",
+    "clean": true,
+    "format": "esm",
+    "minify": "dce-only",
+    "fixedExtension": false,
+    "dts": false,
+    "treeshake": false,
+    "sourcemaps": false,
+    "target": "esnext"
+  },
+  "release-it": {
+    "git": {
+      "requireCleanWorkingDir": true,
+      "requireUpstream": true,
+      "commitMessage": "chore(release): ${version}",
+      "tagAnnotation": "v${version}",
+      "push": true,
+      "tagName": "v${version}"
+    },
+    "github": {
+      "release": true
+    },
+    "npm": {
+      "publish": true,
+      "skipChecks": true
+    },
+    "plugins": {
+      "@release-it/conventional-changelog": {
+        "preset": {
+          "name": "angular"
+        }
+      }
+    }
+  },
+  "c8": {
+    "reporter": [
+      "text",
+      "html"
+    ],
+    "exclude": [
+      "tests/**"
+    ]
+  },
+  "dependencies": {
+    "luxon": "^3.7.2"
+  }
+}
