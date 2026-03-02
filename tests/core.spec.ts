@@ -18,12 +18,10 @@ import { OAuthRefreshToken } from '../src/models/oauth_refresh_token.ts'
 import { OAuthConsent } from '../src/models/oauth_consent.ts'
 import { TokenService } from '../src/services/token_service.ts'
 import MetadataController from '../src/controllers/metadata_controller.ts'
-import { OAuthError, E_INVALID_CLIENT } from '../src/oauth_error.ts'
+import { OAuthError, E_INVALID_CLIENT, E_INVALID_CLIENT_METADATA } from '../src/oauth_error.ts'
 import { ClientService } from '../src/services/client_service.ts'
 import AuthorizeController from '../src/controllers/authorize_controller.ts'
-import ConsentController from '../src/controllers/consent_controller.ts'
 import RegisterController from '../src/controllers/register_controller.ts'
-import TokenController from '../src/controllers/token_controller.ts'
 
 let app: ApplicationService
 
@@ -352,7 +350,7 @@ test.group('Security | Scope validation bypass (C1/C2) — Integration', (group)
       manager,
     })
 
-    const result = await new AuthorizeController().handle(ctx)
+    const result = (await new AuthorizeController().handle(ctx)) as any
 
     // C1 rejects unknown scopes → redirect with invalid_scope error
     assert.include(result.redirectUrl, 'error=invalid_scope')
@@ -362,6 +360,51 @@ test.group('Security | Scope validation bypass (C1/C2) — Integration', (group)
       .where('clientId', 'bypass-client')
       .where('userId', 'user-1')
     assert.lengthOf(authCodes, 0)
+  })
+
+  test('B5: registration rejects client_name longer than 255 characters', async ({ assert }) => {
+    const manager = createManager()
+    const ctx = mockCtx({
+      body: {
+        redirect_uris: ['https://app.example.com/callback'],
+        token_endpoint_auth_method: 'none',
+        client_name: 'A'.repeat(256),
+      },
+      manager,
+    })
+
+    await assert.rejects(() => new RegisterController().handle(ctx), E_INVALID_CLIENT_METADATA)
+  })
+
+  test('B5: registration trims client_name whitespace', async ({ assert }) => {
+    const manager = createManager()
+    const ctx = mockCtx({
+      body: {
+        redirect_uris: ['https://app.example.com/callback'],
+        token_endpoint_auth_method: 'none',
+        client_name: '  My App  ',
+      },
+      manager,
+    })
+
+    const result = await new RegisterController().handle(ctx)
+    assert.equal(result.client_name, 'My App')
+  })
+
+  test('B5: registration accepts client_name at exactly 255 characters', async ({ assert }) => {
+    const manager = createManager()
+    const name = 'A'.repeat(255)
+    const ctx = mockCtx({
+      body: {
+        redirect_uris: ['https://app.example.com/callback'],
+        token_endpoint_auth_method: 'none',
+        client_name: name,
+      },
+      manager,
+    })
+
+    const result = await new RegisterController().handle(ctx)
+    assert.equal(result.client_name, name)
   })
 
   test('C1+C2: dynamic registration → authorize rejects arbitrary scopes', async ({
@@ -396,7 +439,7 @@ test.group('Security | Scope validation bypass (C1/C2) — Integration', (group)
       session,
       manager,
     })
-    const authorizeResult = await new AuthorizeController().handle(authorizeCtx)
+    const authorizeResult = (await new AuthorizeController().handle(authorizeCtx)) as any
 
     // Attack chain broken at authorize: scopes rejected
     assert.include(authorizeResult.redirectUrl, 'error=invalid_scope')

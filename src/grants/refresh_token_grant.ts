@@ -116,6 +116,12 @@ export async function handleRefreshTokenGrant(ctx: HttpContext, manager: SesameM
     throw new E_INVALID_GRANT('Refresh token has already been consumed')
   }
 
+  // Revoke the old access token (OAuth Security BCP §4.14.2)
+  await OAuthAccessToken.query()
+    .where('tokenHash', refreshToken.accessTokenId)
+    .whereNull('revokedAt')
+    .update({ revokedAt: revokedAt.toSQL() })
+
   // Issue a new opaque access token
   const { raw: accessTokenRaw, hash: tokenHash, expiresAt } = tokenService.createAccessToken()
 

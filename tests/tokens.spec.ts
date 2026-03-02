@@ -87,6 +87,55 @@ test.group('Integration | Refresh Token Grant', (group) => {
     assert.notEqual(result.refresh_token, rawRefreshToken)
   })
 
+  test('revokes old access token during rotation', async ({ assert }) => {
+    const manager = createManager()
+    const tokenService = new TokenService(manager)
+    await createTestClient()
+
+    const rawRefreshToken = 'rotation-revoke-refresh'
+    const hashedRefreshToken = tokenService.hashToken(rawRefreshToken)
+    const oldAccessTokenHash = 'old-access-token-hash-rotation'
+
+    await OAuthAccessToken.create({
+      id: crypto.randomUUID(),
+      tokenHash: oldAccessTokenHash,
+      clientId: 'test-client',
+      userId: 'user-1',
+      scopes: ['read', 'write', 'offline_access'],
+      expiresAt: DateTime.now().plus({ hours: 1 }),
+    })
+
+    await OAuthRefreshToken.create({
+      id: crypto.randomUUID(),
+      token: hashedRefreshToken,
+      accessTokenId: oldAccessTokenHash,
+      clientId: 'test-client',
+      userId: 'user-1',
+      scopes: ['read', 'write', 'offline_access'],
+      expiresAt: DateTime.now().plus({ days: 30 }),
+    })
+
+    const ctx = mockCtx({
+      manager,
+      body: {
+        grant_type: 'refresh_token',
+        refresh_token: rawRefreshToken,
+        client_id: 'test-client',
+        client_secret: 'test-secret',
+      },
+    })
+
+    const result = await handleRefreshTokenGrant(ctx, manager)
+
+    assert.isDefined(result.access_token)
+    assert.isDefined(result.refresh_token)
+
+    const oldAccessToken = await OAuthAccessToken.query()
+      .where('tokenHash', oldAccessTokenHash)
+      .firstOrFail()
+    assert.isNotNull(oldAccessToken.revokedAt)
+  })
+
   test('rejects refresh token grant when the client is not allowed to use it', async ({
     assert,
   }) => {

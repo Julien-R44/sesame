@@ -10,25 +10,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Install
-        run: npm install
-      - name: Run lint
-        run: npm run lint
+          cache: pnpm
+      - run: pnpm install
+      - run: pnpm run lint
 
   typecheck:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Install
-        run: npm install
-      - name: Run typecheck
-        run: npm run typecheck
+          cache: pnpm
+      - run: pnpm install
+      - run: pnpm run typecheck
 
   tests:
     runs-on: ${{ matrix.os }}
@@ -38,11 +38,10 @@ jobs:
         node-version: [24]
     steps:
       - uses: actions/checkout@v4
-      - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-      - name: Install
-        run: npm install
-      - name: Run tests
-        run: npm test
+          cache: pnpm
+      - run: pnpm install
+      - run: pnpm test

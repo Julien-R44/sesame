@@ -38,7 +38,7 @@ export default class RegisterController {
     grant_types: vine.array(vine.string()).optional(),
     response_types: vine.array(vine.string()).optional(),
     scope: vine.string().optional(),
-    client_name: vine.string().optional(),
+    client_name: vine.string().maxLength(255).trim().optional(),
     client_uri: metadataUrl,
     logo_uri: metadataUrl,
     tos_uri: metadataUrl,
