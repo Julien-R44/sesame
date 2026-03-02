@@ -1722,6 +1722,21 @@ test.group('Integration | OAuth Error Handling', () => {
   })
 })
 
+test.group('Integration | TokenService', () => {
+  test('sets sub to clientId when userId is not provided (M2M)', async ({ assert }) => {
+    const manager = createManager()
+    const tokenService = new TokenService(manager)
+
+    const { token } = await tokenService.createJwtAccessToken({
+      clientId: 'my-m2m-client',
+      scopes: ['read'],
+    })
+
+    const payload = await tokenService.verifyJwtAccessToken(token)
+    assert.equal(payload.sub, 'my-m2m-client')
+  })
+})
+
 test.group('Integration | SesameManager', () => {
   test('validates scopes', ({ assert }) => {
     const manager = createManager()
@@ -1752,5 +1767,119 @@ test.group('Integration | SesameManager', () => {
 
     assert.throws(() => manager.parseTtl('invalid'))
     assert.throws(() => manager.parseTtl('10x'))
+  })
+})
+
+test.group('Integration | revokeAllForUser', (group) => {
+  group.setup(async () => {
+    app = await createApp()
+    await setupDatabase(app)
+  })
+
+  group.teardown(async () => {
+    await teardownDatabase(app)
+    await app.terminate()
+    await rm(resolve(import.meta.dirname!, '.tmp'), { recursive: true, force: true })
+  })
+
+  group.each.setup(async () => {
+    await OAuthRefreshToken.query().delete()
+    await OAuthAccessToken.query().delete()
+    await OAuthAuthorizationCode.query().delete()
+    await OAuthConsent.query().delete()
+    await OAuthClient.query().delete()
+  })
+
+  test('revokes all tokens, codes and consents for a user', async ({ assert }) => {
+    const manager = createManager()
+    const client = await createTestClient()
+    const tokenService = new TokenService(manager)
+
+    // Create access token
+    await OAuthAccessToken.create({
+      id: crypto.randomUUID(),
+      jti: 'at-1',
+      clientId: client.clientId,
+      userId: 'user-1',
+      scopes: ['read'],
+      expiresAt: DateTime.now().plus({ hours: 1 }),
+    })
+
+    // Create refresh token
+    await OAuthRefreshToken.create({
+      id: crypto.randomUUID(),
+      token: tokenService.hashToken('rt-1'),
+      accessTokenId: 'at-1',
+      clientId: client.clientId,
+      userId: 'user-1',
+      scopes: ['read'],
+      expiresAt: DateTime.now().plus({ days: 30 }),
+    })
+
+    // Create authorization code
+    await OAuthAuthorizationCode.create({
+      id: crypto.randomUUID(),
+      code: tokenService.hashToken('code-1'),
+      clientId: client.clientId,
+      userId: 'user-1',
+      scopes: ['read'],
+      redirectUri: 'https://app.example.com/callback',
+      codeChallenge: null,
+      codeChallengeMethod: null,
+      expiresAt: DateTime.now().plus({ minutes: 10 }),
+    })
+
+    // Create consent
+    await OAuthConsent.create({
+      id: crypto.randomUUID(),
+      clientId: client.clientId,
+      userId: 'user-1',
+      scopes: ['read'],
+    })
+
+    await manager.revokeAllForUser('user-1')
+
+    const accessToken = await OAuthAccessToken.query().where('jti', 'at-1').firstOrFail()
+    assert.isNotNull(accessToken.revokedAt)
+
+    const refreshToken = await OAuthRefreshToken.query().where('accessTokenId', 'at-1').firstOrFail()
+    assert.isNotNull(refreshToken.revokedAt)
+
+    const codes = await OAuthAuthorizationCode.query().where('userId', 'user-1')
+    assert.lengthOf(codes, 0)
+
+    const consents = await OAuthConsent.query().where('userId', 'user-1')
+    assert.lengthOf(consents, 0)
+  })
+
+  test('does not affect other users', async ({ assert }) => {
+    const manager = createManager()
+    const client = await createTestClient()
+
+    await OAuthAccessToken.create({
+      id: crypto.randomUUID(),
+      jti: 'at-user1',
+      clientId: client.clientId,
+      userId: 'user-1',
+      scopes: ['read'],
+      expiresAt: DateTime.now().plus({ hours: 1 }),
+    })
+
+    await OAuthAccessToken.create({
+      id: crypto.randomUUID(),
+      jti: 'at-user2',
+      clientId: client.clientId,
+      userId: 'user-2',
+      scopes: ['read'],
+      expiresAt: DateTime.now().plus({ hours: 1 }),
+    })
+
+    await manager.revokeAllForUser('user-1')
+
+    const revokedToken = await OAuthAccessToken.query().where('jti', 'at-user1').firstOrFail()
+    assert.isNotNull(revokedToken.revokedAt)
+
+    const untouchedToken = await OAuthAccessToken.query().where('jti', 'at-user2').firstOrFail()
+    assert.isNull(untouchedToken.revokedAt)
   })
 })

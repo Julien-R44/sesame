@@ -1,3 +1,4 @@
+/// <reference types="@adonisjs/auth/initialize_auth_middleware" />
 import type { HttpContext } from '@adonisjs/core/http'
 import { SesameManager } from '../sesame_manager.ts'
 import { ClientService } from '../services/client_service.ts'
@@ -26,7 +27,7 @@ export default class RegisterController {
       throw new E_ACCESS_DENIED('Dynamic client registration is disabled')
     }
 
-    const user = (ctx as any).auth?.user
+    const user = ctx.auth?.user
     if (!user && !manager.config.allowPublicRegistration) {
       throw new E_INVALID_REQUEST('Authentication required for client registration')
     }

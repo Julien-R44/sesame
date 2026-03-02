@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon'
 import type { HttpContext } from '@adonisjs/core/http'
 import type { EmitterLike } from '@adonisjs/core/types/events'
 import { symbols } from '@adonisjs/auth'
@@ -6,6 +7,7 @@ import type { AuthClientResponse, GuardContract } from '@adonisjs/auth/types'
 import type { SesameManager } from '../sesame_manager.ts'
 import { TokenService } from '../services/token_service.ts'
 import { OAuthAccessToken } from '../models/oauth_access_token.ts'
+import { OAuthClient } from '../models/oauth_client.ts'
 import type { OAuthGuardEvents, OAuthUserProviderContract } from './types.ts'
 
 /**
@@ -111,7 +113,7 @@ export class OAuthGuard<
     const record = await OAuthAccessToken.query().where('jti', payload.jti).first()
     if (!record || record.revokedAt) throw this.#authenticationFailed('Token has been revoked')
 
-    if (!payload.sub) throw this.#authenticationFailed('M2M tokens are not supported')
+    if (!record.userId) throw this.#authenticationFailed('M2M tokens are not supported')
 
     const providerUser = await this.#userProvider.findById(payload.sub)
     if (!providerUser) throw this.#authenticationFailed('User not found')
@@ -149,13 +151,39 @@ export class OAuthGuard<
   }
 
   async authenticateAsClient(
-    _user: UserProvider[typeof symbols.PROVIDER_REAL_USER]
+    user: UserProvider[typeof symbols.PROVIDER_REAL_USER]
   ): Promise<AuthClientResponse> {
     const tokenService = new TokenService(this.#manager)
-    const { token } = await tokenService.createJwtAccessToken({
-      userId: 'test-user',
-      clientId: 'test-client',
-      scopes: [],
+    const defaultScopes = this.#manager.config.defaultScopes
+
+    const testClient = await OAuthClient.firstOrCreate(
+      { clientId: '__test_client__' },
+      {
+        id: crypto.randomUUID(),
+        clientId: '__test_client__',
+        name: 'Test Client',
+        redirectUris: ['http://localhost/callback'],
+        grantTypes: ['authorization_code'],
+        scopes: defaultScopes,
+        isPublic: true,
+        requirePkce: false,
+      }
+    )
+
+    const userId = String((user as any).id ?? (user as any).getId?.() ?? 'test-user')
+    const { token, jti, expiresAt } = await tokenService.createJwtAccessToken({
+      userId,
+      clientId: testClient.clientId,
+      scopes: defaultScopes,
+    })
+
+    await OAuthAccessToken.create({
+      id: crypto.randomUUID(),
+      jti,
+      clientId: testClient.clientId,
+      userId,
+      scopes: defaultScopes,
+      expiresAt: DateTime.fromJSDate(expiresAt),
     })
 
     return { headers: { authorization: `Bearer ${token}` } }

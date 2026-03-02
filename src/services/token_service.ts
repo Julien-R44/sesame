@@ -25,7 +25,7 @@ export interface CreateRefreshTokenOptions {
  * Decoded JWT access token payload structure.
  *
  * Follows the JWT Access Token Profile (RFC 9068) with:
- * - `sub`: resource owner identifier
+ * - `sub`: resource owner ID (user tokens) or client_id (M2M tokens)
  * - `azp`: authorized party (client_id)
  * - `scope`: space-delimited scope string
  * - `jti`: unique token identifier
@@ -33,7 +33,7 @@ export interface CreateRefreshTokenOptions {
  * @see https://datatracker.ietf.org/doc/html/rfc9068#section-2.2
  */
 export interface AccessTokenPayload {
-  sub?: string
+  sub: string
   azp: string
   scope: string
   jti: string
@@ -92,7 +92,7 @@ export class TokenService {
       .setExpirationTime(now + ttlSeconds)
       .setIssuer(this.#manager.config.issuer)
       .setJti(jti)
-      .setSubject(options.userId != null ? String(options.userId) : '')
+      .setSubject(options.userId != null ? String(options.userId) : options.clientId)
       .sign(privateKey)
 
     return {

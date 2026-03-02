@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+/// <reference types="@adonisjs/auth/initialize_auth_middleware" />
 import type { HttpContext } from '@adonisjs/core/http'
 import { SesameManager } from '../sesame_manager.ts'
 import { TokenService } from '../services/token_service.ts'
@@ -101,8 +102,9 @@ export default class AuthorizeController {
       }
     }
 
-    // Unauthenticated users must log in first
-    const user = (ctx as any).auth?.user
+    // Attempt session authentication before checking user
+    await ctx.auth.check()
+    const user = ctx.auth.user as { id: string | number } | undefined
     if (!user) {
       const params = new URLSearchParams()
       copyAuthorizeDisplayParams(params, query)

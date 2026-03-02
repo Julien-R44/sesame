@@ -1,5 +1,10 @@
+import { DateTime } from 'luxon'
 import type { ResolvedSesameConfig } from './types.ts'
 import { KeyService } from './services/key_service.ts'
+import { OAuthAccessToken } from './models/oauth_access_token.ts'
+import { OAuthRefreshToken } from './models/oauth_refresh_token.ts'
+import { OAuthAuthorizationCode } from './models/oauth_authorization_code.ts'
+import { OAuthConsent } from './models/oauth_consent.ts'
 
 /**
  * Central manager for the Sésame OAuth 2.1 server.
@@ -61,6 +66,31 @@ export class SesameManager {
    */
   isGrantTypeEnabled(grantType: string): boolean {
     return this.#config.grantTypes.includes(grantType as any)
+  }
+
+  /**
+   * Revoke all OAuth artifacts for a given user.
+   *
+   * Call this when a user is deleted or deactivated to ensure
+   * none of their tokens remain usable. Revokes access tokens
+   * and refresh tokens, and deletes authorization codes and
+   * consent records.
+   */
+  async revokeAllForUser(userId: string): Promise<void> {
+    const now = DateTime.now()
+
+    await OAuthAccessToken.query()
+      .where('userId', userId)
+      .whereNull('revokedAt')
+      .update({ revokedAt: now.toSQL() })
+
+    await OAuthRefreshToken.query()
+      .where('userId', userId)
+      .whereNull('revokedAt')
+      .update({ revokedAt: now.toSQL() })
+
+    await OAuthAuthorizationCode.query().where('userId', userId).delete()
+    await OAuthConsent.query().where('userId', userId).delete()
   }
 
   /**

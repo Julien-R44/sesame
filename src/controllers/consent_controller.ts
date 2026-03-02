@@ -1,3 +1,4 @@
+/// <reference types="@adonisjs/auth/initialize_auth_middleware" />
 import type { HttpContext } from '@adonisjs/core/http'
 import { SesameManager } from '../sesame_manager.ts'
 import { OAuthClient } from '../models/oauth_client.ts'
@@ -23,7 +24,9 @@ export default class ConsentController {
     const manager = await ctx.containerResolver.make(SesameManager)
     const session = getAuthorizationSession(ctx)
     const body = ctx.request.body()
-    const user = (ctx as any).auth?.user
+
+    await ctx.auth.check()
+    const user = ctx.auth.user
     if (!user) throw new E_INVALID_REQUEST('User must be authenticated')
 
     const accept = body.accept
