@@ -37,19 +37,22 @@ export class OAuthGuard<
   #emitter: EmitterLike<OAuthGuardEvents<UserProvider[typeof symbols.PROVIDER_REAL_USER]>>
   #userProvider: UserProvider
   #manager: SesameManager
+  #resource?: string
 
   constructor(
     name: string,
     ctx: HttpContext,
     emitter: EmitterLike<OAuthGuardEvents<UserProvider[typeof symbols.PROVIDER_REAL_USER]>>,
     userProvider: UserProvider,
-    manager: SesameManager
+    manager: SesameManager,
+    resource?: string
   ) {
     this.#name = name
     this.#ctx = ctx
     this.#emitter = emitter
     this.#userProvider = userProvider
     this.#manager = manager
+    this.#resource = resource
   }
 
   #extractBearerToken(): string {
@@ -61,7 +64,8 @@ export class OAuthGuard<
   }
 
   #authenticationFailed(description: string, options?: { includeError?: boolean }) {
-    const resourceMetadataUrl = `${this.#manager.config.issuer}/.well-known/oauth-protected-resource`
+    const suffix = this.#resource ?? ''
+    const resourceMetadataUrl = `${this.#manager.config.issuer}/.well-known/oauth-protected-resource${suffix}`
 
     let header = `Bearer resource_metadata="${resourceMetadataUrl}"`
     if (options?.includeError) {

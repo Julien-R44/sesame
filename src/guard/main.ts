@@ -25,6 +25,7 @@ export type {
  */
 export function oauthGuard<UserProvider extends OAuthUserProviderContract<unknown>>(config: {
   provider: UserProvider
+  resource?: string
 }): GuardConfigProvider<(ctx: HttpContext) => OAuthGuard<UserProvider>> {
   return {
     async resolver(name, app) {
@@ -38,7 +39,8 @@ export function oauthGuard<UserProvider extends OAuthUserProviderContract<unknow
           ctx,
           emitter as EmitterLike<OAuthGuardEvents<UserProvider[typeof symbols.PROVIDER_REAL_USER]>>,
           config.provider,
-          manager
+          manager,
+          config.resource
         )
     },
   }

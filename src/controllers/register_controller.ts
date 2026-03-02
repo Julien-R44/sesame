@@ -11,8 +11,7 @@ import {
   E_INVALID_REQUEST,
   E_INVALID_SCOPE,
 } from '../oauth_error.ts'
-import { validateRedirectUri } from '../utils/validate_redirect_uri.ts'
-import { metadataUriRule } from '../rules.ts'
+import { metadataUriRule, redirectUriRule } from '../rules.ts'
 
 const metadataUrl = vine.string().url({ require_protocol: true }).use(metadataUriRule()).optional()
 
@@ -31,7 +30,7 @@ const metadataUrl = vine.string().url({ require_protocol: true }).use(metadataUr
  */
 export default class RegisterController {
   static validator = vine.create({
-    redirect_uris: vine.array(vine.string()).minLength(1),
+    redirect_uris: vine.array(vine.string().use(redirectUriRule())).minLength(1),
     token_endpoint_auth_method: vine
       .string()
       .in(['client_secret_basic', 'client_secret_post', 'none'])
@@ -67,9 +66,6 @@ export default class RegisterController {
     } catch {
       throw new E_INVALID_CLIENT_METADATA('Invalid request body')
     }
-
-    // Validate redirect URIs (scheme/fragment/custom-scheme rules)
-    for (const uri of body.redirect_uris) validateRedirectUri(uri)
 
     const clientService = new ClientService()
 
