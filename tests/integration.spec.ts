@@ -1510,6 +1510,151 @@ test.group('Integration | Dynamic Registration', (group) => {
       assert.equal(error.oauthCode, 'invalid_client_metadata')
     }
   })
+
+  test('rejects javascript: scheme', async ({ assert }) => {
+    const manager = createManager()
+
+    const ctx = mockCtx({
+      manager,
+      body: {
+        client_name: 'Test',
+        redirect_uris: ['javascript:alert(1)'],
+      },
+    })
+
+    const controller = new RegisterController()
+
+    try {
+      await controller.handle(ctx)
+      assert.fail('Should have thrown')
+    } catch (error: any) {
+      assert.instanceOf(error, OAuthError)
+      assert.equal(error.oauthCode, 'invalid_client_metadata')
+    }
+  })
+
+  test('rejects data: scheme', async ({ assert }) => {
+    const manager = createManager()
+
+    const ctx = mockCtx({
+      manager,
+      body: {
+        client_name: 'Test',
+        redirect_uris: ['data:text/html,<script>'],
+      },
+    })
+
+    const controller = new RegisterController()
+
+    try {
+      await controller.handle(ctx)
+      assert.fail('Should have thrown')
+    } catch (error: any) {
+      assert.instanceOf(error, OAuthError)
+      assert.equal(error.oauthCode, 'invalid_client_metadata')
+    }
+  })
+
+  test('rejects HTTP for non-localhost hosts', async ({ assert }) => {
+    const manager = createManager()
+
+    const ctx = mockCtx({
+      manager,
+      body: {
+        client_name: 'Test',
+        redirect_uris: ['http://evil.com/callback'],
+      },
+    })
+
+    const controller = new RegisterController()
+
+    try {
+      await controller.handle(ctx)
+      assert.fail('Should have thrown')
+    } catch (error: any) {
+      assert.instanceOf(error, OAuthError)
+      assert.equal(error.oauthCode, 'invalid_client_metadata')
+    }
+  })
+
+  test('rejects fragments in redirect URI', async ({ assert }) => {
+    const manager = createManager()
+
+    const ctx = mockCtx({
+      manager,
+      body: {
+        client_name: 'Test',
+        redirect_uris: ['https://example.com/cb#frag'],
+      },
+    })
+
+    const controller = new RegisterController()
+
+    try {
+      await controller.handle(ctx)
+      assert.fail('Should have thrown')
+    } catch (error: any) {
+      assert.instanceOf(error, OAuthError)
+      assert.equal(error.oauthCode, 'invalid_client_metadata')
+    }
+  })
+
+  test('accepts HTTP localhost', async ({ assert }) => {
+    const manager = createManager()
+
+    const ctx = mockCtx({
+      manager,
+      body: {
+        client_name: 'Localhost App',
+        redirect_uris: ['http://localhost:3000/callback'],
+      },
+    })
+
+    const controller = new RegisterController()
+    const result = await controller.handle(ctx)
+
+    assert.isDefined(result.client_id)
+    const client = await OAuthClient.query().where('clientId', result.client_id).firstOrFail()
+    assert.equal(client.name, 'Localhost App')
+  })
+
+  test('accepts HTTPS', async ({ assert }) => {
+    const manager = createManager()
+
+    const ctx = mockCtx({
+      manager,
+      body: {
+        client_name: 'HTTPS App',
+        redirect_uris: ['https://example.com/callback'],
+      },
+    })
+
+    const controller = new RegisterController()
+    const result = await controller.handle(ctx)
+
+    assert.isDefined(result.client_id)
+    const client = await OAuthClient.query().where('clientId', result.client_id).firstOrFail()
+    assert.equal(client.name, 'HTTPS App')
+  })
+
+  test('accepts custom scheme for native apps', async ({ assert }) => {
+    const manager = createManager()
+
+    const ctx = mockCtx({
+      manager,
+      body: {
+        client_name: 'Native App',
+        redirect_uris: ['com.example.app:/callback'],
+      },
+    })
+
+    const controller = new RegisterController()
+    const result = await controller.handle(ctx)
+
+    assert.isDefined(result.client_id)
+    const client = await OAuthClient.query().where('clientId', result.client_id).firstOrFail()
+    assert.equal(client.name, 'Native App')
+  })
 })
 
 test.group('Integration | Metadata Endpoints', () => {

@@ -3,6 +3,7 @@ import { SesameManager } from '../sesame_manager.ts'
 import { ClientService } from '../services/client_service.ts'
 import { OAuthClient } from '../models/oauth_client.ts'
 import { E_ACCESS_DENIED, E_INVALID_CLIENT_METADATA, E_INVALID_REQUEST } from '../oauth_error.ts'
+import { validateRedirectUri } from '../utils/validate_redirect_uri.ts'
 
 /**
  * Handles the OAuth 2.0 Dynamic Client Registration Endpoint (RFC 7591).
@@ -39,13 +40,7 @@ export default class RegisterController {
       throw new E_INVALID_CLIENT_METADATA('redirect_uris is required and must be a non-empty array')
     }
 
-    for (const uri of redirectUris) {
-      try {
-        new URL(uri)
-      } catch {
-        throw new E_INVALID_CLIENT_METADATA(`Invalid redirect URI: ${uri}`)
-      }
-    }
+    for (const uri of redirectUris) validateRedirectUri(uri)
 
     // Apply defaults for optional client metadata fields
     const tokenEndpointAuthMethod = body.token_endpoint_auth_method ?? 'client_secret_basic'
