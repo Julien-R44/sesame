@@ -5,7 +5,12 @@ import type { HttpContext } from '@adonisjs/core/http'
 import { SesameManager } from '../sesame_manager.ts'
 import { ClientService } from '../services/client_service.ts'
 import { OAuthClient } from '../models/oauth_client.ts'
-import { E_ACCESS_DENIED, E_INVALID_CLIENT_METADATA, E_INVALID_REQUEST } from '../oauth_error.ts'
+import {
+  E_ACCESS_DENIED,
+  E_INVALID_CLIENT_METADATA,
+  E_INVALID_REQUEST,
+  E_INVALID_SCOPE,
+} from '../oauth_error.ts'
 import { validateRedirectUri } from '../utils/validate_redirect_uri.ts'
 import { metadataUriRule } from '../rules.ts'
 
@@ -74,6 +79,11 @@ export default class RegisterController {
     const grantTypes = body.grant_types ?? ['authorization_code']
     const responseTypes = body.response_types ?? ['code']
     const scopes = body.scope ? body.scope.split(' ') : manager.config.defaultScopes
+
+    const invalidScopes = manager.validateScopes(scopes)
+    if (invalidScopes.length > 0)
+      throw new E_INVALID_SCOPE(`Unknown scopes: ${invalidScopes.join(', ')}`)
+
     const clientName = body.client_name ?? 'Unnamed Client'
 
     // Validate requested grant types and response types

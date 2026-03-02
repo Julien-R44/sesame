@@ -37,7 +37,7 @@ export class SesameManager {
    * are configured (open scope policy).
    */
   validateScopes(scopes: string[]): string[] {
-    if (Object.keys(this.#config.scopes).length === 0) return scopes
+    if (Object.keys(this.#config.scopes).length === 0) return []
 
     const invalid = scopes.filter((s) => !this.hasScope(s))
     return invalid

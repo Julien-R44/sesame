@@ -1891,6 +1891,67 @@ test.group('Integration | Dynamic Registration', (group) => {
     assert.isDefined(result.client_id)
     assert.equal(result.client_name, 'Unnamed Client')
   })
+
+  test('rejects registration with unknown scopes', async ({ assert }) => {
+    const manager = createManager()
+
+    const ctx = mockCtx({
+      manager,
+      body: {
+        client_name: 'Test',
+        redirect_uris: ['https://example.com/cb'],
+        scope: 'read unknown_scope',
+      },
+    })
+
+    const controller = new RegisterController()
+
+    try {
+      await controller.handle(ctx)
+      assert.fail('Should have thrown')
+    } catch (error: any) {
+      assert.instanceOf(error, OAuthError)
+      assert.equal(error.oauthCode, 'invalid_scope')
+    }
+  })
+
+  test('accepts registration with valid scopes', async ({ assert }) => {
+    const manager = createManager()
+
+    const ctx = mockCtx({
+      manager,
+      body: {
+        client_name: 'Test',
+        redirect_uris: ['https://example.com/cb'],
+        scope: 'read write',
+      },
+    })
+
+    const controller = new RegisterController()
+    const result = await controller.handle(ctx)
+
+    assert.isDefined(result.client_id)
+    assert.equal(result.scope, 'read write')
+  })
+
+  test('accepts any scopes when config.scopes is empty (open policy)', async ({ assert }) => {
+    const manager = createManager({ scopes: {} })
+
+    const ctx = mockCtx({
+      manager,
+      body: {
+        client_name: 'Test',
+        redirect_uris: ['https://example.com/cb'],
+        scope: 'anything custom_scope',
+      },
+    })
+
+    const controller = new RegisterController()
+    const result = await controller.handle(ctx)
+
+    assert.isDefined(result.client_id)
+    assert.equal(result.scope, 'anything custom_scope')
+  })
 })
 
 test.group('Integration | Metadata Endpoints', () => {
