@@ -1,7 +1,5 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
-import { rm } from 'node:fs/promises'
-import { resolve } from 'node:path'
 import type { ApplicationService } from '@adonisjs/core/types'
 import { createApp, setupDatabase, teardownDatabase, createManager } from './helpers.ts'
 import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
@@ -121,7 +119,6 @@ test.group('OAuthGuard', (group) => {
   group.teardown(async () => {
     await teardownDatabase(app)
     await app.terminate()
-    await rm(resolve(import.meta.dirname!, '.tmp'), { recursive: true, force: true })
   })
 
   group.each.setup(async () => {
@@ -137,22 +134,18 @@ test.group('OAuthGuard', (group) => {
     const tokenService = new TokenService(manager)
     await createTestClient()
 
-    const { token, jti } = await tokenService.createJwtAccessToken({
-      userId: 'user-1',
-      clientId: 'test-client',
-      scopes: ['read', 'write'],
-    })
+    const { raw, hash } = tokenService.createAccessToken()
 
     await OAuthAccessToken.create({
       id: crypto.randomUUID(),
-      jti,
+      tokenHash: hash,
       clientId: 'test-client',
       userId: 'user-1',
       scopes: ['read', 'write'],
       expiresAt: DateTime.now().plus({ hours: 1 }),
     })
 
-    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${token}` } })
+    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${raw}` } })
     const emitter = createFakeEmitter()
     const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
@@ -176,9 +169,9 @@ test.group('OAuthGuard', (group) => {
     await assert.rejects(() => guard.authenticate(), 'Missing Bearer token')
   })
 
-  test('throws on invalid/expired JWT', async ({ assert }) => {
+  test('throws on unknown token', async ({ assert }) => {
     const manager = createManager()
-    const ctx = createFakeCtx({ headers: { authorization: 'Bearer invalid.jwt.token' } })
+    const ctx = createFakeCtx({ headers: { authorization: 'Bearer some-random-token' } })
     const emitter = createFakeEmitter()
     const provider = new FakeUserProvider([])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
@@ -191,15 +184,11 @@ test.group('OAuthGuard', (group) => {
     const tokenService = new TokenService(manager)
     await createTestClient()
 
-    const { token, jti } = await tokenService.createJwtAccessToken({
-      userId: 'user-1',
-      clientId: 'test-client',
-      scopes: ['read'],
-    })
+    const { raw, hash } = tokenService.createAccessToken()
 
     await OAuthAccessToken.create({
       id: crypto.randomUUID(),
-      jti,
+      tokenHash: hash,
       clientId: 'test-client',
       userId: 'user-1',
       scopes: ['read'],
@@ -207,7 +196,7 @@ test.group('OAuthGuard', (group) => {
       revokedAt: DateTime.now(),
     })
 
-    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${token}` } })
+    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${raw}` } })
     const emitter = createFakeEmitter()
     const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
@@ -217,16 +206,9 @@ test.group('OAuthGuard', (group) => {
 
   test('throws when the access token row is missing', async ({ assert }) => {
     const manager = createManager()
-    const tokenService = new TokenService(manager)
     await createTestClient()
 
-    const { token } = await tokenService.createJwtAccessToken({
-      userId: 'user-1',
-      clientId: 'test-client',
-      scopes: ['read'],
-    })
-
-    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${token}` } })
+    const ctx = createFakeCtx({ headers: { authorization: 'Bearer nonexistent-token' } })
     const emitter = createFakeEmitter()
     const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
@@ -239,26 +221,23 @@ test.group('OAuthGuard', (group) => {
     }
   })
 
-  test('throws on M2M token (no sub)', async ({ assert }) => {
+  test('throws on M2M token (no userId)', async ({ assert }) => {
     const manager = createManager()
     const tokenService = new TokenService(manager)
     await createTestClient()
 
-    const { token, jti } = await tokenService.createJwtAccessToken({
-      clientId: 'test-client',
-      scopes: ['read'],
-    })
+    const { raw, hash } = tokenService.createAccessToken()
 
     await OAuthAccessToken.create({
       id: crypto.randomUUID(),
-      jti,
+      tokenHash: hash,
       clientId: 'test-client',
       userId: null,
       scopes: ['read'],
       expiresAt: DateTime.now().plus({ hours: 1 }),
     })
 
-    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${token}` } })
+    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${raw}` } })
     const emitter = createFakeEmitter()
     const provider = new FakeUserProvider([])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
@@ -271,22 +250,18 @@ test.group('OAuthGuard', (group) => {
     const tokenService = new TokenService(manager)
     await createTestClient()
 
-    const { token, jti } = await tokenService.createJwtAccessToken({
-      userId: 'nonexistent-user',
-      clientId: 'test-client',
-      scopes: ['read'],
-    })
+    const { raw, hash } = tokenService.createAccessToken()
 
     await OAuthAccessToken.create({
       id: crypto.randomUUID(),
-      jti,
+      tokenHash: hash,
       clientId: 'test-client',
       userId: 'nonexistent-user',
       scopes: ['read'],
       expiresAt: DateTime.now().plus({ hours: 1 }),
     })
 
-    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${token}` } })
+    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${raw}` } })
     const emitter = createFakeEmitter()
     const provider = new FakeUserProvider([])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
@@ -311,22 +286,18 @@ test.group('OAuthGuard', (group) => {
     const tokenService = new TokenService(manager)
     await createTestClient()
 
-    const { token, jti } = await tokenService.createJwtAccessToken({
-      userId: 'user-1',
-      clientId: 'test-client',
-      scopes: ['read'],
-    })
+    const { raw, hash } = tokenService.createAccessToken()
 
     await OAuthAccessToken.create({
       id: crypto.randomUUID(),
-      jti,
+      tokenHash: hash,
       clientId: 'test-client',
       userId: 'user-1',
       scopes: ['read'],
       expiresAt: DateTime.now().plus({ hours: 1 }),
     })
 
-    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${token}` } })
+    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${raw}` } })
     const emitter = createFakeEmitter()
     const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
@@ -341,22 +312,18 @@ test.group('OAuthGuard', (group) => {
     const tokenService = new TokenService(manager)
     await createTestClient()
 
-    const { token, jti } = await tokenService.createJwtAccessToken({
-      userId: 'user-1',
-      clientId: 'test-client',
-      scopes: ['read'],
-    })
+    const { raw, hash } = tokenService.createAccessToken()
 
     await OAuthAccessToken.create({
       id: crypto.randomUUID(),
-      jti,
+      tokenHash: hash,
       clientId: 'test-client',
       userId: 'user-1',
       scopes: ['read'],
       expiresAt: DateTime.now().plus({ hours: 1 }),
     })
 
-    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${token}` } })
+    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${raw}` } })
     const emitter = createFakeEmitter()
     const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
@@ -371,22 +338,18 @@ test.group('OAuthGuard', (group) => {
     const tokenService = new TokenService(manager)
     await createTestClient()
 
-    const { token, jti } = await tokenService.createJwtAccessToken({
-      userId: 'user-1',
-      clientId: 'test-client',
-      scopes: ['read', 'write'],
-    })
+    const { raw, hash } = tokenService.createAccessToken()
 
     await OAuthAccessToken.create({
       id: crypto.randomUUID(),
-      jti,
+      tokenHash: hash,
       clientId: 'test-client',
       userId: 'user-1',
       scopes: ['read', 'write'],
       expiresAt: DateTime.now().plus({ hours: 1 }),
     })
 
-    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${token}` } })
+    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${raw}` } })
     const emitter = createFakeEmitter()
     const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
@@ -404,22 +367,18 @@ test.group('OAuthGuard', (group) => {
     const tokenService = new TokenService(manager)
     await createTestClient()
 
-    const { token, jti } = await tokenService.createJwtAccessToken({
-      userId: 'user-1',
-      clientId: 'test-client',
-      scopes: ['read', 'write'],
-    })
+    const { raw, hash } = tokenService.createAccessToken()
 
     await OAuthAccessToken.create({
       id: crypto.randomUUID(),
-      jti,
+      tokenHash: hash,
       clientId: 'test-client',
       userId: 'user-1',
       scopes: ['read', 'write'],
       expiresAt: DateTime.now().plus({ hours: 1 }),
     })
 
-    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${token}` } })
+    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${raw}` } })
     const emitter = createFakeEmitter()
     const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
@@ -461,22 +420,18 @@ test.group('OAuthGuard', (group) => {
     const tokenService = new TokenService(manager)
     await createTestClient()
 
-    const { token, jti } = await tokenService.createJwtAccessToken({
-      userId: 'user-1',
-      clientId: 'test-client',
-      scopes: ['read'],
-    })
+    const { raw, hash } = tokenService.createAccessToken()
 
     await OAuthAccessToken.create({
       id: crypto.randomUUID(),
-      jti,
+      tokenHash: hash,
       clientId: 'test-client',
       userId: 'user-1',
       scopes: ['read'],
       expiresAt: DateTime.now().plus({ hours: 1 }),
     })
 
-    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${token}` } })
+    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${raw}` } })
     const emitter = createFakeEmitter()
     const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
@@ -491,22 +446,18 @@ test.group('OAuthGuard', (group) => {
     const tokenService = new TokenService(manager)
     await createTestClient()
 
-    const { token, jti } = await tokenService.createJwtAccessToken({
-      userId: 'user-1',
-      clientId: 'test-client',
-      scopes: ['read'],
-    })
+    const { raw, hash } = tokenService.createAccessToken()
 
     await OAuthAccessToken.create({
       id: crypto.randomUUID(),
-      jti,
+      tokenHash: hash,
       clientId: 'test-client',
       userId: 'user-1',
       scopes: ['read'],
       expiresAt: DateTime.now().plus({ hours: 1 }),
     })
 
-    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${token}` } })
+    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${raw}` } })
     const emitter = createFakeEmitter()
     const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)

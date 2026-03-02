@@ -132,7 +132,5 @@
       "tests/**"
     ]
   },
-  "dependencies": {
-    "jose": "^6.1.3"
-  }
+  "dependencies": {}
 }

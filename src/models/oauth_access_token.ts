@@ -4,13 +4,10 @@ import { BaseModel, column } from '@adonisjs/lucid/orm'
 /**
  * Database record for an issued OAuth 2.0 access token.
  *
- * Access tokens are JWTs (RFC 9068) signed with RS256. This model
- * stores the token's `jti` (unique identifier) for revocation
- * tracking and introspection — the JWT itself is not stored.
- *
+ * Access tokens are opaque random values. Only the SHA-256 hash
+ * is stored so raw tokens cannot be reconstructed from a DB leak.
  * A token is considered revoked when `revokedAt` is set.
  *
- * @see https://datatracker.ietf.org/doc/html/rfc9068
  * @see https://datatracker.ietf.org/doc/html/rfc7662
  */
 export class OAuthAccessToken extends BaseModel {
@@ -20,7 +17,7 @@ export class OAuthAccessToken extends BaseModel {
   declare id: string
 
   @column()
-  declare jti: string
+  declare tokenHash: string
 
   @column()
   declare clientId: string

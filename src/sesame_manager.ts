@@ -1,6 +1,5 @@
 import { DateTime } from 'luxon'
 import type { ResolvedSesameConfig } from './types.ts'
-import { KeyService } from './services/key_service.ts'
 import { OAuthAccessToken } from './models/oauth_access_token.ts'
 import { OAuthRefreshToken } from './models/oauth_refresh_token.ts'
 import { OAuthAuthorizationCode } from './models/oauth_authorization_code.ts'
@@ -9,13 +8,11 @@ import { OAuthConsent } from './models/oauth_consent.ts'
 /**
  * Central manager for the Sésame OAuth 2.1 server.
  *
- * Holds the resolved configuration and lazily initializes the
- * KeyService for JWK management. Registered as a singleton in
- * the AdonisJS IoC container by `SesameProvider`.
+ * Holds the resolved configuration. Registered as a singleton
+ * in the AdonisJS IoC container by `SesameProvider`.
  */
 export class SesameManager {
   #config: ResolvedSesameConfig
-  #keyService: KeyService | null = null
 
   constructor(config: ResolvedSesameConfig) {
     this.#config = config
@@ -23,21 +20,6 @@ export class SesameManager {
 
   get config() {
     return this.#config
-  }
-
-  /**
-   * Lazily initialized KeyService for JWK/JWKS operations.
-   * The key service handles RS256 key pair generation, storage,
-   * and retrieval for JWT signing and verification.
-   *
-   * @see https://datatracker.ietf.org/doc/html/rfc7517
-   */
-  get keyService(): KeyService {
-    if (!this.#keyService) {
-      this.#keyService = new KeyService(this.#config.jwksPath)
-    }
-
-    return this.#keyService
   }
 
   /**

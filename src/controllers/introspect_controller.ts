@@ -17,8 +17,8 @@ const INACTIVE = { active: false }
  * always includes at least `{ active: boolean }`.
  *
  * Supports the `token_type_hint` parameter to optimize lookup order.
- * For access tokens, verifies the JWT signature and checks revocation.
- * For refresh tokens, looks up the hashed value in the database.
+ * Both access tokens and refresh tokens are opaque values looked up
+ * by their SHA-256 hash in the database.
  *
  * @see https://datatracker.ietf.org/doc/html/rfc7662
  */
@@ -51,37 +51,33 @@ export default class IntrospectController {
 
     const tokenTypeHint = ctx.request.body().token_type_hint
     const tokenService = new TokenService(manager)
+    const hashed = tokenService.hashToken(token)
 
-    // Try as JWT access token: verify signature, then check revocation
+    // Try as access token
     if (!tokenTypeHint || tokenTypeHint === 'access_token') {
-      try {
-        const payload = await tokenService.verifyJwtAccessToken(token)
-        const record = await OAuthAccessToken.query().where('jti', payload.jti).first()
-        if (!record) return INACTIVE
-        if (record.revokedAt) return INACTIVE
-        if (record.clientId !== client.clientId) return INACTIVE
-        if (payload.azp !== client.clientId) return INACTIVE
+      const record = await OAuthAccessToken.query()
+        .where('tokenHash', hashed)
+        .where('clientId', client.clientId)
+        .first()
 
+      if (record && !record.revokedAt && record.expiresAt.toJSDate() >= new Date()) {
         return {
           active: true,
           token_type: 'Bearer',
-          client_id: payload.azp,
-          sub: payload.sub || undefined,
-          scope: payload.scope,
-          iss: payload.iss,
-          iat: payload.iat,
-          exp: payload.exp,
-          jti: payload.jti,
+          client_id: record.clientId,
+          sub: record.userId || undefined,
+          scope: record.scopes.join(' '),
+          iss: manager.config.issuer,
+          iat: Math.floor(record.createdAt.toMillis() / 1000),
+          exp: Math.floor(record.expiresAt.toMillis() / 1000),
         }
-      } catch {
-        // JWT verification failed — if hinted as access_token, stop here
-        if (tokenTypeHint === 'access_token') return INACTIVE
       }
+
+      if (tokenTypeHint === 'access_token') return INACTIVE
     }
 
-    // Try as opaque refresh token: hash and lookup in DB
+    // Try as refresh token
     if (!tokenTypeHint || tokenTypeHint === 'refresh_token') {
-      const hashed = tokenService.hashToken(token)
       const refreshToken = await OAuthRefreshToken.query()
         .where('token', hashed)
         .where('clientId', client.clientId)

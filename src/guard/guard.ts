@@ -13,9 +13,9 @@ import type { OAuthGuardEvents, OAuthUserProviderContract } from './types.ts'
 /**
  * OAuth 2.0 guard for `@adonisjs/auth`.
  *
- * Verifies JWT Bearer tokens, checks revocation, loads
- * the real User model via the provider, and exposes
- * OAuth-specific data (scopes, clientId).
+ * Verifies opaque Bearer tokens against the database,
+ * checks revocation and expiry, loads the real User model
+ * via the provider, and exposes OAuth-specific data (scopes, clientId).
  */
 export class OAuthGuard<
   UserProvider extends OAuthUserProviderContract<unknown>,
@@ -103,25 +103,21 @@ export class OAuthGuard<
     const rawToken = this.#extractBearerToken()
     const tokenService = new TokenService(this.#manager)
 
-    let payload: Awaited<ReturnType<TokenService['verifyJwtAccessToken']>>
-    try {
-      payload = await tokenService.verifyJwtAccessToken(rawToken)
-    } catch {
-      throw this.#authenticationFailed('Invalid or expired token')
-    }
-
-    const record = await OAuthAccessToken.query().where('jti', payload.jti).first()
-    if (!record || record.revokedAt) throw this.#authenticationFailed('Token has been revoked')
+    const hashed = tokenService.hashToken(rawToken)
+    const record = await OAuthAccessToken.query().where('tokenHash', hashed).first()
+    if (!record) throw this.#authenticationFailed('Invalid or expired token')
+    if (record.revokedAt) throw this.#authenticationFailed('Token has been revoked')
+    if (record.expiresAt.toJSDate() < new Date()) throw this.#authenticationFailed('Invalid or expired token')
 
     if (!record.userId) throw this.#authenticationFailed('M2M tokens are not supported')
 
-    const providerUser = await this.#userProvider.findById(payload.sub)
+    const providerUser = await this.#userProvider.findById(record.userId)
     if (!providerUser) throw this.#authenticationFailed('User not found')
 
     this.isAuthenticated = true
     this.user = providerUser.getOriginal() as UserProvider[typeof symbols.PROVIDER_REAL_USER]
-    this.scopes = payload.scope ? payload.scope.split(' ') : []
-    this.clientId = payload.azp
+    this.scopes = record.scopes
+    this.clientId = record.clientId
 
     this.#emitter.emit('oauth_auth:authentication_succeeded', {
       ctx: this.#ctx,
@@ -171,21 +167,17 @@ export class OAuthGuard<
     )
 
     const userId = String((user as any).id ?? (user as any).getId?.() ?? 'test-user')
-    const { token, jti, expiresAt } = await tokenService.createJwtAccessToken({
-      userId,
-      clientId: testClient.clientId,
-      scopes: defaultScopes,
-    })
+    const { raw, hash, expiresAt } = tokenService.createAccessToken()
 
     await OAuthAccessToken.create({
       id: crypto.randomUUID(),
-      jti,
+      tokenHash: hash,
       clientId: testClient.clientId,
       userId,
       scopes: defaultScopes,
       expiresAt: DateTime.fromJSDate(expiresAt),
     })
 
-    return { headers: { authorization: `Bearer ${token}` } }
+    return { headers: { authorization: `Bearer ${raw}` } }
   }
 }

@@ -11,7 +11,6 @@ const controllers = {
   revoke: () => import('./controllers/revoke_controller.ts'),
   register: () => import('./controllers/register_controller.ts'),
   metadata: () => import('./controllers/metadata_controller.ts'),
-  jwks: () => import('./controllers/jwks_controller.ts'),
   clientInfo: () => import('./controllers/client_info_controller.ts'),
 }
 
@@ -25,7 +24,6 @@ const controllers = {
  * - `POST /oauth/introspect` — Token introspection (RFC 7662)
  * - `POST /oauth/revoke` — Token revocation (RFC 7009)
  * - `POST /oauth/register` — Dynamic client registration (RFC 7591)
- * - `GET /oauth/jwks` — JSON Web Key Set (RFC 7517 §5)
  * - `GET /oauth/client-info` — Public client information (RFC 6819 §4.4.1.4)
  * - `GET /.well-known/oauth-authorization-server` — Server metadata (RFC 8414)
  * - `GET /.well-known/openid-configuration` — OpenID Connect discovery
@@ -39,7 +37,6 @@ export function registerRoutes(router: any) {
   router.post('/oauth/introspect', [controllers.introspect])
   router.post('/oauth/revoke', [controllers.revoke])
   router.post('/oauth/register', [controllers.register])
-  router.get('/oauth/jwks', [controllers.jwks])
 
   router.get('/.well-known/oauth-authorization-server', [controllers.metadata, 'authServer'])
   router.get('/.well-known/openid-configuration', [controllers.metadata, 'oidc'])

@@ -1,8 +1,6 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
 import { createHash } from 'node:crypto'
-import { rm } from 'node:fs/promises'
-import { resolve } from 'node:path'
 import type { ApplicationService } from '@adonisjs/core/types'
 import { createApp, setupDatabase, teardownDatabase, createManager } from './helpers.ts'
 import { OAuthClient } from '../src/models/oauth_client.ts'
@@ -145,7 +143,6 @@ test.group('Integration | Authorization Flow', (group) => {
   group.teardown(async () => {
     await teardownDatabase(app)
     await app.terminate()
-    await rm(resolve(import.meta.dirname!, '.tmp'), { recursive: true, force: true })
   })
 
   group.each.setup(async () => {
@@ -316,7 +313,6 @@ test.group('Integration | Authorization Code Grant', (group) => {
   group.teardown(async () => {
     await teardownDatabase(app)
     await app.terminate()
-    await rm(resolve(import.meta.dirname!, '.tmp'), { recursive: true, force: true })
   })
 
   group.each.setup(async () => {
@@ -715,7 +711,6 @@ test.group('Integration | Refresh Token Grant', (group) => {
   group.teardown(async () => {
     await teardownDatabase(app)
     await app.terminate()
-    await rm(resolve(import.meta.dirname!, '.tmp'), { recursive: true, force: true })
   })
 
   group.each.setup(async () => {
@@ -736,7 +731,7 @@ test.group('Integration | Refresh Token Grant', (group) => {
 
     await OAuthAccessToken.create({
       id: crypto.randomUUID(),
-      jti: 'old-jti',
+      tokenHash: 'old-token-hash',
       clientId: 'test-client',
       userId: 'user-1',
       scopes: ['read', 'write', 'offline_access'],
@@ -746,7 +741,7 @@ test.group('Integration | Refresh Token Grant', (group) => {
     await OAuthRefreshToken.create({
       id: crypto.randomUUID(),
       token: hashedRefreshToken,
-      accessTokenId: 'old-jti',
+      accessTokenId: 'old-token-hash',
       clientId: 'test-client',
       userId: 'user-1',
       scopes: ['read', 'write', 'offline_access'],
@@ -782,7 +777,7 @@ test.group('Integration | Refresh Token Grant', (group) => {
     await OAuthRefreshToken.create({
       id: crypto.randomUUID(),
       token: tokenService.hashToken(rawRefreshToken),
-      accessTokenId: 'grant-type-bypass-jti',
+      accessTokenId: 'grant-type-bypass-hash',
       clientId: client.clientId,
       userId: 'user-1',
       scopes: ['read'],
@@ -821,7 +816,7 @@ test.group('Integration | Refresh Token Grant', (group) => {
     await OAuthRefreshToken.create({
       id: crypto.randomUUID(),
       token: tokenService.hashToken(rawRefreshToken),
-      accessTokenId: 'old-jti-2',
+      accessTokenId: 'old-token-hash-2',
       clientId: 'test-client',
       userId: 'user-1',
       scopes: ['read', 'write', 'offline_access'],
@@ -852,7 +847,7 @@ test.group('Integration | Refresh Token Grant', (group) => {
     await OAuthRefreshToken.create({
       id: crypto.randomUUID(),
       token: tokenService.hashToken(rawRefreshToken),
-      accessTokenId: 'old-jti-3',
+      accessTokenId: 'old-token-hash-3',
       clientId: 'test-client',
       userId: 'user-1',
       scopes: ['read'],
@@ -888,7 +883,7 @@ test.group('Integration | Refresh Token Grant', (group) => {
     await OAuthRefreshToken.create({
       id: crypto.randomUUID(),
       token: tokenService.hashToken(rawRefreshToken),
-      accessTokenId: 'old-jti-4',
+      accessTokenId: 'old-token-hash-4',
       clientId: 'test-client',
       userId: 'user-1',
       scopes: ['read'],
@@ -899,7 +894,7 @@ test.group('Integration | Refresh Token Grant', (group) => {
     await OAuthRefreshToken.create({
       id: crypto.randomUUID(),
       token: tokenService.hashToken('other-valid-token'),
-      accessTokenId: 'other-jti',
+      accessTokenId: 'other-token-hash',
       clientId: 'test-client',
       userId: 'user-1',
       scopes: ['read'],
@@ -939,7 +934,7 @@ test.group('Integration | Refresh Token Grant', (group) => {
     await OAuthRefreshToken.create({
       id: crypto.randomUUID(),
       token: tokenService.hashToken(rawRefreshToken),
-      accessTokenId: 'racy-refresh-jti',
+      accessTokenId: 'racy-refresh-hash',
       clientId: 'test-client',
       userId: 'user-1',
       scopes: ['read'],
@@ -975,7 +970,7 @@ test.group('Integration | Refresh Token Grant', (group) => {
     await OAuthRefreshToken.create({
       id: crypto.randomUUID(),
       token: tokenService.hashToken(rawRefreshToken),
-      accessTokenId: 'old-jti-5',
+      accessTokenId: 'old-token-hash-5',
       clientId: 'test-client',
       userId: 'user-1',
       scopes: ['read'],
@@ -1005,7 +1000,6 @@ test.group('Integration | Token Endpoint Dispatch', (group) => {
   group.teardown(async () => {
     await teardownDatabase(app)
     await app.terminate()
-    await rm(resolve(import.meta.dirname!, '.tmp'), { recursive: true, force: true })
   })
 
   test('rejects unsupported grant type', async ({ assert }) => {
@@ -1040,7 +1034,6 @@ test.group('Integration | Introspection', (group) => {
   group.teardown(async () => {
     await teardownDatabase(app)
     await app.terminate()
-    await rm(resolve(import.meta.dirname!, '.tmp'), { recursive: true, force: true })
   })
 
   group.each.setup(async () => {
@@ -1051,20 +1044,16 @@ test.group('Integration | Introspection', (group) => {
     await OAuthClient.query().delete()
   })
 
-  test('introspects a valid JWT access token', async ({ assert }) => {
+  test('introspects a valid access token', async ({ assert }) => {
     const manager = createManager()
     const tokenService = new TokenService(manager)
     await createTestClient()
 
-    const { token, jti } = await tokenService.createJwtAccessToken({
-      userId: 'user-1',
-      clientId: 'test-client',
-      scopes: ['read'],
-    })
+    const { raw, hash } = tokenService.createAccessToken()
 
     await OAuthAccessToken.create({
       id: crypto.randomUUID(),
-      jti,
+      tokenHash: hash,
       clientId: 'test-client',
       userId: 'user-1',
       scopes: ['read'],
@@ -1074,7 +1063,7 @@ test.group('Integration | Introspection', (group) => {
     const ctx = mockCtx({
       manager,
       body: {
-        token,
+        token: raw,
         client_id: 'test-client',
         client_secret: 'test-secret',
       },
@@ -1094,15 +1083,11 @@ test.group('Integration | Introspection', (group) => {
     const tokenService = new TokenService(manager)
     await createTestClient()
 
-    const { token, jti } = await tokenService.createJwtAccessToken({
-      userId: 'user-1',
-      clientId: 'test-client',
-      scopes: ['read'],
-    })
+    const { raw, hash } = tokenService.createAccessToken()
 
     await OAuthAccessToken.create({
       id: crypto.randomUUID(),
-      jti,
+      tokenHash: hash,
       clientId: 'test-client',
       userId: 'user-1',
       scopes: ['read'],
@@ -1112,7 +1097,7 @@ test.group('Integration | Introspection', (group) => {
     const ctx = mockCtx({
       manager,
       body: {
-        token,
+        token: raw,
         client_id: 'test-client',
       },
     })
@@ -1133,15 +1118,11 @@ test.group('Integration | Introspection', (group) => {
     const tokenService = new TokenService(manager)
     await createTestClient()
 
-    const { token, jti } = await tokenService.createJwtAccessToken({
-      userId: 'user-1',
-      clientId: 'test-client',
-      scopes: ['read'],
-    })
+    const { raw, hash } = tokenService.createAccessToken()
 
     await OAuthAccessToken.create({
       id: crypto.randomUUID(),
-      jti,
+      tokenHash: hash,
       clientId: 'test-client',
       userId: 'user-1',
       scopes: ['read'],
@@ -1152,7 +1133,7 @@ test.group('Integration | Introspection', (group) => {
     const ctx = mockCtx({
       manager,
       body: {
-        token,
+        token: raw,
         client_id: 'test-client',
         client_secret: 'test-secret',
       },
@@ -1163,21 +1144,14 @@ test.group('Integration | Introspection', (group) => {
     assert.isFalse(result.active)
   })
 
-  test('returns inactive when the JWT access token row is missing', async ({ assert }) => {
+  test('returns inactive for unknown token', async ({ assert }) => {
     const manager = createManager()
-    const tokenService = new TokenService(manager)
     await createTestClient()
-
-    const { token } = await tokenService.createJwtAccessToken({
-      userId: 'user-1',
-      clientId: 'test-client',
-      scopes: ['read'],
-    })
 
     const ctx = mockCtx({
       manager,
       body: {
-        token,
+        token: 'some-unknown-token',
         client_id: 'test-client',
         client_secret: 'test-secret',
       },
@@ -1214,7 +1188,7 @@ test.group('Integration | Introspection', (group) => {
     await OAuthRefreshToken.create({
       id: crypto.randomUUID(),
       token: tokenService.hashToken(rawRefreshToken),
-      accessTokenId: 'some-jti',
+      accessTokenId: 'some-token-hash',
       clientId: 'test-client',
       userId: 'user-1',
       scopes: ['read', 'write'],
@@ -1251,15 +1225,11 @@ test.group('Integration | Introspection', (group) => {
       rawClientSecret: 'other-secret',
     })
 
-    const { token, jti } = await tokenService.createJwtAccessToken({
-      userId: 'user-1',
-      clientId: 'test-client',
-      scopes: ['read'],
-    })
+    const { raw, hash } = tokenService.createAccessToken()
 
     await OAuthAccessToken.create({
       id: crypto.randomUUID(),
-      jti,
+      tokenHash: hash,
       clientId: 'test-client',
       userId: 'user-1',
       scopes: ['read'],
@@ -1269,7 +1239,7 @@ test.group('Integration | Introspection', (group) => {
     const ctx = mockCtx({
       manager,
       body: {
-        token,
+        token: raw,
         client_id: 'other-client',
         client_secret: 'other-secret',
       },
@@ -1290,7 +1260,6 @@ test.group('Integration | Revocation', (group) => {
   group.teardown(async () => {
     await teardownDatabase(app)
     await app.terminate()
-    await rm(resolve(import.meta.dirname!, '.tmp'), { recursive: true, force: true })
   })
 
   group.each.setup(async () => {
@@ -1301,20 +1270,16 @@ test.group('Integration | Revocation', (group) => {
     await OAuthClient.query().delete()
   })
 
-  test('revokes a JWT access token', async ({ assert }) => {
+  test('revokes an access token', async ({ assert }) => {
     const manager = createManager()
     const tokenService = new TokenService(manager)
     await createTestClient()
 
-    const { token, jti } = await tokenService.createJwtAccessToken({
-      userId: 'user-1',
-      clientId: 'test-client',
-      scopes: ['read'],
-    })
+    const { raw, hash } = tokenService.createAccessToken()
 
     await OAuthAccessToken.create({
       id: crypto.randomUUID(),
-      jti,
+      tokenHash: hash,
       clientId: 'test-client',
       userId: 'user-1',
       scopes: ['read'],
@@ -1324,7 +1289,7 @@ test.group('Integration | Revocation', (group) => {
     const ctx = mockCtx({
       manager,
       body: {
-        token,
+        token: raw,
         token_type_hint: 'access_token',
         client_id: 'test-client',
         client_secret: 'test-secret',
@@ -1334,7 +1299,7 @@ test.group('Integration | Revocation', (group) => {
     const controller = new RevokeController()
     await controller.handle(ctx)
 
-    const record = await OAuthAccessToken.query().where('jti', jti).firstOrFail()
+    const record = await OAuthAccessToken.query().where('tokenHash', hash).firstOrFail()
     assert.isNotNull(record.revokedAt)
   })
 
@@ -1343,15 +1308,11 @@ test.group('Integration | Revocation', (group) => {
     const tokenService = new TokenService(manager)
     await createTestClient()
 
-    const { token, jti } = await tokenService.createJwtAccessToken({
-      userId: 'user-1',
-      clientId: 'test-client',
-      scopes: ['read'],
-    })
+    const { raw, hash } = tokenService.createAccessToken()
 
     await OAuthAccessToken.create({
       id: crypto.randomUUID(),
-      jti,
+      tokenHash: hash,
       clientId: 'test-client',
       userId: 'user-1',
       scopes: ['read'],
@@ -1361,7 +1322,7 @@ test.group('Integration | Revocation', (group) => {
     const ctx = mockCtx({
       manager,
       body: {
-        token,
+        token: raw,
         token_type_hint: 'access_token',
         client_id: 'test-client',
       },
@@ -1387,7 +1348,7 @@ test.group('Integration | Revocation', (group) => {
 
     await OAuthAccessToken.create({
       id: crypto.randomUUID(),
-      jti: 'linked-jti',
+      tokenHash: 'linked-token-hash',
       clientId: 'test-client',
       userId: 'user-1',
       scopes: ['read'],
@@ -1397,7 +1358,7 @@ test.group('Integration | Revocation', (group) => {
     await OAuthRefreshToken.create({
       id: crypto.randomUUID(),
       token: tokenService.hashToken(rawRefreshToken),
-      accessTokenId: 'linked-jti',
+      accessTokenId: 'linked-token-hash',
       clientId: 'test-client',
       userId: 'user-1',
       scopes: ['read'],
@@ -1422,7 +1383,7 @@ test.group('Integration | Revocation', (group) => {
       .firstOrFail()
     assert.isNotNull(refresh.revokedAt)
 
-    const access = await OAuthAccessToken.query().where('jti', 'linked-jti').firstOrFail()
+    const access = await OAuthAccessToken.query().where('tokenHash', 'linked-token-hash').firstOrFail()
     assert.isNotNull(access.revokedAt)
   })
 
@@ -1459,7 +1420,6 @@ test.group('Integration | Dynamic Registration', (group) => {
   group.teardown(async () => {
     await teardownDatabase(app)
     await app.terminate()
-    await rm(resolve(import.meta.dirname!, '.tmp'), { recursive: true, force: true })
   })
 
   group.each.setup(async () => {
@@ -1942,7 +1902,6 @@ test.group('Integration | Metadata Endpoints', () => {
     assert.equal(result.issuer, 'https://auth.example.com')
     assert.equal(result.authorization_endpoint, 'https://auth.example.com/oauth/authorize')
     assert.equal(result.token_endpoint, 'https://auth.example.com/oauth/token')
-    assert.equal(result.jwks_uri, 'https://auth.example.com/oauth/jwks')
     assert.deepEqual(result.response_types_supported, ['code'])
     assert.deepEqual(result.code_challenge_methods_supported, ['S256'])
     assert.isTrue(result.authorization_response_iss_parameter_supported)
@@ -1971,7 +1930,6 @@ test.group('Integration | Metadata Endpoints', () => {
 
     assert.equal(result.issuer, 'https://auth.example.com')
     assert.deepEqual(result.subject_types_supported, ['public'])
-    assert.deepEqual(result.id_token_signing_alg_values_supported, ['RS256'])
     assert.isArray(result.scopes_supported)
   })
 
@@ -1997,17 +1955,17 @@ test.group('Integration | OAuth Error Handling', () => {
 })
 
 test.group('Integration | TokenService', () => {
-  test('sets sub to clientId when userId is not provided (M2M)', async ({ assert }) => {
+  test('createAccessToken returns raw, hash and expiresAt', ({ assert }) => {
     const manager = createManager()
     const tokenService = new TokenService(manager)
 
-    const { token } = await tokenService.createJwtAccessToken({
-      clientId: 'my-m2m-client',
-      scopes: ['read'],
-    })
+    const { raw, hash, expiresAt } = tokenService.createAccessToken()
 
-    const payload = await tokenService.verifyJwtAccessToken(token)
-    assert.equal(payload.sub, 'my-m2m-client')
+    assert.isString(raw)
+    assert.isString(hash)
+    assert.notEqual(raw, hash)
+    assert.instanceOf(expiresAt, Date)
+    assert.equal(hash, tokenService.hashToken(raw))
   })
 })
 
@@ -2053,7 +2011,6 @@ test.group('Integration | revokeAllForUser', (group) => {
   group.teardown(async () => {
     await teardownDatabase(app)
     await app.terminate()
-    await rm(resolve(import.meta.dirname!, '.tmp'), { recursive: true, force: true })
   })
 
   group.each.setup(async () => {
@@ -2072,7 +2029,7 @@ test.group('Integration | revokeAllForUser', (group) => {
     // Create access token
     await OAuthAccessToken.create({
       id: crypto.randomUUID(),
-      jti: 'at-1',
+      tokenHash: 'at-1',
       clientId: client.clientId,
       userId: 'user-1',
       scopes: ['read'],
@@ -2114,7 +2071,7 @@ test.group('Integration | revokeAllForUser', (group) => {
 
     await manager.revokeAllForUser('user-1')
 
-    const accessToken = await OAuthAccessToken.query().where('jti', 'at-1').firstOrFail()
+    const accessToken = await OAuthAccessToken.query().where('tokenHash', 'at-1').firstOrFail()
     assert.isNotNull(accessToken.revokedAt)
 
     const refreshToken = await OAuthRefreshToken.query().where('accessTokenId', 'at-1').firstOrFail()
@@ -2133,7 +2090,7 @@ test.group('Integration | revokeAllForUser', (group) => {
 
     await OAuthAccessToken.create({
       id: crypto.randomUUID(),
-      jti: 'at-user1',
+      tokenHash: 'at-user1',
       clientId: client.clientId,
       userId: 'user-1',
       scopes: ['read'],
@@ -2142,7 +2099,7 @@ test.group('Integration | revokeAllForUser', (group) => {
 
     await OAuthAccessToken.create({
       id: crypto.randomUUID(),
-      jti: 'at-user2',
+      tokenHash: 'at-user2',
       clientId: client.clientId,
       userId: 'user-2',
       scopes: ['read'],
@@ -2151,10 +2108,10 @@ test.group('Integration | revokeAllForUser', (group) => {
 
     await manager.revokeAllForUser('user-1')
 
-    const revokedToken = await OAuthAccessToken.query().where('jti', 'at-user1').firstOrFail()
+    const revokedToken = await OAuthAccessToken.query().where('tokenHash', 'at-user1').firstOrFail()
     assert.isNotNull(revokedToken.revokedAt)
 
-    const untouchedToken = await OAuthAccessToken.query().where('jti', 'at-user2').firstOrFail()
+    const untouchedToken = await OAuthAccessToken.query().where('tokenHash', 'at-user2').firstOrFail()
     assert.isNull(untouchedToken.revokedAt)
   })
 })
@@ -2168,7 +2125,6 @@ test.group('Integration | Client Info', (group) => {
   group.teardown(async () => {
     await teardownDatabase(app)
     await app.terminate()
-    await rm(resolve(import.meta.dirname!, '.tmp'), { recursive: true, force: true })
   })
 
   group.each.setup(async () => {

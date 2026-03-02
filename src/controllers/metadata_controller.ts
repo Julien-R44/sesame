@@ -37,7 +37,6 @@ export default class MetadataController {
       issuer,
       authorization_endpoint: `${issuer}/oauth/authorize`,
       token_endpoint: `${issuer}/oauth/token`,
-      jwks_uri: `${issuer}/oauth/jwks`,
       registration_endpoint: manager.config.allowDynamicRegistration
         ? `${issuer}/oauth/register`
         : undefined,
@@ -71,7 +70,6 @@ export default class MetadataController {
     return {
       ...base,
       subject_types_supported: ['public'],
-      id_token_signing_alg_values_supported: ['RS256'],
       scopes_supported: Object.keys(manager.config.scopes),
     }
   }

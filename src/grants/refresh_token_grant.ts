@@ -116,20 +116,12 @@ export async function handleRefreshTokenGrant(ctx: HttpContext, manager: SesameM
     throw new E_INVALID_GRANT('Refresh token has already been consumed')
   }
 
-  // Issue a new JWT access token
-  const {
-    token: accessToken,
-    jti,
-    expiresAt,
-  } = await tokenService.createJwtAccessToken({
-    userId: refreshToken.userId,
-    clientId: client.clientId,
-    scopes,
-  })
+  // Issue a new opaque access token
+  const { raw: accessTokenRaw, hash: tokenHash, expiresAt } = tokenService.createAccessToken()
 
   await OAuthAccessToken.create({
     id: crypto.randomUUID(),
-    jti,
+    tokenHash,
     clientId: client.clientId,
     userId: refreshToken.userId,
     scopes,
@@ -143,7 +135,7 @@ export async function handleRefreshTokenGrant(ctx: HttpContext, manager: SesameM
   await OAuthRefreshToken.create({
     id: crypto.randomUUID(),
     token: newRefreshTokenHash,
-    accessTokenId: jti,
+    accessTokenId: tokenHash,
     clientId: client.clientId,
     userId: refreshToken.userId,
     scopes,
@@ -153,7 +145,7 @@ export async function handleRefreshTokenGrant(ctx: HttpContext, manager: SesameM
   const ttlSeconds = manager.parseTtl(manager.config.accessTokenTtl)
 
   return {
-    access_token: accessToken,
+    access_token: accessTokenRaw,
     token_type: 'Bearer',
     expires_in: ttlSeconds,
     scope: scopes.join(' '),

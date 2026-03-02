@@ -50,30 +50,26 @@ export default class RevokeController {
 
     const tokenTypeHint = ctx.request.body().token_type_hint
     const tokenService = new TokenService(manager)
+    const hashed = tokenService.hashToken(token)
 
-    // Try revoking as JWT access token
+    // Try revoking as access token
     if (!tokenTypeHint || tokenTypeHint === 'access_token') {
-      try {
-        const payload = await tokenService.verifyJwtAccessToken(token)
-        const record = await OAuthAccessToken.query()
-          .where('jti', payload.jti)
-          .where('clientId', client.clientId)
-          .first()
+      const record = await OAuthAccessToken.query()
+        .where('tokenHash', hashed)
+        .where('clientId', client.clientId)
+        .first()
 
-        if (record && !record.revokedAt) {
-          record.revokedAt = DateTime.now()
-          await record.save()
-        }
-
+      if (record && !record.revokedAt) {
+        record.revokedAt = DateTime.now()
+        await record.save()
         return ctx.response.ok({})
-      } catch {
-        if (tokenTypeHint === 'access_token') return ctx.response.ok({})
       }
+
+      if (tokenTypeHint === 'access_token') return ctx.response.ok({})
     }
 
-    // Try revoking as opaque refresh token
+    // Try revoking as refresh token
     if (!tokenTypeHint || tokenTypeHint === 'refresh_token') {
-      const hashed = tokenService.hashToken(token)
       const refreshToken = await OAuthRefreshToken.query()
         .where('token', hashed)
         .where('clientId', client.clientId)
@@ -85,7 +81,7 @@ export default class RevokeController {
 
         // Also revoke the associated access token (RFC 7009 §2.1)
         await OAuthAccessToken.query()
-          .where('jti', refreshToken.accessTokenId)
+          .where('tokenHash', refreshToken.accessTokenId)
           .whereNull('revokedAt')
           .update({ revokedAt: DateTime.now().toSQL() })
       }

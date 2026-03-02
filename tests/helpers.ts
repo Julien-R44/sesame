@@ -20,7 +20,6 @@ export function createTestConfig(overrides?: Record<string, any>) {
     consentPage: '/oauth/consent',
     allowDynamicRegistration: true,
     allowPublicRegistration: true,
-    jwksPath: resolve(import.meta.dirname!, '.tmp/test-keys.json'),
     ...overrides,
   })
 }

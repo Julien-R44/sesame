@@ -25,8 +25,6 @@ const sesameConfig = defineConfig({
 
   allowDynamicRegistration: false,
   allowPublicRegistration: false,
-
-  jwksPath: 'storage/sesame-keys.json',
 })
 
 export default sesameConfig

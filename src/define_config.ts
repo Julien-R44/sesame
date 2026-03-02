@@ -13,7 +13,6 @@ import type { SesameConfig, ResolvedSesameConfig } from './types.ts'
  * - `authorizationCodeTtl`: `'10m'`
  * - `allowDynamicRegistration`: `false`
  * - `allowPublicRegistration`: `false`
- * - `jwksPath`: `'storage/sesame-keys.json'`
  */
 export function defineConfig(config: SesameConfig): ResolvedSesameConfig {
   return {
@@ -28,6 +27,5 @@ export function defineConfig(config: SesameConfig): ResolvedSesameConfig {
     consentPage: config.consentPage,
     allowDynamicRegistration: config.allowDynamicRegistration ?? false,
     allowPublicRegistration: config.allowPublicRegistration ?? false,
-    jwksPath: config.jwksPath ?? 'storage/sesame-keys.json',
   }
 }

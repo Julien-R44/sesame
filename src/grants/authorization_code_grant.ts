@@ -33,12 +33,11 @@ const codeVerifierValidator = vine.create({
  * - Redirect URI matching against the original authorization request
  * - PKCE code_verifier verification using S256 (RFC 7636 §4.6)
  *
- * Access tokens are signed JWTs (RFC 9068). Refresh tokens and
- * authorization codes are opaque values stored as SHA-256 hashes.
+ * All tokens (access tokens, refresh tokens, authorization codes)
+ * are opaque values stored as SHA-256 hashes.
  *
  * @see https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3
  * @see https://datatracker.ietf.org/doc/html/rfc7636#section-4.6
- * @see https://datatracker.ietf.org/doc/html/rfc9068
  */
 export async function handleAuthorizationCodeGrant(ctx: HttpContext, manager: SesameManager) {
   const tokenService = new TokenService(manager)
@@ -113,20 +112,12 @@ export async function handleAuthorizationCodeGrant(ctx: HttpContext, manager: Se
 
   clientService.validateClientScopes(authCode.scopes, client.scopes)
 
-  // Issue a signed JWT access token
-  const {
-    token: accessToken,
-    jti,
-    expiresAt,
-  } = await tokenService.createJwtAccessToken({
-    userId: authCode.userId,
-    clientId: client.clientId,
-    scopes: authCode.scopes,
-  })
+  // Issue an opaque access token
+  const { raw: accessTokenRaw, hash: tokenHash, expiresAt } = tokenService.createAccessToken()
 
   await OAuthAccessToken.create({
     id: crypto.randomUUID(),
-    jti,
+    tokenHash,
     clientId: client.clientId,
     userId: authCode.userId,
     scopes: authCode.scopes,
@@ -142,7 +133,7 @@ export async function handleAuthorizationCodeGrant(ctx: HttpContext, manager: Se
     await OAuthRefreshToken.create({
       id: crypto.randomUUID(),
       token: hash,
-      accessTokenId: jti,
+      accessTokenId: tokenHash,
       clientId: client.clientId,
       userId: authCode.userId,
       scopes: authCode.scopes,
@@ -155,7 +146,7 @@ export async function handleAuthorizationCodeGrant(ctx: HttpContext, manager: Se
   const ttlSeconds = manager.parseTtl(manager.config.accessTokenTtl)
 
   return {
-    access_token: accessToken,
+    access_token: accessTokenRaw,
     token_type: 'Bearer',
     expires_in: ttlSeconds,
     scope: authCode.scopes.join(' '),

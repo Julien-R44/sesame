@@ -94,13 +94,6 @@ export interface SesameConfig {
    */
   allowPublicRegistration?: boolean
 
-  /**
-   * Path to the JWK key set file.
-   * Defaults to `'storage/sesame-keys.json'`.
-   *
-   * @see https://datatracker.ietf.org/doc/html/rfc7517
-   */
-  jwksPath?: string
 }
 
 /**
@@ -119,7 +112,6 @@ export interface ResolvedSesameConfig {
   consentPage: string | ((ctx: HttpContext, params: URLSearchParams) => string)
   allowDynamicRegistration: boolean
   allowPublicRegistration: boolean
-  jwksPath: string
 }
 
 /**
@@ -134,7 +126,6 @@ export interface AuthServerMetadata {
   issuer: string
   authorization_endpoint: string
   token_endpoint: string
-  jwks_uri: string
   registration_endpoint?: string
   introspection_endpoint?: string
   revocation_endpoint?: string
