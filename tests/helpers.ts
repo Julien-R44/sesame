@@ -8,6 +8,7 @@ import { OAuthClient } from '../src/models/oauth_client.ts'
 import { OAuthAuthorizationCode } from '../src/models/oauth_authorization_code.ts'
 import { ClientService } from '../src/services/client_service.ts'
 import { TokenService } from '../src/services/token_service.ts'
+import { MigrationRunner } from '@adonisjs/lucid/migration'
 
 const BASE_URL = new URL('./', import.meta.url)
 
@@ -182,7 +183,6 @@ export async function createApp() {
 
 export async function setupDatabase(app: ApplicationService) {
   const db = await app.container.make('lucid.db')
-  const { MigrationRunner } = await import('@adonisjs/lucid/migration')
 
   const runner = new MigrationRunner(db, app, {
     direction: 'up',
@@ -195,7 +195,6 @@ export async function setupDatabase(app: ApplicationService) {
 
 export async function teardownDatabase(app: ApplicationService) {
   const db = await app.container.make('lucid.db')
-  const { MigrationRunner } = await import('@adonisjs/lucid/migration')
 
   const runner = new MigrationRunner(db, app, {
     direction: 'down',

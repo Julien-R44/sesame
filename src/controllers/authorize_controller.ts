@@ -1,5 +1,6 @@
-import { DateTime } from 'luxon'
 /// <reference types="@adonisjs/auth/initialize_auth_middleware" />
+
+import { DateTime } from 'luxon'
 import type { HttpContext } from '@adonisjs/core/http'
 import { SesameManager } from '../sesame_manager.ts'
 import { TokenService } from '../services/token_service.ts'
@@ -25,6 +26,147 @@ import { E_INVALID_CLIENT, E_INVALID_REQUEST, E_UNSUPPORTED_RESPONSE_TYPE } from
  * @see https://datatracker.ietf.org/doc/html/rfc9207
  */
 export default class AuthorizeController {
+  /**
+   * Retrieve the session from the HTTP context, ensuring
+   * session middleware is active.
+   */
+  #getAuthorizationSession(ctx: HttpContext) {
+    const session = (ctx as any).session
+    if (!session || typeof session.put !== 'function') {
+      throw new E_INVALID_REQUEST('Session middleware is required for the browser authorization flow')
+    }
+
+    return session
+  }
+
+  /**
+   * Redirect back to the client with an OAuth error response
+   * in the query string (RFC 6749 §4.1.2.1).
+   */
+  #redirectWithError(
+    ctx: HttpContext,
+    manager: SesameManager,
+    redirectUri: string,
+    error: string,
+    description: string,
+    state?: string
+  ) {
+    const url = new URL(redirectUri)
+    url.searchParams.set('error', error)
+    url.searchParams.set('error_description', description)
+    if (state) url.searchParams.set('state', state)
+    url.searchParams.set('iss', manager.config.issuer)
+
+    return ctx.response.redirect().toPath(url.toString())
+  }
+
+  /**
+   * Store the authorization request in the session and return
+   * query params containing the auth_token for CSRF-like validation.
+   */
+  #buildAuthorizationRequestParams(
+    ctx: HttpContext,
+    manager: SesameManager,
+    options: {
+      clientId: string
+      redirectUri: string
+      scopes: string[]
+      state?: string
+      codeChallenge?: string
+      codeChallengeMethod?: string
+    }
+  ) {
+    const tokenService = new TokenService(manager)
+    const rawRequestToken = tokenService.generateOpaqueToken()
+    const session = this.#getAuthorizationSession(ctx)
+
+    session.put('sesame.authToken', rawRequestToken)
+    session.put('sesame.authRequest', {
+      clientId: options.clientId,
+      redirectUri: options.redirectUri,
+      scopes: options.scopes,
+      state: options.state ?? null,
+      codeChallenge: options.codeChallenge ?? null,
+      codeChallengeMethod: options.codeChallengeMethod ?? null,
+    })
+
+    const params = new URLSearchParams()
+    params.set('auth_token', rawRequestToken)
+
+    return params
+  }
+
+  /**
+   * Forward all original authorize query params (except auth_token)
+   * so the login/consent page can display them.
+   */
+  #copyAuthorizeDisplayParams(params: URLSearchParams, query: Record<string, string>) {
+    for (const [key, value] of Object.entries(query)) {
+      if (key === 'auth_token') continue
+      if (value != null) params.set(key, String(value))
+    }
+  }
+
+  /**
+   * Resolve a login/consent page URL from either a static string
+   * path or a dynamic function.
+   */
+  #resolvePageUrl(
+    page: string | ((ctx: HttpContext, params: URLSearchParams) => string),
+    ctx: HttpContext,
+    params: URLSearchParams
+  ): string {
+    if (typeof page === 'function') return page(ctx, params)
+    return `${page}?${params.toString()}`
+  }
+
+  /**
+   * Create and store an authorization code, then redirect the user
+   * back to the client's redirect_uri with the code and state.
+   *
+   * The authorization code is stored as a SHA-256 hash in the database.
+   * Only the raw (unhashed) value is sent to the client via the redirect.
+   *
+   * @see https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2
+   */
+  async #issueAuthorizationCode(
+    ctx: HttpContext,
+    manager: SesameManager,
+    options: {
+      client: OAuthClient
+      userId: string
+      scopes: string[]
+      redirectUri: string
+      codeChallenge?: string
+      codeChallengeMethod?: string
+      state?: string
+    }
+  ) {
+    const tokenService = new TokenService(manager)
+    const raw = tokenService.generateOpaqueToken()
+    const hashed = tokenService.hashToken(raw)
+    const ttl = manager.parseTtl(manager.config.authorizationCodeTtl)
+
+    await OAuthAuthorizationCode.create({
+      id: crypto.randomUUID(),
+      code: hashed,
+      clientId: options.client.clientId,
+      userId: options.userId,
+      scopes: options.scopes,
+      redirectUri: options.redirectUri,
+      codeChallenge: options.codeChallenge ?? null,
+      codeChallengeMethod: options.codeChallengeMethod ?? null,
+      expiresAt: DateTime.now().plus({ seconds: ttl }),
+    })
+
+    const url = new URL(options.redirectUri)
+    url.searchParams.set('code', raw)
+    if (options.state) url.searchParams.set('state', options.state)
+    url.searchParams.set('iss', manager.config.issuer)
+
+    return ctx.response.redirect().toPath(url.toString())
+  }
+
   async handle(ctx: HttpContext) {
     const manager = await ctx.containerResolver.make(SesameManager)
     const clientService = new ClientService()
@@ -53,7 +195,7 @@ export default class AuthorizeController {
       throw new E_INVALID_REQUEST('Invalid redirect_uri')
     }
     if (!client.grantTypes.includes('authorization_code')) {
-      return redirectWithError(
+      return this.#redirectWithError(
         ctx,
         manager,
         redirectUri,
@@ -67,7 +209,7 @@ export default class AuthorizeController {
     const requestedScopes = scope ? scope.split(' ') : manager.config.defaultScopes
     const invalidScopes = manager.validateScopes(requestedScopes)
     if (invalidScopes.length > 0) {
-      return redirectWithError(
+      return this.#redirectWithError(
         ctx,
         manager,
         redirectUri,
@@ -79,12 +221,12 @@ export default class AuthorizeController {
     try {
       clientService.validateClientScopes(requestedScopes, client.scopes)
     } catch (error: any) {
-      return redirectWithError(ctx, manager, redirectUri, 'invalid_scope', error.message, state)
+      return this.#redirectWithError(ctx, manager, redirectUri, 'invalid_scope', error.message, state)
     }
 
     // PKCE is mandatory for all clients (OAuth 2.1)
     if (!codeChallenge) {
-      return redirectWithError(
+      return this.#redirectWithError(
         ctx,
         manager,
         redirectUri,
@@ -94,7 +236,7 @@ export default class AuthorizeController {
       )
     }
     if (codeChallengeMethod !== 'S256') {
-      return redirectWithError(
+      return this.#redirectWithError(
         ctx,
         manager,
         redirectUri,
@@ -109,8 +251,8 @@ export default class AuthorizeController {
     const user = ctx.auth.user as { id: string | number } | undefined
     if (!user) {
       const params = new URLSearchParams()
-      copyAuthorizeDisplayParams(params, query)
-      const loginPage = resolvePageUrl(manager.config.loginPage, ctx, params)
+      this.#copyAuthorizeDisplayParams(params, query)
+      const loginPage = this.#resolvePageUrl(manager.config.loginPage, ctx, params)
 
       return ctx.response.redirect().toPath(loginPage)
     }
@@ -125,7 +267,7 @@ export default class AuthorizeController {
       const consentedSet = new Set(existingConsent.scopes)
       const allCovered = requestedScopes.every((s: string) => consentedSet.has(s))
       if (allCovered) {
-        return issueAuthorizationCode(ctx, manager, {
+        return this.#issueAuthorizationCode(ctx, manager, {
           client,
           userId: String(user.id),
           scopes: requestedScopes,
@@ -138,7 +280,7 @@ export default class AuthorizeController {
     }
 
     // New or expanded scopes — redirect to consent page
-    const params = buildAuthorizationRequestParams(ctx, manager, {
+    const params = this.#buildAuthorizationRequestParams(ctx, manager, {
       clientId: client.clientId,
       redirectUri,
       scopes: requestedScopes,
@@ -146,140 +288,9 @@ export default class AuthorizeController {
       codeChallenge,
       codeChallengeMethod,
     })
-    copyAuthorizeDisplayParams(params, query)
-    const consentPage = resolvePageUrl(manager.config.consentPage, ctx, params)
+    this.#copyAuthorizeDisplayParams(params, query)
+    const consentPage = this.#resolvePageUrl(manager.config.consentPage, ctx, params)
 
     return ctx.response.redirect().toPath(consentPage)
   }
-}
-
-/**
- * Create and store an authorization code, then redirect the user
- * back to the client's `redirect_uri` with the code and state.
- *
- * The authorization code is stored as a SHA-256 hash in the database.
- * Only the raw (unhashed) value is sent to the client via the redirect.
- *
- * @see https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2
- */
-export async function issueAuthorizationCode(
-  ctx: HttpContext,
-  manager: SesameManager,
-  options: {
-    client: OAuthClient
-    userId: string
-    scopes: string[]
-    redirectUri: string
-    codeChallenge?: string
-    codeChallengeMethod?: string
-    state?: string
-  }
-) {
-  const tokenService = new TokenService(manager)
-  const raw = tokenService.generateOpaqueToken()
-  const hashed = tokenService.hashToken(raw)
-  const ttl = manager.parseTtl(manager.config.authorizationCodeTtl)
-
-  await OAuthAuthorizationCode.create({
-    id: crypto.randomUUID(),
-    code: hashed,
-    clientId: options.client.clientId,
-    userId: options.userId,
-    scopes: options.scopes,
-    redirectUri: options.redirectUri,
-    codeChallenge: options.codeChallenge ?? null,
-    codeChallengeMethod: options.codeChallengeMethod ?? null,
-    expiresAt: DateTime.now().plus({ seconds: ttl }),
-  })
-
-  const url = new URL(options.redirectUri)
-  url.searchParams.set('code', raw)
-  if (options.state) url.searchParams.set('state', options.state)
-  url.searchParams.set('iss', manager.config.issuer)
-
-  return ctx.response.redirect().toPath(url.toString())
-}
-
-/**
- * Redirect back to the client with an OAuth error response
- * in the query string, as specified by RFC 6749 §4.1.2.1.
- *
- * @see https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2.1
- */
-function redirectWithError(
-  ctx: HttpContext,
-  manager: SesameManager,
-  redirectUri: string,
-  error: string,
-  description: string,
-  state?: string
-) {
-  const url = new URL(redirectUri)
-  url.searchParams.set('error', error)
-  url.searchParams.set('error_description', description)
-  if (state) url.searchParams.set('state', state)
-  url.searchParams.set('iss', manager.config.issuer)
-
-  return ctx.response.redirect().toPath(url.toString())
-}
-
-function buildAuthorizationRequestParams(
-  ctx: HttpContext,
-  manager: SesameManager,
-  options: {
-    clientId: string
-    redirectUri: string
-    scopes: string[]
-    state?: string
-    codeChallenge?: string
-    codeChallengeMethod?: string
-  }
-) {
-  const tokenService = new TokenService(manager)
-  const rawRequestToken = tokenService.generateOpaqueToken()
-  const session = getAuthorizationSession(ctx)
-
-  session.put('sesame.authToken', rawRequestToken)
-  session.put('sesame.authRequest', {
-    clientId: options.clientId,
-    redirectUri: options.redirectUri,
-    scopes: options.scopes,
-    state: options.state ?? null,
-    codeChallenge: options.codeChallenge ?? null,
-    codeChallengeMethod: options.codeChallengeMethod ?? null,
-  })
-
-  const params = new URLSearchParams()
-  params.set('auth_token', rawRequestToken)
-
-  return params
-}
-
-function copyAuthorizeDisplayParams(params: URLSearchParams, query: Record<string, string>) {
-  for (const [key, value] of Object.entries(query)) {
-    if (key === 'auth_token') continue
-    if (value != null) params.set(key, String(value))
-  }
-}
-
-function getAuthorizationSession(ctx: HttpContext) {
-  const session = (ctx as any).session
-  if (!session || typeof session.put !== 'function') {
-    throw new E_INVALID_REQUEST('Session middleware is required for the browser authorization flow')
-  }
-
-  return session
-}
-
-/**
- * Resolve a login/consent page URL from either a static string
- * path or a dynamic function.
- */
-function resolvePageUrl(
-  page: string | ((ctx: HttpContext, params: URLSearchParams) => string),
-  ctx: HttpContext,
-  params: URLSearchParams
-): string {
-  if (typeof page === 'function') return page(ctx, params)
-  return `${page}?${params.toString()}`
 }

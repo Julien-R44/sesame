@@ -20,8 +20,8 @@ export async function configure(command: Configure) {
     await codemods.makeUsingStub(stubsRoot, stub, {})
   }
 
-  // Register provider
+  // Register provider and commands
   await codemods.updateRcFile((rcFile) => {
-    rcFile.addProvider('@adonisjs/sesame/sesame_provider')
+    rcFile.addProvider('@adonisjs/sesame/sesame_provider').addCommand('@adonisjs/sesame/commands')
   })
 }

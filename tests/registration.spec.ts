@@ -537,7 +537,7 @@ test.group('Integration | Dynamic Registration', (group) => {
     assert.equal(result.scope, 'read write')
   })
 
-  test('accepts any scopes when config.scopes is empty (open policy)', async ({ assert }) => {
+  test('rejects unknown scopes when config.scopes is empty', async ({ assert }) => {
     const manager = createManager({ scopes: {} })
 
     const ctx = mockCtx({
@@ -550,10 +550,25 @@ test.group('Integration | Dynamic Registration', (group) => {
     })
 
     const controller = new RegisterController()
+    await assert.rejects(() => controller.handle(ctx), /Unknown scopes/)
+  })
+
+  test('accepts empty scopes when config.scopes is empty', async ({ assert }) => {
+    const manager = createManager({ scopes: {}, defaultScopes: [] })
+
+    const ctx = mockCtx({
+      manager,
+      body: {
+        client_name: 'Test',
+        redirect_uris: ['https://example.com/cb'],
+      },
+    })
+
+    const controller = new RegisterController()
     const result = await controller.handle(ctx)
 
     assert.isDefined(result.client_id)
-    assert.equal(result.scope, 'anything custom_scope')
+    assert.equal(result.scope, '')
   })
 })
 

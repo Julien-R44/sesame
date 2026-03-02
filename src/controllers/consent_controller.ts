@@ -1,9 +1,12 @@
 /// <reference types="@adonisjs/auth/initialize_auth_middleware" />
+
+import { DateTime } from 'luxon'
 import type { HttpContext } from '@adonisjs/core/http'
 import { SesameManager } from '../sesame_manager.ts'
+import { TokenService } from '../services/token_service.ts'
 import { OAuthClient } from '../models/oauth_client.ts'
+import { OAuthAuthorizationCode } from '../models/oauth_authorization_code.ts'
 import { OAuthConsent } from '../models/oauth_consent.ts'
-import { issueAuthorizationCode } from './authorize_controller.ts'
 import { E_INVALID_CLIENT, E_INVALID_GRANT, E_INVALID_REQUEST } from '../oauth_error.ts'
 
 /**
@@ -20,9 +23,69 @@ import { E_INVALID_CLIENT, E_INVALID_GRANT, E_INVALID_REQUEST } from '../oauth_e
  * @see https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.1
  */
 export default class ConsentController {
+  /**
+   * Retrieve the session from the HTTP context, ensuring
+   * session middleware is active.
+   */
+  #getAuthorizationSession(ctx: HttpContext) {
+    const session = (ctx as any).session
+    if (!session || typeof session.pull !== 'function') {
+      throw new E_INVALID_REQUEST('Session middleware is required for the browser authorization flow')
+    }
+
+    return session
+  }
+
+  /**
+   * Create and store an authorization code, then redirect the user
+   * back to the client's redirect_uri with the code and state.
+   *
+   * The authorization code is stored as a SHA-256 hash in the database.
+   * Only the raw (unhashed) value is sent to the client via the redirect.
+   *
+   * @see https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2
+   */
+  async #issueAuthorizationCode(
+    ctx: HttpContext,
+    manager: SesameManager,
+    options: {
+      client: OAuthClient
+      userId: string
+      scopes: string[]
+      redirectUri: string
+      codeChallenge?: string
+      codeChallengeMethod?: string
+      state?: string
+    }
+  ) {
+    const tokenService = new TokenService(manager)
+    const raw = tokenService.generateOpaqueToken()
+    const hashed = tokenService.hashToken(raw)
+    const ttl = manager.parseTtl(manager.config.authorizationCodeTtl)
+
+    await OAuthAuthorizationCode.create({
+      id: crypto.randomUUID(),
+      code: hashed,
+      clientId: options.client.clientId,
+      userId: options.userId,
+      scopes: options.scopes,
+      redirectUri: options.redirectUri,
+      codeChallenge: options.codeChallenge ?? null,
+      codeChallengeMethod: options.codeChallengeMethod ?? null,
+      expiresAt: DateTime.now().plus({ seconds: ttl }),
+    })
+
+    const url = new URL(options.redirectUri)
+    url.searchParams.set('code', raw)
+    if (options.state) url.searchParams.set('state', options.state)
+    url.searchParams.set('iss', manager.config.issuer)
+
+    return ctx.response.redirect().toPath(url.toString())
+  }
+
   async handle(ctx: HttpContext) {
     const manager = await ctx.containerResolver.make(SesameManager)
-    const session = getAuthorizationSession(ctx)
+    const session = this.#getAuthorizationSession(ctx)
     const body = ctx.request.body()
 
     await ctx.auth.check()
@@ -91,7 +154,7 @@ export default class ConsentController {
       })
     }
 
-    return issueAuthorizationCode(ctx, manager, {
+    return this.#issueAuthorizationCode(ctx, manager, {
       client,
       userId: String(user.id),
       scopes: authorizationRequest.scopes,
@@ -101,13 +164,4 @@ export default class ConsentController {
       state: authorizationRequest.state ?? undefined,
     })
   }
-}
-
-function getAuthorizationSession(ctx: HttpContext) {
-  const session = (ctx as any).session
-  if (!session || typeof session.pull !== 'function') {
-    throw new E_INVALID_REQUEST('Session middleware is required for the browser authorization flow')
-  }
-
-  return session
 }

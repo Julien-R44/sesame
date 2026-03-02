@@ -75,10 +75,15 @@ export class ClientService {
   /**
    * Validate that requested scopes are within the client's
    * allowed scopes. Throws `E_INVALID_SCOPE` if any scope
-   * is not permitted.
+   * is not permitted. An empty `clientScopes` array means the
+   * client has no scope permissions (RFC 6749 §2, §3.3).
+   *
+   * @see https://datatracker.ietf.org/doc/html/rfc6749#section-3.3
    */
   validateClientScopes(requestedScopes: string[], clientScopes: string[]): void {
-    if (clientScopes.length === 0) return
+    if (clientScopes.length === 0 && requestedScopes.length > 0) {
+      throw new E_INVALID_SCOPE(`Scope not allowed: ${requestedScopes.join(', ')}`)
+    }
 
     const allowedSet = new Set(clientScopes)
     const invalid = requestedScopes.filter((s) => !allowedSet.has(s))

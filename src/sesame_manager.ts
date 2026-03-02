@@ -5,6 +5,12 @@ import { OAuthRefreshToken } from './models/oauth_refresh_token.ts'
 import { OAuthAuthorizationCode } from './models/oauth_authorization_code.ts'
 import { OAuthConsent } from './models/oauth_consent.ts'
 
+export interface PurgeResult {
+  accessTokens: number
+  refreshTokens: number
+  authorizationCodes: number
+}
+
 /**
  * Central manager for the Sésame OAuth 2.1 server.
  *
@@ -33,14 +39,18 @@ export class SesameManager {
 
   /**
    * Return the list of scopes that are not registered in the
-   * server configuration. Returns an empty array when no scopes
-   * are configured (open scope policy).
+   * server configuration. When no scopes are configured, all
+   * requested scopes are considered unknown per RFC 6749 §3.3
+   * (`invalid_scope` — "The requested scope is invalid, unknown,
+   * or malformed").
+   *
+   * @see https://datatracker.ietf.org/doc/html/rfc6749#section-3.3
+   * @see https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2.1
    */
   validateScopes(scopes: string[]): string[] {
-    if (Object.keys(this.#config.scopes).length === 0) return []
+    if (Object.keys(this.#config.scopes).length === 0) return scopes
 
-    const invalid = scopes.filter((s) => !this.hasScope(s))
-    return invalid
+    return scopes.filter((s) => !this.hasScope(s))
   }
 
   /**
@@ -73,6 +83,65 @@ export class SesameManager {
 
     await OAuthAuthorizationCode.query().where('userId', userId).delete()
     await OAuthConsent.query().where('userId', userId).delete()
+  }
+
+  /**
+   * Purge revoked and/or expired tokens and authorization codes.
+   *
+   * Returns the total number of deleted records. Expired tokens are
+   * retained for `retentionHours` (default 168 = 7 days) to allow
+   * for debugging and audit trails.
+   *
+   * Inspired by Laravel Passport's `passport:purge` command.
+   */
+  async purgeTokens(options?: {
+    revokedOnly?: boolean
+    expiredOnly?: boolean
+    retentionHours?: number
+  }): Promise<PurgeResult> {
+    const revokedOnly = options?.revokedOnly ?? false
+    const expiredOnly = options?.expiredOnly ?? false
+    const retentionHours = options?.retentionHours ?? 168
+    const purgeRevoked = revokedOnly || !expiredOnly
+    const purgeExpired = expiredOnly || !revokedOnly
+    const cutoff = DateTime.now().minus({ hours: retentionHours })
+
+    let accessTokens = 0
+    let refreshTokens = 0
+    let authorizationCodes = 0
+
+    if (purgeRevoked) {
+      accessTokens += await this.#deleteCount(
+        OAuthAccessToken.query().whereNotNull('revokedAt').delete()
+      )
+      refreshTokens += await this.#deleteCount(
+        OAuthRefreshToken.query().whereNotNull('revokedAt').delete()
+      )
+    }
+
+    if (purgeExpired) {
+      accessTokens += await this.#deleteCount(
+        OAuthAccessToken.query()
+          .where('expiresAt', '<', cutoff.toSQL()!)
+          .whereNull('revokedAt')
+          .delete()
+      )
+      refreshTokens += await this.#deleteCount(
+        OAuthRefreshToken.query()
+          .where('expiresAt', '<', cutoff.toSQL()!)
+          .whereNull('revokedAt')
+          .delete()
+      )
+      authorizationCodes += await this.#deleteCount(
+        OAuthAuthorizationCode.query().where('expiresAt', '<', cutoff.toSQL()!).delete()
+      )
+    }
+
+    return { accessTokens, refreshTokens, authorizationCodes }
+  }
+
+  #deleteCount(result: Promise<unknown>): Promise<number> {
+    return result.then((r) => (Array.isArray(r) ? Number(r[0] ?? 0) : Number(r)))
   }
 
   /**

@@ -8,6 +8,7 @@ import {
   teardownDatabase,
   createManager,
   createTestClient,
+  createMockSession,
   mockCtx,
 } from './helpers.ts'
 import { OAuthClient } from '../src/models/oauth_client.ts'
@@ -18,6 +19,11 @@ import { OAuthConsent } from '../src/models/oauth_consent.ts'
 import { TokenService } from '../src/services/token_service.ts'
 import MetadataController from '../src/controllers/metadata_controller.ts'
 import { OAuthError, E_INVALID_CLIENT } from '../src/oauth_error.ts'
+import { ClientService } from '../src/services/client_service.ts'
+import AuthorizeController from '../src/controllers/authorize_controller.ts'
+import ConsentController from '../src/controllers/consent_controller.ts'
+import RegisterController from '../src/controllers/register_controller.ts'
+import TokenController from '../src/controllers/token_controller.ts'
 
 let app: ApplicationService
 
@@ -247,5 +253,159 @@ test.group('Integration | revokeAllForUser', (group) => {
       .where('tokenHash', 'at-user2')
       .firstOrFail()
     assert.isNull(untouchedToken.revokedAt)
+  })
+})
+
+test.group('Security | Scope validation bypass (C1/C2)', () => {
+  test('C1: validateScopes rejects all scopes when server scopes config is empty', ({ assert }) => {
+    const manager = createManager({ scopes: {} })
+    const invalid = manager.validateScopes(['admin', 'superuser', 'delete_all'])
+    assert.deepEqual(invalid, ['admin', 'superuser', 'delete_all'])
+  })
+
+  test('C1: validateScopes allows empty scope list when server scopes config is empty', ({
+    assert,
+  }) => {
+    const manager = createManager({ scopes: {} })
+    assert.deepEqual(manager.validateScopes([]), [])
+  })
+
+  test('C2: validateClientScopes rejects any scope when client scopes are empty', ({ assert }) => {
+    const service = new ClientService()
+    assert.throws(
+      () => service.validateClientScopes(['admin', 'delete_all'], []),
+      'Scope not allowed'
+    )
+  })
+
+  test('C2: validateClientScopes allows empty request when client scopes are empty', ({
+    assert,
+  }) => {
+    const service = new ClientService()
+    assert.doesNotThrow(() => service.validateClientScopes([], []))
+  })
+})
+
+test.group('Security | Scope validation bypass (C1/C2) — Integration', (group) => {
+  group.setup(async () => {
+    app = await createApp()
+    await setupDatabase(app)
+  })
+
+  group.teardown(async () => {
+    await teardownDatabase(app)
+    await app.terminate()
+  })
+
+  group.each.setup(async () => {
+    await OAuthRefreshToken.query().delete()
+    await OAuthAccessToken.query().delete()
+    await OAuthAuthorizationCode.query().delete()
+    await OAuthConsent.query().delete()
+    await OAuthClient.query().delete()
+  })
+
+  test('C1+C2: authorize endpoint rejects arbitrary scopes with empty configs', async ({
+    assert,
+  }) => {
+    const manager = createManager({ scopes: {}, defaultScopes: [] })
+    const codeVerifier = 'a'.repeat(43)
+    const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
+
+    const clientService = new ClientService()
+    await OAuthClient.create({
+      id: crypto.randomUUID(),
+      clientId: 'bypass-client',
+      clientSecret: clientService.hashSecret('secret'),
+      name: 'Bypass Client',
+      redirectUris: ['https://evil.example.com/callback'],
+      scopes: [],
+      grantTypes: ['authorization_code'],
+      isPublic: false,
+      isDisabled: false,
+      requirePkce: true,
+      type: 'confidential',
+      metadata: null,
+      userId: null,
+    })
+
+    // Pre-create consent (should never be reached due to scope rejection)
+    await OAuthConsent.create({
+      id: crypto.randomUUID(),
+      clientId: 'bypass-client',
+      userId: 'user-1',
+      scopes: ['admin', 'superuser'],
+    })
+
+    const session = createMockSession()
+    const ctx = mockCtx({
+      query: {
+        client_id: 'bypass-client',
+        response_type: 'code',
+        redirect_uri: 'https://evil.example.com/callback',
+        scope: 'admin superuser',
+        code_challenge: codeChallenge,
+        code_challenge_method: 'S256',
+      },
+      auth: { user: { id: 'user-1' } },
+      session,
+      manager,
+    })
+
+    const result = await new AuthorizeController().handle(ctx)
+
+    // C1 rejects unknown scopes → redirect with invalid_scope error
+    assert.include(result.redirectUrl, 'error=invalid_scope')
+
+    // No auth code should have been created
+    const authCodes = await OAuthAuthorizationCode.query()
+      .where('clientId', 'bypass-client')
+      .where('userId', 'user-1')
+    assert.lengthOf(authCodes, 0)
+  })
+
+  test('C1+C2: dynamic registration → authorize rejects arbitrary scopes', async ({
+    assert,
+  }) => {
+    const manager = createManager({ scopes: {}, defaultScopes: [] })
+    const codeChallenge = createHash('sha256').update('b'.repeat(43)).digest('base64url')
+
+    // Step 1: Register a public client (no scopes → gets defaultScopes = [])
+    const registerCtx = mockCtx({
+      body: {
+        redirect_uris: ['https://attacker.example.com/callback'],
+        token_endpoint_auth_method: 'none',
+      },
+      manager,
+    })
+    const registerResult = await new RegisterController().handle(registerCtx)
+    assert.isDefined(registerResult.client_id)
+
+    // Step 2: Authorize with arbitrary scopes — should be rejected by C1
+    const session = createMockSession()
+    const authorizeCtx = mockCtx({
+      query: {
+        client_id: registerResult.client_id,
+        response_type: 'code',
+        redirect_uri: 'https://attacker.example.com/callback',
+        scope: 'admin superuser',
+        code_challenge: codeChallenge,
+        code_challenge_method: 'S256',
+      },
+      auth: { user: { id: 'user-1' } },
+      session,
+      manager,
+    })
+    const authorizeResult = await new AuthorizeController().handle(authorizeCtx)
+
+    // Attack chain broken at authorize: scopes rejected
+    assert.include(authorizeResult.redirectUrl, 'error=invalid_scope')
+    assert.include(authorizeResult.redirectUrl, 'admin')
+
+    // No auth code or token should exist
+    const authCodes = await OAuthAuthorizationCode.query().where('userId', 'user-1')
+    assert.lengthOf(authCodes, 0)
+    const accessTokens = await OAuthAccessToken.query().where('userId', 'user-1')
+    assert.lengthOf(accessTokens, 0)
   })
 })

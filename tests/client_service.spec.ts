@@ -75,8 +75,11 @@ test.group('ClientService', () => {
   test('validates client scopes', ({ assert }) => {
     const service = new ClientService()
 
-    // No restrictions
-    assert.doesNotThrow(() => service.validateClientScopes(['read', 'write'], []))
+    // Empty client scopes = no scope allowed
+    assert.throws(() => service.validateClientScopes(['read', 'write'], []))
+
+    // Empty request with empty client scopes = ok
+    assert.doesNotThrow(() => service.validateClientScopes([], []))
 
     // Valid scopes
     assert.doesNotThrow(() => service.validateClientScopes(['read'], ['read', 'write']))
