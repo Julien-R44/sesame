@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 import { BaseModel, column } from '@adonisjs/lucid/orm'
+import { json } from '../decorators.js'
 
 /**
  * Tracks which scopes a user has approved for a given client.
@@ -24,7 +25,7 @@ export class OAuthConsent extends BaseModel {
   @column()
   declare userId: string
 
-  @column({ prepare: (v: string[]) => JSON.stringify(v), consume: (v: string) => JSON.parse(v) })
+  @json()
   declare scopes: string[]
 
   @column.dateTime({ autoCreate: true })

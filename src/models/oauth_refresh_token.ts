@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 import { BaseModel, column } from '@adonisjs/lucid/orm'
+import { json } from '../decorators.js'
 
 /**
  * Database record for an OAuth 2.0 refresh token (RFC 6749 §6).
@@ -33,7 +34,7 @@ export class OAuthRefreshToken extends BaseModel {
   @column()
   declare userId: string
 
-  @column({ prepare: (v: string[]) => JSON.stringify(v), consume: (v: string) => JSON.parse(v) })
+  @json()
   declare scopes: string[]
 
   @column.dateTime()

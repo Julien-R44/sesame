@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 import { BaseModel, column } from '@adonisjs/lucid/orm'
+import { json } from '../decorators.js'
 
 /**
  * Database record for an OAuth 2.0 authorization code (RFC 6749 §4.1.2).
@@ -30,7 +31,7 @@ export class OAuthAuthorizationCode extends BaseModel {
   @column()
   declare userId: string
 
-  @column({ prepare: (v: string[]) => JSON.stringify(v), consume: (v: string) => JSON.parse(v) })
+  @json()
   declare scopes: string[]
 
   @column()

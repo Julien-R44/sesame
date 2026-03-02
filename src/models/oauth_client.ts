@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 import { BaseModel, column } from '@adonisjs/lucid/orm'
+import { json } from '../decorators.js'
 
 /**
  * Represents a registered OAuth 2.0 client (RFC 6749 §2).
@@ -29,13 +30,13 @@ export class OAuthClient extends BaseModel {
   @column()
   declare name: string
 
-  @column({ prepare: (v: string[]) => JSON.stringify(v), consume: (v: string) => JSON.parse(v) })
+  @json()
   declare redirectUris: string[]
 
-  @column({ prepare: (v: string[]) => JSON.stringify(v), consume: (v: string) => JSON.parse(v) })
+  @json()
   declare scopes: string[]
 
-  @column({ prepare: (v: string[]) => JSON.stringify(v), consume: (v: string) => JSON.parse(v) })
+  @json()
   declare grantTypes: string[]
 
   @column()
@@ -50,10 +51,7 @@ export class OAuthClient extends BaseModel {
   @column()
   declare type: string | null
 
-  @column({
-    prepare: (v: Record<string, any> | null) => (v ? JSON.stringify(v) : null),
-    consume: (v: string | null) => (v ? JSON.parse(v) : null),
-  })
+  @json()
   declare metadata: Record<string, any> | null
 
   @column()
