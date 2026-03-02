@@ -22,6 +22,7 @@ import IntrospectController from '../src/controllers/introspect_controller.ts'
 import RevokeController from '../src/controllers/revoke_controller.ts'
 import RegisterController from '../src/controllers/register_controller.ts'
 import MetadataController from '../src/controllers/metadata_controller.ts'
+import ClientInfoController from '../src/controllers/client_info_controller.ts'
 import { OAuthError, E_INVALID_CLIENT } from '../src/oauth_error.ts'
 
 let app: ApplicationService
@@ -280,6 +281,29 @@ test.group('Integration | Authorization Flow', (group) => {
       .where('clientId', 'attacker-client')
       .first()
     assert.isNull(attackerCode)
+  })
+
+  test('rejects confidential client without PKCE (OAuth 2.1)', async ({ assert }) => {
+    await createTestClient({ requirePkce: false, isPublic: false })
+    const controller = new AuthorizeController()
+    const session = createMockSession()
+
+    const ctx = mockCtx({
+      query: {
+        client_id: 'test-client',
+        response_type: 'code',
+        redirect_uri: 'https://app.example.com/callback',
+        scope: 'read',
+        state: 'some-state',
+      },
+      auth: { user: { id: 'user-1' } },
+      session,
+    })
+
+    const result = (await controller.handle(ctx)) as any
+    const url = new URL(result.redirectUrl)
+    assert.equal(url.searchParams.get('error'), 'invalid_request')
+    assert.include(url.searchParams.get('error_description'), 'code_challenge')
   })
 })
 
@@ -1817,6 +1841,7 @@ test.group('Integration | revokeAllForUser', (group) => {
     })
 
     // Create authorization code
+    const revokeVerifier = 'revoke-all-verifier'
     await OAuthAuthorizationCode.create({
       id: crypto.randomUUID(),
       code: tokenService.hashToken('code-1'),
@@ -1824,8 +1849,8 @@ test.group('Integration | revokeAllForUser', (group) => {
       userId: 'user-1',
       scopes: ['read'],
       redirectUri: 'https://app.example.com/callback',
-      codeChallenge: null,
-      codeChallengeMethod: null,
+      codeChallenge: createHash('sha256').update(revokeVerifier).digest('base64url'),
+      codeChallengeMethod: 'S256',
       expiresAt: DateTime.now().plus({ minutes: 10 }),
     })
 
@@ -1881,5 +1906,67 @@ test.group('Integration | revokeAllForUser', (group) => {
 
     const untouchedToken = await OAuthAccessToken.query().where('jti', 'at-user2').firstOrFail()
     assert.isNull(untouchedToken.revokedAt)
+  })
+})
+
+test.group('Integration | Client Info', (group) => {
+  group.setup(async () => {
+    app = await createApp()
+    await setupDatabase(app)
+  })
+
+  group.teardown(async () => {
+    await teardownDatabase(app)
+    await app.terminate()
+    await rm(resolve(import.meta.dirname!, '.tmp'), { recursive: true, force: true })
+  })
+
+  group.each.setup(async () => {
+    await OAuthClient.query().delete()
+  })
+
+  test('returns public info for a valid client', async ({ assert }) => {
+    const client = await createTestClient({ name: 'Claude Code' })
+    const controller = new ClientInfoController()
+    const ctx = mockCtx({ query: { client_id: client.clientId } })
+
+    const result = await controller.handle(ctx)
+
+    assert.deepEqual(result, { client_id: client.clientId, client_name: 'Claude Code' })
+  })
+
+  test('throws E_INVALID_REQUEST when client_id is missing', async ({ assert }) => {
+    const controller = new ClientInfoController()
+    const ctx = mockCtx({ query: {} })
+
+    try {
+      await controller.handle(ctx)
+      assert.fail('Expected E_INVALID_REQUEST to be thrown')
+    } catch (error: any) {
+      assert.equal(error.code, 'E_INVALID_REQUEST')
+    }
+  })
+
+  test('throws E_INVALID_CLIENT when client does not exist', async ({ assert }) => {
+    const controller = new ClientInfoController()
+    const ctx = mockCtx({ query: { client_id: 'non-existent' } })
+
+    try {
+      await controller.handle(ctx)
+      assert.fail('Expected E_INVALID_CLIENT to be thrown')
+    } catch (error: any) {
+      assert.equal(error.code, 'E_INVALID_CLIENT')
+    }
+  })
+
+  test('does not expose client_secret', async ({ assert }) => {
+    const client = await createTestClient()
+    const controller = new ClientInfoController()
+    const ctx = mockCtx({ query: { client_id: client.clientId } })
+
+    const result = await controller.handle(ctx) as Record<string, any>
+
+    assert.notProperty(result, 'client_secret')
+    assert.notProperty(result, 'clientSecret')
   })
 })

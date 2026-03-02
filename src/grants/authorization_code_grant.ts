@@ -78,14 +78,11 @@ export async function handleAuthorizationCodeGrant(ctx: HttpContext, manager: Se
   }
   if (authCode.redirectUri !== redirectUri) throw new E_INVALID_GRANT('Redirect URI mismatch')
 
-  // PKCE S256 verification: hash(code_verifier) must match stored code_challenge
-  if (authCode.codeChallenge) {
-    if (!codeVerifier) throw new E_INVALID_REQUEST('Missing required parameter: code_verifier')
-    const challenge = createHash('sha256').update(codeVerifier).digest('base64url')
-    if (challenge !== authCode.codeChallenge) throw new E_INVALID_GRANT('PKCE verification failed')
-  } else if (codeVerifier) {
-    throw new E_INVALID_REQUEST('code_verifier provided but no code_challenge was sent')
-  }
+  // PKCE S256 verification (mandatory per OAuth 2.1)
+  if (!codeVerifier) throw new E_INVALID_REQUEST('Missing required parameter: code_verifier')
+  if (!authCode.codeChallenge) throw new E_INVALID_GRANT('Authorization code is missing PKCE challenge')
+  const challenge = createHash('sha256').update(codeVerifier).digest('base64url')
+  if (challenge !== authCode.codeChallenge) throw new E_INVALID_GRANT('PKCE verification failed')
 
   clientService.validateClientScopes(authCode.scopes, client.scopes)
 

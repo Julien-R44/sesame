@@ -26,7 +26,7 @@ export default class ConsentController {
     const body = ctx.request.body()
 
     await ctx.auth.check()
-    const user = ctx.auth.user
+    const user = ctx.auth.user as { id: string | number } | undefined
     if (!user) throw new E_INVALID_REQUEST('User must be authenticated')
 
     const accept = body.accept

@@ -27,7 +27,7 @@ export default class RegisterController {
       throw new E_ACCESS_DENIED('Dynamic client registration is disabled')
     }
 
-    const user = ctx.auth?.user
+    const user = ctx.auth?.user as { id: string | number } | undefined
     if (!user && !manager.config.allowPublicRegistration) {
       throw new E_INVALID_REQUEST('Authentication required for client registration')
     }

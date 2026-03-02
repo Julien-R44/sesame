@@ -80,26 +80,24 @@ export default class AuthorizeController {
       return redirectWithError(ctx, redirectUri, 'invalid_scope', error.message, state)
     }
 
-    // PKCE is mandatory for public clients
-    if (client.requirePkce || client.isPublic) {
-      if (!codeChallenge) {
-        return redirectWithError(
-          ctx,
-          redirectUri,
-          'invalid_request',
-          'PKCE code_challenge is required',
-          state
-        )
-      }
-      if (codeChallengeMethod !== 'S256') {
-        return redirectWithError(
-          ctx,
-          redirectUri,
-          'invalid_request',
-          'Only S256 code_challenge_method is supported',
-          state
-        )
-      }
+    // PKCE is mandatory for all clients (OAuth 2.1)
+    if (!codeChallenge) {
+      return redirectWithError(
+        ctx,
+        redirectUri,
+        'invalid_request',
+        'PKCE code_challenge is required',
+        state
+      )
+    }
+    if (codeChallengeMethod !== 'S256') {
+      return redirectWithError(
+        ctx,
+        redirectUri,
+        'invalid_request',
+        'Only S256 code_challenge_method is supported',
+        state
+      )
     }
 
     // Attempt session authentication before checking user
