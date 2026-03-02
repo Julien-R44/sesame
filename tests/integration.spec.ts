@@ -370,7 +370,7 @@ test.group('Integration | Authorization Code Grant', (group) => {
     const manager = createManager()
     const client = await createTestClient()
     const rawCode = 'test-code-with-refresh'
-    const codeVerifier = 'another-verifier-value-for-testing'
+    const codeVerifier = 'another-verifier-value-for-testing-pkce-rfc7636-ok'
     const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
 
     await createTestAuthCode({
@@ -407,7 +407,7 @@ test.group('Integration | Authorization Code Grant', (group) => {
     const tokenService = new TokenService(manager)
     await createTestClient()
     const rawCode = 'expired-code'
-    const codeVerifier = 'verifier-for-expired'
+    const codeVerifier = 'verifier-for-expired-code-testing-rfc7636-compliant'
     const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
 
     await OAuthAuthorizationCode.create({
@@ -464,7 +464,7 @@ test.group('Integration | Authorization Code Grant', (group) => {
         redirect_uri: 'https://app.example.com/callback',
         client_id: 'test-client',
         client_secret: 'test-secret',
-        code_verifier: 'wrong-verifier',
+        code_verifier: 'wrong-verifier-value-that-is-long-enough-for-rfc7636',
       },
     })
 
@@ -478,7 +478,7 @@ test.group('Integration | Authorization Code Grant', (group) => {
     const manager = createManager()
     await createTestClient()
     const rawCode = 'pkce-retry-code'
-    const codeVerifier = 'correct-verifier-for-retry'
+    const codeVerifier = 'correct-verifier-for-retry-testing-rfc7636-compliant'
     const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
 
     await createTestAuthCode({
@@ -500,7 +500,7 @@ test.group('Integration | Authorization Code Grant', (group) => {
         redirect_uri: 'https://app.example.com/callback',
         client_id: 'test-client',
         client_secret: 'test-secret',
-        code_verifier: 'wrong-verifier',
+        code_verifier: 'wrong-verifier-value-that-is-long-enough-for-rfc7636',
       },
     })
     await assert.rejects(() => handleAuthorizationCodeGrant(ctx1, manager), 'PKCE verification failed')
@@ -556,7 +556,7 @@ test.group('Integration | Authorization Code Grant', (group) => {
     const manager = createManager()
     const client = await createTestClient({ scopes: ['read'] })
     const rawCode = 'client-scope-bypass'
-    const codeVerifier = 'client-scope-verifier'
+    const codeVerifier = 'client-scope-verifier-testing-rfc7636-format-compliant'
     const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
 
     await createTestAuthCode({
@@ -594,7 +594,7 @@ test.group('Integration | Authorization Code Grant', (group) => {
     const manager = createManager()
     await createTestClient()
     const rawCode = 'single-use-code'
-    const codeVerifier = 'single-use-verifier'
+    const codeVerifier = 'single-use-verifier-testing-rfc7636-format-compliant'
     const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
 
     await createTestAuthCode({
@@ -633,7 +633,7 @@ test.group('Integration | Authorization Code Grant', (group) => {
     const manager = createManager()
     await createTestClient()
     const rawCode = 'racy-auth-code'
-    const codeVerifier = 'racy-auth-code-verifier'
+    const codeVerifier = 'racy-auth-code-verifier-testing-rfc7636-format-ok'
     const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
 
     await createTestAuthCode({
@@ -672,7 +672,7 @@ test.group('Integration | Authorization Code Grant', (group) => {
     const manager = createManager()
     await createTestClient()
     const rawCode = 'db-token-code'
-    const codeVerifier = 'db-token-verifier'
+    const codeVerifier = 'db-token-verifier-testing-rfc7636-format-compliant'
     const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
 
     await createTestAuthCode({
@@ -1521,6 +1521,36 @@ test.group('Integration | Dynamic Registration', (group) => {
     assert.ok(client.isPublic)
   })
 
+  test('returns all registered metadata in response (RFC 7591 §3.2.1)', async ({ assert }) => {
+    const manager = createManager()
+    const ctx = mockCtx({
+      manager,
+      body: {
+        client_name: 'Full Metadata Client',
+        redirect_uris: ['https://example.com/callback'],
+        token_endpoint_auth_method: 'none',
+        client_uri: 'https://example.com',
+        logo_uri: 'https://example.com/logo.png',
+        contacts: ['admin@example.com'],
+        tos_uri: 'https://example.com/tos',
+        policy_uri: 'https://example.com/privacy',
+        software_id: 'my-app',
+        software_version: '1.0.0',
+      },
+    })
+
+    const controller = new RegisterController()
+    const result = await controller.handle(ctx)
+
+    assert.equal(result.client_uri, 'https://example.com')
+    assert.equal(result.logo_uri, 'https://example.com/logo.png')
+    assert.deepEqual(result.contacts, ['admin@example.com'])
+    assert.equal(result.tos_uri, 'https://example.com/tos')
+    assert.equal(result.policy_uri, 'https://example.com/privacy')
+    assert.equal(result.software_id, 'my-app')
+    assert.equal(result.software_version, '1.0.0')
+  })
+
   test('rejects registration when disabled', async ({ assert }) => {
     const manager = createManager({ allowDynamicRegistration: false })
 
@@ -1727,6 +1757,177 @@ test.group('Integration | Dynamic Registration', (group) => {
     assert.isDefined(result.client_id)
     const client = await OAuthClient.query().where('clientId', result.client_id).firstOrFail()
     assert.equal(client.name, 'Native App')
+  })
+
+  test('rejects javascript: scheme in client_uri', async ({ assert }) => {
+    const manager = createManager()
+
+    const ctx = mockCtx({
+      manager,
+      body: {
+        client_name: 'Test',
+        redirect_uris: ['https://example.com/cb'],
+        client_uri: 'javascript:alert(1)',
+      },
+    })
+
+    const controller = new RegisterController()
+
+    try {
+      await controller.handle(ctx)
+      assert.fail('Should have thrown')
+    } catch (error: any) {
+      assert.instanceOf(error, OAuthError)
+      assert.equal(error.oauthCode, 'invalid_client_metadata')
+    }
+  })
+
+  test('rejects data: scheme in logo_uri', async ({ assert }) => {
+    const manager = createManager()
+
+    const ctx = mockCtx({
+      manager,
+      body: {
+        client_name: 'Test',
+        redirect_uris: ['https://example.com/cb'],
+        logo_uri: 'data:image/png;base64,abc',
+      },
+    })
+
+    const controller = new RegisterController()
+
+    try {
+      await controller.handle(ctx)
+      assert.fail('Should have thrown')
+    } catch (error: any) {
+      assert.instanceOf(error, OAuthError)
+      assert.equal(error.oauthCode, 'invalid_client_metadata')
+    }
+  })
+
+  test('rejects client_uri with mismatched host', async ({ assert }) => {
+    const manager = createManager()
+
+    const ctx = mockCtx({
+      manager,
+      body: {
+        client_name: 'Test',
+        redirect_uris: ['https://example.com/cb'],
+        client_uri: 'https://evil.com/about',
+      },
+    })
+
+    const controller = new RegisterController()
+
+    try {
+      await controller.handle(ctx)
+      assert.fail('Should have thrown')
+    } catch (error: any) {
+      assert.instanceOf(error, OAuthError)
+      assert.equal(error.oauthCode, 'invalid_client_metadata')
+    }
+  })
+
+  test('rejects client_uri with mismatched scheme', async ({ assert }) => {
+    const manager = createManager()
+
+    const ctx = mockCtx({
+      manager,
+      body: {
+        client_name: 'Test',
+        redirect_uris: ['https://example.com/cb'],
+        client_uri: 'http://example.com/about',
+      },
+    })
+
+    const controller = new RegisterController()
+
+    try {
+      await controller.handle(ctx)
+      assert.fail('Should have thrown')
+    } catch (error: any) {
+      assert.instanceOf(error, OAuthError)
+      assert.equal(error.oauthCode, 'invalid_client_metadata')
+    }
+  })
+
+  test('accepts client_uri matching one of multiple redirect hosts', async ({ assert }) => {
+    const manager = createManager()
+
+    const ctx = mockCtx({
+      manager,
+      body: {
+        client_name: 'Multi-Host App',
+        redirect_uris: [
+          'https://app.example.com/cb',
+          'https://www.example.com/cb',
+        ],
+        client_uri: 'https://www.example.com/about',
+      },
+    })
+
+    const controller = new RegisterController()
+    const result = await controller.handle(ctx)
+
+    assert.isDefined(result.client_id)
+  })
+
+  test('rejects invalid contact email', async ({ assert }) => {
+    const manager = createManager()
+
+    const ctx = mockCtx({
+      manager,
+      body: {
+        client_name: 'Test',
+        redirect_uris: ['https://example.com/cb'],
+        contacts: ['not-an-email'],
+      },
+    })
+
+    const controller = new RegisterController()
+
+    try {
+      await controller.handle(ctx)
+      assert.fail('Should have thrown')
+    } catch (error: any) {
+      assert.instanceOf(error, OAuthError)
+      assert.equal(error.oauthCode, 'invalid_client_metadata')
+    }
+  })
+
+  test('accepts valid contacts', async ({ assert }) => {
+    const manager = createManager()
+
+    const ctx = mockCtx({
+      manager,
+      body: {
+        client_name: 'Test',
+        redirect_uris: ['https://example.com/cb'],
+        contacts: ['admin@example.com', 'support@example.com'],
+      },
+    })
+
+    const controller = new RegisterController()
+    const result = await controller.handle(ctx)
+
+    assert.isDefined(result.client_id)
+  })
+
+  test('accepts registration without optional metadata', async ({ assert }) => {
+    const manager = createManager()
+
+    const ctx = mockCtx({
+      manager,
+      body: {
+        redirect_uris: ['https://example.com/cb'],
+      },
+    })
+
+    const controller = new RegisterController()
+    const result = await controller.handle(ctx)
+
+    assert.isDefined(result.client_id)
+    assert.equal(result.client_name, 'Unnamed Client')
   })
 })
 

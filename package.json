@@ -53,6 +53,7 @@
     "@release-it/conventional-changelog": "^10.0.5",
     "@types/luxon": "^3.7.1",
     "@types/node": "^25.3.3",
+    "@vinejs/vine": "^4.3.0",
     "better-sqlite3": "^12.6.2",
     "c8": "^11.0.0",
     "copyfiles": "^2.4.1",
@@ -68,7 +69,8 @@
     "@adonisjs/assembler": "^8.0.0",
     "@adonisjs/auth": "^10.0.0",
     "@adonisjs/core": "^7.0.0",
-    "@adonisjs/lucid": "^21.0.0"
+    "@adonisjs/lucid": "^21.0.0",
+    "@vinejs/vine": "^4.0.0"
   },
   "peerDependenciesMeta": {
     "@adonisjs/assembler": {

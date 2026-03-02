@@ -1,10 +1,15 @@
 /// <reference types="@adonisjs/auth/initialize_auth_middleware" />
+import vine from '@vinejs/vine'
+import type { Infer } from '@vinejs/vine/types'
 import type { HttpContext } from '@adonisjs/core/http'
 import { SesameManager } from '../sesame_manager.ts'
 import { ClientService } from '../services/client_service.ts'
 import { OAuthClient } from '../models/oauth_client.ts'
 import { E_ACCESS_DENIED, E_INVALID_CLIENT_METADATA, E_INVALID_REQUEST } from '../oauth_error.ts'
 import { validateRedirectUri } from '../utils/validate_redirect_uri.ts'
+import { metadataUriRule } from '../rules.ts'
+
+const metadataUrl = vine.string().url({ require_protocol: true }).use(metadataUriRule()).optional()
 
 /**
  * Handles the OAuth 2.0 Dynamic Client Registration Endpoint (RFC 7591).
@@ -20,6 +25,25 @@ import { validateRedirectUri } from '../utils/validate_redirect_uri.ts'
  * @see https://datatracker.ietf.org/doc/html/rfc7591
  */
 export default class RegisterController {
+  static validator = vine.create({
+    redirect_uris: vine.array(vine.string()).minLength(1),
+    token_endpoint_auth_method: vine
+      .string()
+      .in(['client_secret_basic', 'client_secret_post', 'none'])
+      .optional(),
+    grant_types: vine.array(vine.string()).optional(),
+    response_types: vine.array(vine.string()).optional(),
+    scope: vine.string().optional(),
+    client_name: vine.string().optional(),
+    client_uri: metadataUrl,
+    logo_uri: metadataUrl,
+    tos_uri: metadataUrl,
+    policy_uri: metadataUrl,
+    contacts: vine.array(vine.string().email()).optional(),
+    software_id: vine.string().optional(),
+    software_version: vine.string().optional(),
+  })
+
   async handle(ctx: HttpContext) {
     const manager = await ctx.containerResolver.make(SesameManager)
 
@@ -32,16 +56,17 @@ export default class RegisterController {
       throw new E_INVALID_REQUEST('Authentication required for client registration')
     }
 
-    const clientService = new ClientService()
-    const body = ctx.request.body()
-
-    // Validate redirect URIs (required per RFC 7591 §2)
-    const redirectUris = body.redirect_uris
-    if (!redirectUris || !Array.isArray(redirectUris) || redirectUris.length === 0) {
-      throw new E_INVALID_CLIENT_METADATA('redirect_uris is required and must be a non-empty array')
+    let body: Infer<typeof RegisterController.validator>
+    try {
+      body = await RegisterController.validator.validate(ctx.request.body())
+    } catch {
+      throw new E_INVALID_CLIENT_METADATA('Invalid request body')
     }
 
-    for (const uri of redirectUris) validateRedirectUri(uri)
+    // Validate redirect URIs (scheme/fragment/custom-scheme rules)
+    for (const uri of body.redirect_uris) validateRedirectUri(uri)
+
+    const clientService = new ClientService()
 
     // Apply defaults for optional client metadata fields
     const tokenEndpointAuthMethod = body.token_endpoint_auth_method ?? 'client_secret_basic'
@@ -67,46 +92,51 @@ export default class RegisterController {
     const clientSecret = isPublic ? null : clientService.generateClientSecret()
     const hashedSecret = clientSecret ? clientService.hashSecret(clientSecret) : null
 
+    const metadata = {
+      token_endpoint_auth_method: tokenEndpointAuthMethod,
+      response_types: responseTypes,
+      ...(body.client_uri ? { client_uri: body.client_uri } : {}),
+      ...(body.logo_uri ? { logo_uri: body.logo_uri } : {}),
+      ...(body.contacts ? { contacts: body.contacts } : {}),
+      ...(body.tos_uri ? { tos_uri: body.tos_uri } : {}),
+      ...(body.policy_uri ? { policy_uri: body.policy_uri } : {}),
+      ...(body.software_id ? { software_id: body.software_id } : {}),
+      ...(body.software_version ? { software_version: body.software_version } : {}),
+    }
+
     // Persist the new client
     await OAuthClient.create({
       id: crypto.randomUUID(),
       clientId,
       clientSecret: hashedSecret,
       name: clientName,
-      redirectUris,
+      redirectUris: body.redirect_uris,
       scopes,
       grantTypes,
       isPublic,
       isDisabled: false,
       requirePkce: true,
       type: isPublic ? 'public' : 'confidential',
-      metadata: {
-        token_endpoint_auth_method: tokenEndpointAuthMethod,
-        response_types: responseTypes,
-        ...(body.client_uri ? { client_uri: body.client_uri } : {}),
-        ...(body.logo_uri ? { logo_uri: body.logo_uri } : {}),
-        ...(body.contacts ? { contacts: body.contacts } : {}),
-        ...(body.tos_uri ? { tos_uri: body.tos_uri } : {}),
-        ...(body.policy_uri ? { policy_uri: body.policy_uri } : {}),
-        ...(body.software_id ? { software_id: body.software_id } : {}),
-        ...(body.software_version ? { software_version: body.software_version } : {}),
-      },
+      metadata,
       userId: user ? String(user.id) : null,
     })
 
     ctx.response.header('Cache-Control', 'no-store')
     ctx.response.status(201)
 
+    /**
+     * RFC 7591 §3.2.1 requires the response to include ALL registered
+     * metadata about this client, including fields provisioned by the server.
+     */
     return {
       client_id: clientId,
       ...(clientSecret ? { client_secret: clientSecret } : {}),
       client_secret_expires_at: 0,
       client_name: clientName,
-      redirect_uris: redirectUris,
+      redirect_uris: body.redirect_uris,
       grant_types: grantTypes,
-      response_types: responseTypes,
-      token_endpoint_auth_method: tokenEndpointAuthMethod,
       scope: scopes.join(' '),
+      ...metadata,
     }
   }
 }

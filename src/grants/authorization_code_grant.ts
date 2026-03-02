@@ -1,3 +1,4 @@
+import vine from '@vinejs/vine'
 import { DateTime } from 'luxon'
 import { createHash } from 'node:crypto'
 import type { HttpContext } from '@adonisjs/core/http'
@@ -9,6 +10,16 @@ import { OAuthAccessToken } from '../models/oauth_access_token.ts'
 import { OAuthRefreshToken } from '../models/oauth_refresh_token.ts'
 import { OAuthClient } from '../models/oauth_client.ts'
 import { E_INVALID_CLIENT, E_INVALID_GRANT, E_INVALID_REQUEST } from '../oauth_error.ts'
+
+/**
+ * Validates the code_verifier format per RFC 7636 §4.1.
+ * 43-128 characters from the unreserved character set [A-Za-z0-9-._~].
+ *
+ * @see https://datatracker.ietf.org/doc/html/rfc7636#section-4.1
+ */
+const codeVerifierValidator = vine.create({
+  code_verifier: vine.string().minLength(43).maxLength(128).regex(/^[A-Za-z0-9\-._~]+$/),
+})
 
 /**
  * Handle the Authorization Code Grant (RFC 6749 §4.1.3).
@@ -89,7 +100,13 @@ export async function handleAuthorizationCodeGrant(ctx: HttpContext, manager: Se
   }
 
   // PKCE S256 verification (mandatory per OAuth 2.1)
-  if (!codeVerifier) throw new E_INVALID_REQUEST('Missing required parameter: code_verifier')
+  // @see https://datatracker.ietf.org/doc/html/rfc7636#section-4.1
+  const [verifierError] = await codeVerifierValidator.tryValidate({ code_verifier: codeVerifier })
+  if (verifierError) {
+    throw new E_INVALID_REQUEST(
+      'code_verifier must be 43-128 characters using only [A-Za-z0-9-._~] (RFC 7636 §4.1)'
+    )
+  }
   if (!authCode.codeChallenge) throw new E_INVALID_GRANT('Authorization code is missing PKCE challenge')
   const challenge = createHash('sha256').update(codeVerifier).digest('base64url')
   if (challenge !== authCode.codeChallenge) throw new E_INVALID_GRANT('PKCE verification failed')
