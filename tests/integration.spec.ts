@@ -474,6 +474,55 @@ test.group('Integration | Authorization Code Grant', (group) => {
     )
   })
 
+  test('consumes authorization code on failed PKCE so it cannot be retried', async ({ assert }) => {
+    const manager = createManager()
+    await createTestClient()
+    const rawCode = 'pkce-retry-code'
+    const codeVerifier = 'correct-verifier-for-retry'
+    const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
+
+    await createTestAuthCode({
+      clientId: 'test-client',
+      userId: 'user-1',
+      scopes: ['read'],
+      redirectUri: 'https://app.example.com/callback',
+      rawCode,
+      codeChallenge,
+      codeChallengeMethod: 'S256',
+    })
+
+    // First attempt with wrong verifier — should fail but consume the code
+    const ctx1 = mockCtx({
+      manager,
+      body: {
+        grant_type: 'authorization_code',
+        code: rawCode,
+        redirect_uri: 'https://app.example.com/callback',
+        client_id: 'test-client',
+        client_secret: 'test-secret',
+        code_verifier: 'wrong-verifier',
+      },
+    })
+    await assert.rejects(() => handleAuthorizationCodeGrant(ctx1, manager), 'PKCE verification failed')
+
+    // Second attempt with correct verifier — code is already consumed
+    const ctx2 = mockCtx({
+      manager,
+      body: {
+        grant_type: 'authorization_code',
+        code: rawCode,
+        redirect_uri: 'https://app.example.com/callback',
+        client_id: 'test-client',
+        client_secret: 'test-secret',
+        code_verifier: codeVerifier,
+      },
+    })
+    await assert.rejects(
+      () => handleAuthorizationCodeGrant(ctx2, manager),
+      'Authorization code not found'
+    )
+  })
+
   test('rejects invalid client secret', async ({ assert }) => {
     const manager = createManager()
     await createTestClient()

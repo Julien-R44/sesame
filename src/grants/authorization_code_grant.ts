@@ -78,15 +78,8 @@ export async function handleAuthorizationCodeGrant(ctx: HttpContext, manager: Se
   }
   if (authCode.redirectUri !== redirectUri) throw new E_INVALID_GRANT('Redirect URI mismatch')
 
-  // PKCE S256 verification (mandatory per OAuth 2.1)
-  if (!codeVerifier) throw new E_INVALID_REQUEST('Missing required parameter: code_verifier')
-  if (!authCode.codeChallenge) throw new E_INVALID_GRANT('Authorization code is missing PKCE challenge')
-  const challenge = createHash('sha256').update(codeVerifier).digest('base64url')
-  if (challenge !== authCode.codeChallenge) throw new E_INVALID_GRANT('PKCE verification failed')
-
-  clientService.validateClientScopes(authCode.scopes, client.scopes)
-
-  // Consume the code — authorization codes are single-use
+  // Consume the code before verification — authorization codes are single-use
+  // even if PKCE fails, so attackers cannot retry with different verifiers
   const deleteResult = await OAuthAuthorizationCode.query().where('id', authCode.id).delete()
   const deletedRows = Array.isArray(deleteResult)
     ? Number(deleteResult[0] ?? 0)
@@ -94,6 +87,14 @@ export async function handleAuthorizationCodeGrant(ctx: HttpContext, manager: Se
   if (deletedRows !== 1) {
     throw new E_INVALID_GRANT('Authorization code has already been consumed')
   }
+
+  // PKCE S256 verification (mandatory per OAuth 2.1)
+  if (!codeVerifier) throw new E_INVALID_REQUEST('Missing required parameter: code_verifier')
+  if (!authCode.codeChallenge) throw new E_INVALID_GRANT('Authorization code is missing PKCE challenge')
+  const challenge = createHash('sha256').update(codeVerifier).digest('base64url')
+  if (challenge !== authCode.codeChallenge) throw new E_INVALID_GRANT('PKCE verification failed')
+
+  clientService.validateClientScopes(authCode.scopes, client.scopes)
 
   // Issue a signed JWT access token
   const {
