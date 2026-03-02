@@ -67,6 +67,7 @@ export default class ConsentController {
       url.searchParams.set('error', 'access_denied')
       url.searchParams.set('error_description', 'The user denied the authorization request')
       if (authorizationRequest.state) url.searchParams.set('state', authorizationRequest.state)
+      url.searchParams.set('iss', manager.config.issuer)
 
       return ctx.response.redirect().toPath(url.toString())
     }

@@ -55,6 +55,7 @@ export default class AuthorizeController {
     if (!client.grantTypes.includes('authorization_code')) {
       return redirectWithError(
         ctx,
+        manager,
         redirectUri,
         'unauthorized_client',
         'Client is not allowed to use the authorization_code grant',
@@ -68,6 +69,7 @@ export default class AuthorizeController {
     if (invalidScopes.length > 0) {
       return redirectWithError(
         ctx,
+        manager,
         redirectUri,
         'invalid_scope',
         `Invalid scopes: ${invalidScopes.join(', ')}`,
@@ -77,13 +79,14 @@ export default class AuthorizeController {
     try {
       clientService.validateClientScopes(requestedScopes, client.scopes)
     } catch (error: any) {
-      return redirectWithError(ctx, redirectUri, 'invalid_scope', error.message, state)
+      return redirectWithError(ctx, manager, redirectUri, 'invalid_scope', error.message, state)
     }
 
     // PKCE is mandatory for all clients (OAuth 2.1)
     if (!codeChallenge) {
       return redirectWithError(
         ctx,
+        manager,
         redirectUri,
         'invalid_request',
         'PKCE code_challenge is required',
@@ -93,6 +96,7 @@ export default class AuthorizeController {
     if (codeChallengeMethod !== 'S256') {
       return redirectWithError(
         ctx,
+        manager,
         redirectUri,
         'invalid_request',
         'Only S256 code_challenge_method is supported',
@@ -204,6 +208,7 @@ export async function issueAuthorizationCode(
  */
 function redirectWithError(
   ctx: HttpContext,
+  manager: SesameManager,
   redirectUri: string,
   error: string,
   description: string,
@@ -213,6 +218,7 @@ function redirectWithError(
   url.searchParams.set('error', error)
   url.searchParams.set('error_description', description)
   if (state) url.searchParams.set('state', state)
+  url.searchParams.set('iss', manager.config.issuer)
 
   return ctx.response.redirect().toPath(url.toString())
 }
