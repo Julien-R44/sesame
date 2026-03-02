@@ -96,7 +96,6 @@
       "./configure.ts",
       "./providers/sesame_provider.ts",
       "./src/guard/main.ts",
-      "./commands/sesame_keys.ts",
       "./commands/sesame_purge.ts"
     ],
     "outDir": "./build",
