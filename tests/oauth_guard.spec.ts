@@ -482,4 +482,68 @@ test.group('OAuthGuard', (group) => {
     const eventNames = emitter.events.map((e) => e.name)
     assert.include(eventNames, 'oauth_auth:authentication_failed')
   })
+
+  test('WWW-Authenticate omits error attributes when no token is sent', async ({ assert }) => {
+    const manager = createManager()
+    const ctx = createFakeCtx()
+    const emitter = createFakeEmitter()
+    const provider = new FakeUserProvider([])
+    const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
+
+    await guard.check()
+
+    const header = ctx.__responseHeaders['WWW-Authenticate']
+    assert.equal(
+      header,
+      'Bearer resource_metadata="https://auth.example.com/.well-known/oauth-protected-resource"'
+    )
+    assert.notInclude(header, 'error=')
+    assert.notInclude(header, 'error_description=')
+  })
+
+  test('WWW-Authenticate includes error attributes when token is present but invalid', async ({
+    assert,
+  }) => {
+    const manager = createManager()
+    const ctx = createFakeCtx({ headers: { authorization: 'Bearer some-invalid-token' } })
+    const emitter = createFakeEmitter()
+    const provider = new FakeUserProvider([])
+    const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
+
+    await guard.check()
+
+    const header = ctx.__responseHeaders['WWW-Authenticate']
+    assert.include(header, 'resource_metadata="https://auth.example.com/.well-known/oauth-protected-resource"')
+    assert.include(header, 'error="invalid_token"')
+    assert.include(header, 'error_description=')
+  })
+
+  test('WWW-Authenticate includes error attributes when token is revoked', async ({ assert }) => {
+    const manager = createManager()
+    const tokenService = new TokenService(manager)
+    await createTestClient()
+
+    const { raw, hash } = tokenService.createAccessToken()
+
+    await OAuthAccessToken.create({
+      id: crypto.randomUUID(),
+      tokenHash: hash,
+      clientId: 'test-client',
+      userId: 'user-1',
+      scopes: ['read'],
+      expiresAt: DateTime.now().plus({ hours: 1 }),
+      revokedAt: DateTime.now(),
+    })
+
+    const ctx = createFakeCtx({ headers: { authorization: `Bearer ${raw}` } })
+    const emitter = createFakeEmitter()
+    const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
+    const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
+
+    await guard.check()
+
+    const header = ctx.__responseHeaders['WWW-Authenticate']
+    assert.include(header, 'error="invalid_token"')
+    assert.include(header, 'error_description=')
+  })
 })

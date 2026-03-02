@@ -60,13 +60,15 @@ export class OAuthGuard<
     return token
   }
 
-  #authenticationFailed(description: string) {
+  #authenticationFailed(description: string, options?: { includeError?: boolean }) {
     const resourceMetadataUrl = `${this.#manager.config.issuer}/.well-known/oauth-protected-resource`
 
-    this.#ctx.response.header(
-      'WWW-Authenticate',
-      `Bearer resource_metadata="${resourceMetadataUrl}"`
-    )
+    let header = `Bearer resource_metadata="${resourceMetadataUrl}"`
+    if (options?.includeError) {
+      header += `, error="invalid_token", error_description="${description}"`
+    }
+
+    this.#ctx.response.header('WWW-Authenticate', header)
 
     const error = new errors.E_UNAUTHORIZED_ACCESS(description, {
       guardDriverName: this.driverName,
@@ -103,17 +105,18 @@ export class OAuthGuard<
     const rawToken = this.#extractBearerToken()
     const tokenService = new TokenService(this.#manager)
 
+    const includeError = { includeError: true } as const
     const hashed = tokenService.hashToken(rawToken)
     const record = await OAuthAccessToken.query().where('tokenHash', hashed).first()
-    if (!record) throw this.#authenticationFailed('Invalid or expired token')
-    if (record.revokedAt) throw this.#authenticationFailed('Token has been revoked')
+    if (!record) throw this.#authenticationFailed('Invalid or expired token', includeError)
+    if (record.revokedAt) throw this.#authenticationFailed('Token has been revoked', includeError)
     if (record.expiresAt.toJSDate() < new Date())
-      throw this.#authenticationFailed('Invalid or expired token')
+      throw this.#authenticationFailed('Invalid or expired token', includeError)
 
-    if (!record.userId) throw this.#authenticationFailed('M2M tokens are not supported')
+    if (!record.userId) throw this.#authenticationFailed('M2M tokens are not supported', includeError)
 
     const providerUser = await this.#userProvider.findById(record.userId)
-    if (!providerUser) throw this.#authenticationFailed('User not found')
+    if (!providerUser) throw this.#authenticationFailed('User not found', includeError)
 
     this.isAuthenticated = true
     this.user = providerUser.getOriginal() as UserProvider[typeof symbols.PROVIDER_REAL_USER]

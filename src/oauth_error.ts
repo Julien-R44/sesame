@@ -57,6 +57,21 @@ export const E_INVALID_CLIENT = class extends OAuthError {
   static readonly code: string = 'E_INVALID_CLIENT'
   static readonly message: string = 'Invalid client'
   static readonly oauthCode: string = 'invalid_client'
+
+  /**
+   * If the client attempted to authenticate via the Authorization header
+   * (Basic auth), the server MUST include WWW-Authenticate: Basic.
+   *
+   * @see https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-12#section-3.2.4
+   */
+  handle(error: this, ctx: HttpContext) {
+    const authHeader = ctx.request.header('authorization')
+    if (authHeader?.startsWith('Basic ')) {
+      ctx.response.header('WWW-Authenticate', 'Basic')
+    }
+
+    super.handle(error, ctx)
+  }
 }
 
 /**
