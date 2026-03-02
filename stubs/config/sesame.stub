@@ -1,0 +1,32 @@
+{{{
+  exports: { defineConfig: 'import { defineConfig } from \'@adonisjs/sesame\'' }
+}}}
+import env from '#start/env'
+
+const sesameConfig = defineConfig({
+  issuer: env.get('APP_URL'),
+
+  scopes: {
+    // Define your available scopes here
+    // 'read': 'Read access',
+    // 'write': 'Write access',
+  },
+
+  defaultScopes: [],
+
+  grantTypes: ['authorization_code', 'refresh_token'],
+
+  accessTokenTtl: '1h',
+  refreshTokenTtl: '30d',
+  authorizationCodeTtl: '10m',
+
+  loginPage: '/login',
+  consentPage: '/oauth/consent',
+
+  allowDynamicRegistration: false,
+  allowPublicRegistration: false,
+
+  jwksPath: 'storage/sesame-keys.json',
+})
+
+export default sesameConfig
