@@ -9,24 +9,36 @@ const DANGEROUS_SCHEMES = ['javascript:', 'data:', 'vbscript:']
  *
  * @see https://datatracker.ietf.org/doc/html/rfc7591#section-5
  */
-export const metadataUriRule = vine.createRule((value: unknown, _options: undefined, field: FieldContext) => {
-  const parsed = new URL(value as string)
+export const metadataUriRule = vine.createRule(
+  (value: unknown, _options: undefined, field: FieldContext) => {
+    const parsed = new URL(value as string)
 
-  if (DANGEROUS_SCHEMES.includes(parsed.protocol)) {
-    field.report('{{ field }} uses a disallowed scheme', 'metadataUri', field)
-    return
+    if (DANGEROUS_SCHEMES.includes(parsed.protocol)) {
+      field.report('{{ field }} uses a disallowed scheme', 'metadataUri', field)
+      return
+    }
+
+    const redirectUris: string[] = field.data.redirect_uris ?? []
+    const redirectOrigins = new Set(
+      redirectUris
+        .map((u: string) => {
+          try {
+            return new URL(u)
+          } catch {
+            return null
+          }
+        })
+        .filter(Boolean)
+        .map((u: URL | null) => `${u!.protocol}//${u!.hostname}`)
+    )
+
+    const metaOrigin = `${parsed.protocol}//${parsed.hostname}`
+    if (!redirectOrigins.has(metaOrigin)) {
+      field.report(
+        '{{ field }} host and scheme must match at least one redirect_uri',
+        'metadataUri',
+        field
+      )
+    }
   }
-
-  const redirectUris: string[] = field.data.redirect_uris ?? []
-  const redirectOrigins = new Set(
-    redirectUris
-      .map((u: string) => { try { return new URL(u) } catch { return null } })
-      .filter(Boolean)
-      .map((u: URL | null) => `${u!.protocol}//${u!.hostname}`)
-  )
-
-  const metaOrigin = `${parsed.protocol}//${parsed.hostname}`
-  if (!redirectOrigins.has(metaOrigin)) {
-    field.report('{{ field }} host and scheme must match at least one redirect_uri', 'metadataUri', field)
-  }
-})
+)

@@ -28,6 +28,8 @@ export function validateRedirectUri(uri: string): void {
   }
 
   if (parsed.protocol === 'http:' && !LOCALHOST_HOSTS.includes(parsed.hostname)) {
-    throw new E_INVALID_CLIENT_METADATA(`Redirect URI must use HTTPS for non-localhost hosts: ${uri}`)
+    throw new E_INVALID_CLIENT_METADATA(
+      `Redirect URI must use HTTPS for non-localhost hosts: ${uri}`
+    )
   }
 }

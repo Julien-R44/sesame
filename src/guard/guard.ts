@@ -107,7 +107,8 @@ export class OAuthGuard<
     const record = await OAuthAccessToken.query().where('tokenHash', hashed).first()
     if (!record) throw this.#authenticationFailed('Invalid or expired token')
     if (record.revokedAt) throw this.#authenticationFailed('Token has been revoked')
-    if (record.expiresAt.toJSDate() < new Date()) throw this.#authenticationFailed('Invalid or expired token')
+    if (record.expiresAt.toJSDate() < new Date())
+      throw this.#authenticationFailed('Invalid or expired token')
 
     if (!record.userId) throw this.#authenticationFailed('M2M tokens are not supported')
 

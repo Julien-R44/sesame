@@ -93,7 +93,6 @@ export interface SesameConfig {
    * Defaults to `false`.
    */
   allowPublicRegistration?: boolean
-
 }
 
 /**

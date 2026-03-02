@@ -18,7 +18,11 @@ import { E_INVALID_CLIENT, E_INVALID_GRANT, E_INVALID_REQUEST } from '../oauth_e
  * @see https://datatracker.ietf.org/doc/html/rfc7636#section-4.1
  */
 const codeVerifierValidator = vine.create({
-  code_verifier: vine.string().minLength(43).maxLength(128).regex(/^[A-Za-z0-9\-._~]+$/),
+  code_verifier: vine
+    .string()
+    .minLength(43)
+    .maxLength(128)
+    .regex(/^[A-Za-z0-9\-._~]+$/),
 })
 
 /**
@@ -106,7 +110,8 @@ export async function handleAuthorizationCodeGrant(ctx: HttpContext, manager: Se
       'code_verifier must be 43-128 characters using only [A-Za-z0-9-._~] (RFC 7636 §4.1)'
     )
   }
-  if (!authCode.codeChallenge) throw new E_INVALID_GRANT('Authorization code is missing PKCE challenge')
+  if (!authCode.codeChallenge)
+    throw new E_INVALID_GRANT('Authorization code is missing PKCE challenge')
   const challenge = createHash('sha256').update(codeVerifier).digest('base64url')
   if (challenge !== authCode.codeChallenge) throw new E_INVALID_GRANT('PKCE verification failed')
 

@@ -499,7 +499,10 @@ test.group('Integration | Authorization Code Grant', (group) => {
         code_verifier: 'wrong-verifier-value-that-is-long-enough-for-rfc7636',
       },
     })
-    await assert.rejects(() => handleAuthorizationCodeGrant(ctx1, manager), 'PKCE verification failed')
+    await assert.rejects(
+      () => handleAuthorizationCodeGrant(ctx1, manager),
+      'PKCE verification failed'
+    )
 
     // Second attempt with correct verifier — code is already consumed
     const ctx2 = mockCtx({
@@ -1383,7 +1386,9 @@ test.group('Integration | Revocation', (group) => {
       .firstOrFail()
     assert.isNotNull(refresh.revokedAt)
 
-    const access = await OAuthAccessToken.query().where('tokenHash', 'linked-token-hash').firstOrFail()
+    const access = await OAuthAccessToken.query()
+      .where('tokenHash', 'linked-token-hash')
+      .firstOrFail()
     assert.isNotNull(access.revokedAt)
   })
 
@@ -1818,10 +1823,7 @@ test.group('Integration | Dynamic Registration', (group) => {
       manager,
       body: {
         client_name: 'Multi-Host App',
-        redirect_uris: [
-          'https://app.example.com/cb',
-          'https://www.example.com/cb',
-        ],
+        redirect_uris: ['https://app.example.com/cb', 'https://www.example.com/cb'],
         client_uri: 'https://www.example.com/about',
       },
     })
@@ -2074,7 +2076,9 @@ test.group('Integration | revokeAllForUser', (group) => {
     const accessToken = await OAuthAccessToken.query().where('tokenHash', 'at-1').firstOrFail()
     assert.isNotNull(accessToken.revokedAt)
 
-    const refreshToken = await OAuthRefreshToken.query().where('accessTokenId', 'at-1').firstOrFail()
+    const refreshToken = await OAuthRefreshToken.query()
+      .where('accessTokenId', 'at-1')
+      .firstOrFail()
     assert.isNotNull(refreshToken.revokedAt)
 
     const codes = await OAuthAuthorizationCode.query().where('userId', 'user-1')
@@ -2111,7 +2115,9 @@ test.group('Integration | revokeAllForUser', (group) => {
     const revokedToken = await OAuthAccessToken.query().where('tokenHash', 'at-user1').firstOrFail()
     assert.isNotNull(revokedToken.revokedAt)
 
-    const untouchedToken = await OAuthAccessToken.query().where('tokenHash', 'at-user2').firstOrFail()
+    const untouchedToken = await OAuthAccessToken.query()
+      .where('tokenHash', 'at-user2')
+      .firstOrFail()
     assert.isNull(untouchedToken.revokedAt)
   })
 })
@@ -2170,7 +2176,7 @@ test.group('Integration | Client Info', (group) => {
     const controller = new ClientInfoController()
     const ctx = mockCtx({ query: { client_id: client.clientId } })
 
-    const result = await controller.handle(ctx) as Record<string, any>
+    const result = (await controller.handle(ctx)) as Record<string, any>
 
     assert.notProperty(result, 'client_secret')
     assert.notProperty(result, 'clientSecret')
