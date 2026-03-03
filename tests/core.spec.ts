@@ -166,11 +166,11 @@ test.group('Integration | Metadata Endpoints', () => {
 
 test.group('Integration | OAuth Error Handling', () => {
   test('OAuthError has correct properties', ({ assert }) => {
-    const error = new E_INVALID_CLIENT('Client not found')
+    const error = new E_INVALID_CLIENT('Client authentication failed')
 
     assert.equal(error.status, 401)
     assert.equal(error.oauthCode, 'invalid_client')
-    assert.equal(error.message, 'Client not found')
+    assert.equal(error.message, 'Client authentication failed')
     assert.instanceOf(error, OAuthError)
   })
 })

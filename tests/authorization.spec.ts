@@ -712,7 +712,10 @@ test.group('Integration | Authorization Code Grant', (group) => {
       },
     })
 
-    await assert.rejects(() => handleAuthorizationCodeGrant(ctx, manager), 'Invalid client secret')
+    await assert.rejects(
+      () => handleAuthorizationCodeGrant(ctx, manager),
+      'Client authentication failed'
+    )
   })
 
   test('rejects authorization code exchange when granted scopes exceed client scopes', async ({

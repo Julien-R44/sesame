@@ -786,7 +786,7 @@ test.group('Integration | Revocation', (group) => {
 
 test.group('E_INVALID_CLIENT | WWW-Authenticate header', () => {
   test('sets WWW-Authenticate: Basic when client used Authorization header', async ({ assert }) => {
-    const error = new E_INVALID_CLIENT('Client not found')
+    const error = new E_INVALID_CLIENT('Client authentication failed')
     const ctx = mockCtx({
       headers: { authorization: 'Basic dGVzdC1jbGllbnQ6dGVzdC1zZWNyZXQ=' },
     })
@@ -799,7 +799,7 @@ test.group('E_INVALID_CLIENT | WWW-Authenticate header', () => {
   test('does not set WWW-Authenticate when client used POST body credentials', async ({
     assert,
   }) => {
-    const error = new E_INVALID_CLIENT('Client not found')
+    const error = new E_INVALID_CLIENT('Client authentication failed')
     const ctx = mockCtx({})
 
     error.handle(error, ctx)

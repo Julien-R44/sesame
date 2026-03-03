@@ -6,7 +6,6 @@ import { TokenService } from '../services/token_service.ts'
 import { ClientService } from '../services/client_service.ts'
 import { OAuthAccessToken } from '../models/oauth_access_token.ts'
 import { OAuthRefreshToken } from '../models/oauth_refresh_token.ts'
-import { OAuthClient } from '../models/oauth_client.ts'
 import {
   E_INVALID_CLIENT,
   E_INVALID_GRANT,
@@ -41,23 +40,11 @@ export async function handleRefreshTokenGrant(ctx: HttpContext, manager: SesameM
   if (!refreshTokenRaw) throw new E_INVALID_REQUEST('Missing required parameter: refresh_token')
 
   // Authenticate the client
-  const credentials = clientService.extractCredentials({
+  const client = await clientService.authenticateClient({
     authorizationHeader: ctx.request.header('authorization'),
     bodyClientId: body.client_id,
     bodyClientSecret: body.client_secret,
   })
-  if (!credentials) throw new E_INVALID_CLIENT('Missing client credentials')
-
-  const client = await OAuthClient.query().where('clientId', credentials.clientId).first()
-  if (!client) throw new E_INVALID_CLIENT('Client not found')
-  if (client.isDisabled) throw new E_INVALID_CLIENT('Client is disabled')
-
-  if (!client.isPublic) {
-    if (!credentials.clientSecret) throw new E_INVALID_CLIENT('Missing client secret')
-    if (!clientService.verifySecret(credentials.clientSecret, client.clientSecret!)) {
-      throw new E_INVALID_CLIENT('Invalid client secret')
-    }
-  }
   if (!client.grantTypes.includes('refresh_token')) {
     throw new E_INVALID_CLIENT('Client is not allowed to use the refresh_token grant')
   }

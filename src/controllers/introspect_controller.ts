@@ -2,10 +2,8 @@ import type { HttpContext } from '@adonisjs/core/http'
 import { SesameManager } from '../sesame_manager.ts'
 import { TokenService } from '../services/token_service.ts'
 import { ClientService } from '../services/client_service.ts'
-import { OAuthClient } from '../models/oauth_client.ts'
 import { OAuthAccessToken } from '../models/oauth_access_token.ts'
 import { OAuthRefreshToken } from '../models/oauth_refresh_token.ts'
-import { E_INVALID_CLIENT } from '../oauth_error.ts'
 
 const INACTIVE = { active: false }
 
@@ -28,23 +26,11 @@ export default class IntrospectController {
     const clientService = new ClientService()
 
     // Authenticate the requesting client
-    const credentials = clientService.extractCredentials({
+    const client = await clientService.authenticateClient({
       authorizationHeader: ctx.request.header('authorization'),
       bodyClientId: ctx.request.body().client_id,
       bodyClientSecret: ctx.request.body().client_secret,
     })
-    if (!credentials) throw new E_INVALID_CLIENT('Client authentication required')
-
-    const client = await OAuthClient.query().where('clientId', credentials.clientId).first()
-    if (!client) throw new E_INVALID_CLIENT('Client not found')
-    if (client.isDisabled) throw new E_INVALID_CLIENT('Client is disabled')
-
-    if (!client.isPublic) {
-      if (!credentials.clientSecret) throw new E_INVALID_CLIENT('Missing client secret')
-      if (!clientService.verifySecret(credentials.clientSecret, client.clientSecret!)) {
-        throw new E_INVALID_CLIENT('Invalid client secret')
-      }
-    }
 
     const token = ctx.request.body().token
     if (!token) return INACTIVE

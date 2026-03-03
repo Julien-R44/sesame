@@ -9,7 +9,6 @@ import { ClientService } from '../services/client_service.ts'
 import { OAuthAuthorizationCode } from '../models/oauth_authorization_code.ts'
 import { OAuthAccessToken } from '../models/oauth_access_token.ts'
 import { OAuthRefreshToken } from '../models/oauth_refresh_token.ts'
-import { OAuthClient } from '../models/oauth_client.ts'
 import { E_INVALID_CLIENT, E_INVALID_GRANT, E_INVALID_REQUEST } from '../oauth_error.ts'
 
 /**
@@ -57,24 +56,11 @@ export async function handleAuthorizationCodeGrant(ctx: HttpContext, manager: Se
   if (!redirectUri) throw new E_INVALID_REQUEST('Missing required parameter: redirect_uri')
 
   // Authenticate the client (Basic header or POST body)
-  const credentials = clientService.extractCredentials({
+  const client = await clientService.authenticateClient({
     authorizationHeader: ctx.request.header('authorization'),
     bodyClientId: body.client_id,
     bodyClientSecret: body.client_secret,
   })
-  if (!credentials) throw new E_INVALID_CLIENT('Missing client credentials')
-
-  const client = await OAuthClient.query().where('clientId', credentials.clientId).first()
-  if (!client) throw new E_INVALID_CLIENT('Client not found')
-  if (client.isDisabled) throw new E_INVALID_CLIENT('Client is disabled')
-
-  // Confidential clients must provide a valid secret
-  if (!client.isPublic) {
-    if (!credentials.clientSecret) throw new E_INVALID_CLIENT('Missing client secret')
-    if (!clientService.verifySecret(credentials.clientSecret, client.clientSecret!)) {
-      throw new E_INVALID_CLIENT('Invalid client secret')
-    }
-  }
   if (!client.grantTypes.includes('authorization_code')) {
     throw new E_INVALID_CLIENT('Client is not allowed to use the authorization_code grant')
   }

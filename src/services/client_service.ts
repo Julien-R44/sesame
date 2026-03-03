@@ -1,5 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
-import { E_INVALID_REQUEST, E_INVALID_SCOPE } from '../oauth_error.ts'
+import { OAuthClient } from '../models/oauth_client.ts'
+import { E_INVALID_CLIENT, E_INVALID_REQUEST, E_INVALID_SCOPE } from '../oauth_error.ts'
 
 /**
  * Extracted client credentials from a request.
@@ -75,6 +76,30 @@ export class ClientService {
     }
 
     return null
+  }
+
+  /**
+   * Authenticate a client from request credentials.
+   * Extracts credentials, looks up the client in DB, and verifies the secret
+   * for confidential clients.
+   */
+  async authenticateClient(options: {
+    authorizationHeader?: string
+    bodyClientId?: string
+    bodyClientSecret?: string
+  }): Promise<OAuthClient> {
+    const credentials = this.extractCredentials(options)
+    if (!credentials) throw new E_INVALID_CLIENT('Client authentication failed')
+
+    const client = await OAuthClient.query().where('clientId', credentials.clientId).first()
+    if (!client || client.isDisabled) throw new E_INVALID_CLIENT('Client authentication failed')
+
+    if (!client.isPublic) {
+      if (!credentials.clientSecret || !this.verifySecret(credentials.clientSecret, client.clientSecret!))
+        throw new E_INVALID_CLIENT('Client authentication failed')
+    }
+
+    return client
   }
 
   /**
