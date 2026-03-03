@@ -20,6 +20,7 @@
     "./guard": "./build/src/guard/main.js",
     "./scope_middleware": "./build/src/middleware/scope_middleware.js",
     "./any_scope_middleware": "./build/src/middleware/any_scope_middleware.js",
+    "./services/main": "./build/services/main.js",
     "./commands/*": "./build/commands/*.js",
     "./commands": "./build/commands/main.js"
   },
@@ -96,6 +97,7 @@
       "./index.ts",
       "./configure.ts",
       "./providers/sesame_provider.ts",
+      "./services/main.ts",
       "./src/guard/main.ts",
       "./commands/sesame_purge.ts",
       "./src/middleware/scope_middleware.ts",

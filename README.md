@@ -80,9 +80,7 @@ The `SesameScopes` augmentation gives you type-safe scope names throughout your 
 Register OAuth routes from your `start/routes.ts` file:
 
 ```ts
-import { SesameManager } from '@julr/sesame'
-
-const sesame = await app.container.make(SesameManager)
+import sesame from '@julr/sesame/services/main'
 
 // OAuth endpoints under /oauth
 router.group(() => {
@@ -193,7 +191,8 @@ node ace sesame:purge --retention-hours=168
 You can also call it programmatically:
 
 ```ts
-const sesame = await app.container.make(SesameManager)
+import sesame from '@julr/sesame/services/main'
+
 const result = await sesame.purgeTokens({ retentionHours: 168 })
 ```
 
