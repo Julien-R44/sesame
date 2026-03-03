@@ -69,6 +69,7 @@ function createFakeEmitter() {
 function mockCtxWithGuard(options: {
   headers?: Record<string, string>
   userId?: string
+  sessionAuthenticated?: boolean
 }) {
   const manager = createManager()
   const ctx = mockCtx({ headers: options.headers })
@@ -84,6 +85,7 @@ function mockCtxWithGuard(options: {
 
       throw new Error(`Unknown guard: ${name}`)
     },
+    check: async () => options.sessionAuthenticated ?? false,
   }
 
   return { ctx, guard, manager }
@@ -231,6 +233,65 @@ test.group('Middleware | AnyScopeMiddleware', (group) => {
     await middleware.handle(ctx, async () => { nextCalled = true }, { scopes: ['admin', 'read'] })
 
     assert.isTrue(nextCalled)
+  })
+})
+
+test.group('Middleware | TransientToken (session bypass)', (group) => {
+  group.setup(async () => {
+    app = await createApp()
+    await setupDatabase(app)
+  })
+
+  group.teardown(async () => {
+    await teardownDatabase(app)
+    await app.terminate()
+  })
+
+  group.each.setup(cleanModels())
+
+  test('session-authenticated user bypasses ScopeMiddleware without Bearer token', async ({ assert }) => {
+    const { ctx } = mockCtxWithGuard({ sessionAuthenticated: true })
+    const middleware = new ScopeMiddleware()
+
+    let nextCalled = false
+    await middleware.handle(ctx, async () => { nextCalled = true }, { scopes: ['admin', 'manage'] })
+
+    assert.isTrue(nextCalled)
+  })
+
+  test('session-authenticated user bypasses AnyScopeMiddleware without Bearer token', async ({ assert }) => {
+    const { ctx } = mockCtxWithGuard({ sessionAuthenticated: true })
+    const middleware = new AnyScopeMiddleware()
+
+    let nextCalled = false
+    await middleware.handle(ctx, async () => { nextCalled = true }, { scopes: ['admin', 'delete'] })
+
+    assert.isTrue(nextCalled)
+  })
+
+  test('no auth at all (no Bearer, no session) throws 401', async ({ assert }) => {
+    const { ctx } = mockCtxWithGuard({ sessionAuthenticated: false })
+    const middleware = new ScopeMiddleware()
+
+    await assert.rejects(
+      () => middleware.handle(ctx, async () => {}, { scopes: ['read'] }),
+      'Missing Bearer token'
+    )
+  })
+
+  test('Bearer token present still enforces scopes even with session', async ({ assert }) => {
+    const { ctx, manager } = mockCtxWithGuard({ userId: 'user-1', sessionAuthenticated: true })
+    const raw = await createTokenForUser({ manager, userId: 'user-1', scopes: ['read'] })
+    patchBearerToken(ctx, raw)
+
+    const middleware = new ScopeMiddleware()
+
+    try {
+      await middleware.handle(ctx, async () => assert.fail('Should not reach next()'), { scopes: ['admin'] })
+    } catch (error: any) {
+      assert.instanceOf(error, E_INSUFFICIENT_SCOPE)
+      assert.equal(error.status, 403)
+    }
   })
 })
 

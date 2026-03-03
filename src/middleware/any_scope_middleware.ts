@@ -16,10 +16,24 @@ import { E_INSUFFICIENT_SCOPE } from '../oauth_error.ts'
 export default class AnyScopeMiddleware {
   async handle(ctx: HttpContext, next: NextFn, options: { scopes: Scope[] }) {
     const guard = ctx.auth.use('oauth') as OAuthGuard<any>
+
+    // Fast path: OAuth guard already ran and succeeded
+    if (guard.isAuthenticated) {
+      if (!guard.hasAnyScope(...options.scopes)) throw new E_INSUFFICIENT_SCOPE(options.scopes)
+      return next()
+    }
+
+    // Bearer token present → OAuth flow with scope enforcement
+    if (ctx.request.header('authorization')) {
+      await guard.authenticate()
+      if (!guard.hasAnyScope(...options.scopes)) throw new E_INSUFFICIENT_SCOPE(options.scopes)
+      return next()
+    }
+
+    // No Bearer token → session users bypass scope checks (TransientToken behavior)
+    if (await ctx.auth.check()) return next()
+
+    // No auth at all → 401 with WWW-Authenticate
     await guard.authenticate()
-
-    if (!guard.hasAnyScope(...options.scopes)) throw new E_INSUFFICIENT_SCOPE(options.scopes)
-
-    return next()
   }
 }
