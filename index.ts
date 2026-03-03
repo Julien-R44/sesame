@@ -1,5 +1,4 @@
 export { configure } from './configure.ts'
-export { stubsRoot } from './stubs/main.ts'
 export { defineConfig } from './src/define_config.ts'
 export { SesameManager } from './src/sesame_manager.ts'
 export {

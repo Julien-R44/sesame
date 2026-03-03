@@ -42,9 +42,15 @@ export function registerRoutes(router: Router) {
   router.post('/oauth/revoke', [controllers.revoke]).as('sesame.revoke')
   router.post('/oauth/register', [controllers.register]).as('sesame.register')
 
-  router.get('/.well-known/oauth-authorization-server', [controllers.metadata, 'authServer']).as('sesame.metadata.authServer')
-  router.get('/.well-known/openid-configuration', [controllers.metadata, 'oidc']).as('sesame.metadata.oidc')
-  router.get('/.well-known/oauth-protected-resource', [controllers.metadata, 'protectedResource']).as('sesame.metadata.protectedResource')
+  router
+    .get('/.well-known/oauth-authorization-server', [controllers.metadata, 'authServer'])
+    .as('sesame.metadata.authServer')
+  router
+    .get('/.well-known/openid-configuration', [controllers.metadata, 'oidc'])
+    .as('sesame.metadata.oidc')
+  router
+    .get('/.well-known/oauth-protected-resource', [controllers.metadata, 'protectedResource'])
+    .as('sesame.metadata.protectedResource')
 }
 
 /**

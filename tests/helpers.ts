@@ -84,18 +84,15 @@ export async function createTestAuthCode(options: {
   })
 }
 
-export function mockCtx(options: {
-  body?: Record<string, any>
-  query?: Record<string, any>
-  headers?: Record<string, string>
-  manager?: SesameManager
-  auth?: { user?: any }
-  session?: {
-    put: (key: string, value: any) => void
-    pull: (key: string) => any
-    forget: (keys: string | string[]) => void
-  }
-} = {}) {
+export function mockCtx(
+  options: {
+    body?: Record<string, any>
+    query?: Record<string, any>
+    headers?: Record<string, string>
+    manager?: SesameManager
+    auth?: { user?: any }
+  } = {}
+) {
   const headers: Record<string, string> = { ...options.headers }
   const manager = options.manager ?? createManager()
   const responseHeaders: Record<string, string> = {}
@@ -125,8 +122,7 @@ export function mockCtx(options: {
     },
     auth: options.auth
       ? { ...options.auth, check: async () => {} }
-      : options.body?.__auth ?? undefined,
-    session: options.session,
+      : (options.body?.__auth ?? undefined),
     containerResolver: {
       make: async (binding: any) => {
         if (binding === SesameManager) return manager
@@ -140,26 +136,6 @@ export function mockCtx(options: {
   }
 
   return ctx
-}
-
-export function createMockSession() {
-  const store = new Map<string, any>()
-
-  return {
-    put(key: string, value: any) {
-      store.set(key, value)
-    },
-    pull(key: string) {
-      const value = store.get(key)
-      store.delete(key)
-
-      return value
-    },
-    forget(keys: string | string[]) {
-      const values = Array.isArray(keys) ? keys : [keys]
-      for (const key of values) store.delete(key)
-    },
-  }
 }
 
 export async function createApp() {

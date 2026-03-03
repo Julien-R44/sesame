@@ -23,6 +23,7 @@ export function defineConfig(config: SesameConfig): ResolvedSesameConfig {
     accessTokenTtl: config.accessTokenTtl ?? '1h',
     refreshTokenTtl: config.refreshTokenTtl ?? '30d',
     authorizationCodeTtl: config.authorizationCodeTtl ?? '10m',
+    authorizationRequestTtl: config.authorizationRequestTtl ?? config.authorizationCodeTtl ?? '10m',
     loginPage: config.loginPage,
     consentPage: config.consentPage,
     allowDynamicRegistration: config.allowDynamicRegistration ?? false,

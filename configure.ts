@@ -1,8 +1,9 @@
 import type Configure from '@adonisjs/core/commands/configure'
-import { stubsRoot } from './stubs/main.ts'
+import { join } from 'node:path'
 
 export async function configure(command: Configure) {
   const codemods = await command.createCodemods()
+  const stubsRoot = join(import.meta.url, './stubs')
 
   // Publish config stub
   await codemods.makeUsingStub(stubsRoot, 'config/sesame.stub', {})
@@ -14,6 +15,7 @@ export async function configure(command: Configure) {
     'migrations/create_oauth_access_tokens_table.stub',
     'migrations/create_oauth_refresh_tokens_table.stub',
     'migrations/create_oauth_consents_table.stub',
+    'migrations/create_oauth_pending_authorization_requests_table.stub',
   ]
 
   for (const stub of migrationStubs) {

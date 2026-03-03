@@ -65,6 +65,13 @@ export interface SesameConfig {
   authorizationCodeTtl?: string
 
   /**
+   * Pending authorization request TTL as a string duration.
+   * Controls how long a user has to approve/deny a consent screen.
+   * Defaults to `authorizationCodeTtl` (typically '10m').
+   */
+  authorizationRequestTtl?: string
+
+  /**
    * Route or URL where unauthenticated users are redirected
    * to log in during the authorization flow. Can be a string
    * path or a function receiving the HttpContext and authorize
@@ -107,6 +114,7 @@ export interface ResolvedSesameConfig {
   accessTokenTtl: string
   refreshTokenTtl: string
   authorizationCodeTtl: string
+  authorizationRequestTtl: string
   loginPage: string | ((ctx: HttpContext, params: URLSearchParams) => string)
   consentPage: string | ((ctx: HttpContext, params: URLSearchParams) => string)
   allowDynamicRegistration: boolean

@@ -13,6 +13,7 @@ import { OAuthRefreshToken } from '../src/models/oauth_refresh_token.ts'
 import { OAuthAuthorizationCode } from '../src/models/oauth_authorization_code.ts'
 import { OAuthConsent } from '../src/models/oauth_consent.ts'
 import { OAuthClient } from '../src/models/oauth_client.ts'
+import { OAuthPendingAuthorizationRequest } from '../src/models/oauth_pending_authorization_request.ts'
 import { TokenService } from '../src/services/token_service.ts'
 
 let app: ApplicationService
@@ -29,6 +30,7 @@ test.group('SesameManager | purgeTokens', (group) => {
   })
 
   group.each.setup(async () => {
+    await OAuthPendingAuthorizationRequest.query().delete()
     await OAuthRefreshToken.query().delete()
     await OAuthAccessToken.query().delete()
     await OAuthAuthorizationCode.query().delete()
@@ -245,6 +247,74 @@ test.group('SesameManager | purgeTokens', (group) => {
     assert.equal(result.accessTokens, 1)
     const remaining = await OAuthAccessToken.query()
     assert.lengthOf(remaining, 0)
+  })
+
+  test('purges expired pending authorization requests without retention period', async ({
+    assert,
+  }) => {
+    const client = await createTestClient()
+    const manager = createManager()
+    const tokenService = new TokenService(manager)
+
+    // Expired 1 minute ago — should be purged immediately (no retention)
+    await OAuthPendingAuthorizationRequest.create({
+      id: crypto.randomUUID(),
+      token: tokenService.hashToken('expired-pending'),
+      clientId: client.clientId,
+      userId: 'user-1',
+      redirectUri: 'https://app.example.com/callback',
+      scopes: ['read'],
+      state: null,
+      codeChallenge: null,
+      codeChallengeMethod: null,
+      expiresAt: DateTime.now().minus({ minutes: 1 }),
+    })
+
+    // Still valid — should not be purged
+    await OAuthPendingAuthorizationRequest.create({
+      id: crypto.randomUUID(),
+      token: tokenService.hashToken('active-pending'),
+      clientId: client.clientId,
+      userId: 'user-1',
+      redirectUri: 'https://app.example.com/callback',
+      scopes: ['read'],
+      state: null,
+      codeChallenge: null,
+      codeChallengeMethod: null,
+      expiresAt: DateTime.now().plus({ minutes: 5 }),
+    })
+
+    const result = await manager.purgeTokens()
+
+    assert.equal(result.pendingRequests, 1)
+    const remaining = await OAuthPendingAuthorizationRequest.query()
+    assert.lengthOf(remaining, 1)
+    assert.equal(remaining[0].token, tokenService.hashToken('active-pending'))
+  })
+
+  test('purges pending requests regardless of revokedOnly/expiredOnly flags', async ({
+    assert,
+  }) => {
+    const client = await createTestClient()
+    const manager = createManager()
+    const tokenService = new TokenService(manager)
+
+    await OAuthPendingAuthorizationRequest.create({
+      id: crypto.randomUUID(),
+      token: tokenService.hashToken('expired-flag-test'),
+      clientId: client.clientId,
+      userId: 'user-1',
+      redirectUri: 'https://app.example.com/callback',
+      scopes: ['read'],
+      state: null,
+      codeChallenge: null,
+      codeChallengeMethod: null,
+      expiresAt: DateTime.now().minus({ minutes: 1 }),
+    })
+
+    // Even with revokedOnly, pending requests should still be purged
+    const result = await manager.purgeTokens({ revokedOnly: true })
+    assert.equal(result.pendingRequests, 1)
   })
 
   test('does not purge authorization codes with --revoked flag', async ({ assert }) => {

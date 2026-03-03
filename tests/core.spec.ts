@@ -8,7 +8,6 @@ import {
   teardownDatabase,
   createManager,
   createTestClient,
-  createMockSession,
   mockCtx,
 } from './helpers.ts'
 import { OAuthClient } from '../src/models/oauth_client.ts'
@@ -16,6 +15,7 @@ import { OAuthAuthorizationCode } from '../src/models/oauth_authorization_code.t
 import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
 import { OAuthRefreshToken } from '../src/models/oauth_refresh_token.ts'
 import { OAuthConsent } from '../src/models/oauth_consent.ts'
+import { OAuthPendingAuthorizationRequest } from '../src/models/oauth_pending_authorization_request.ts'
 import { TokenService } from '../src/services/token_service.ts'
 import MetadataController from '../src/controllers/metadata_controller.ts'
 import { OAuthError, E_INVALID_CLIENT, E_INVALID_CLIENT_METADATA } from '../src/oauth_error.ts'
@@ -148,6 +148,7 @@ test.group('Integration | revokeAllForUser', (group) => {
   })
 
   group.each.setup(async () => {
+    await OAuthPendingAuthorizationRequest.query().delete()
     await OAuthRefreshToken.query().delete()
     await OAuthAccessToken.query().delete()
     await OAuthAuthorizationCode.query().delete()
@@ -218,6 +219,46 @@ test.group('Integration | revokeAllForUser', (group) => {
 
     const consents = await OAuthConsent.query().where('userId', 'user-1')
     assert.lengthOf(consents, 0)
+  })
+
+  test('revokes pending authorization requests for a user', async ({ assert }) => {
+    const manager = createManager()
+    const client = await createTestClient()
+    const tokenService = new TokenService(manager)
+
+    await OAuthPendingAuthorizationRequest.create({
+      id: crypto.randomUUID(),
+      token: tokenService.hashToken('pending-1'),
+      clientId: client.clientId,
+      userId: 'user-1',
+      redirectUri: 'https://app.example.com/callback',
+      scopes: ['read'],
+      state: null,
+      codeChallenge: null,
+      codeChallengeMethod: null,
+      expiresAt: DateTime.now().plus({ minutes: 10 }),
+    })
+
+    await OAuthPendingAuthorizationRequest.create({
+      id: crypto.randomUUID(),
+      token: tokenService.hashToken('pending-2'),
+      clientId: client.clientId,
+      userId: 'user-2',
+      redirectUri: 'https://app.example.com/callback',
+      scopes: ['read'],
+      state: null,
+      codeChallenge: null,
+      codeChallengeMethod: null,
+      expiresAt: DateTime.now().plus({ minutes: 10 }),
+    })
+
+    await manager.revokeAllForUser('user-1')
+
+    const user1Pending = await OAuthPendingAuthorizationRequest.query().where('userId', 'user-1')
+    assert.lengthOf(user1Pending, 0)
+
+    const user2Pending = await OAuthPendingAuthorizationRequest.query().where('userId', 'user-2')
+    assert.lengthOf(user2Pending, 1)
   })
 
   test('does not affect other users', async ({ assert }) => {
@@ -296,6 +337,7 @@ test.group('Security | Scope validation bypass (C1/C2) — Integration', (group)
   })
 
   group.each.setup(async () => {
+    await OAuthPendingAuthorizationRequest.query().delete()
     await OAuthRefreshToken.query().delete()
     await OAuthAccessToken.query().delete()
     await OAuthAuthorizationCode.query().delete()
@@ -335,7 +377,6 @@ test.group('Security | Scope validation bypass (C1/C2) — Integration', (group)
       scopes: ['admin', 'superuser'],
     })
 
-    const session = createMockSession()
     const ctx = mockCtx({
       query: {
         client_id: 'bypass-client',
@@ -346,7 +387,6 @@ test.group('Security | Scope validation bypass (C1/C2) — Integration', (group)
         code_challenge_method: 'S256',
       },
       auth: { user: { id: 'user-1' } },
-      session,
       manager,
     })
 
@@ -407,9 +447,7 @@ test.group('Security | Scope validation bypass (C1/C2) — Integration', (group)
     assert.equal(result.client_name, name)
   })
 
-  test('C1+C2: dynamic registration → authorize rejects arbitrary scopes', async ({
-    assert,
-  }) => {
+  test('C1+C2: dynamic registration → authorize rejects arbitrary scopes', async ({ assert }) => {
     const manager = createManager({ scopes: {}, defaultScopes: [] })
     const codeChallenge = createHash('sha256').update('b'.repeat(43)).digest('base64url')
 
@@ -425,7 +463,6 @@ test.group('Security | Scope validation bypass (C1/C2) — Integration', (group)
     assert.isDefined(registerResult.client_id)
 
     // Step 2: Authorize with arbitrary scopes — should be rejected by C1
-    const session = createMockSession()
     const authorizeCtx = mockCtx({
       query: {
         client_id: registerResult.client_id,
@@ -436,7 +473,6 @@ test.group('Security | Scope validation bypass (C1/C2) — Integration', (group)
         code_challenge_method: 'S256',
       },
       auth: { user: { id: 'user-1' } },
-      session,
       manager,
     })
     const authorizeResult = (await new AuthorizeController().handle(authorizeCtx)) as any

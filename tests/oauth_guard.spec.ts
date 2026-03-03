@@ -482,7 +482,10 @@ test.group('OAuthGuard', (group) => {
     await guard.check()
 
     const header = ctx.__responseHeaders['WWW-Authenticate']
-    assert.include(header, 'resource_metadata="https://auth.example.com/.well-known/oauth-protected-resource"')
+    assert.include(
+      header,
+      'resource_metadata="https://auth.example.com/.well-known/oauth-protected-resource"'
+    )
     assert.include(header, 'error="invalid_token"')
     assert.include(header, 'error_description=')
   })

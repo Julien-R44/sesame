@@ -8,6 +8,7 @@ import { TokenService } from '../services/token_service.ts'
 import { OAuthClient } from '../models/oauth_client.ts'
 import { OAuthAuthorizationCode } from '../models/oauth_authorization_code.ts'
 import { OAuthConsent } from '../models/oauth_consent.ts'
+import { OAuthPendingAuthorizationRequest } from '../models/oauth_pending_authorization_request.ts'
 import { E_INVALID_CLIENT, E_INVALID_GRANT, E_INVALID_REQUEST } from '../oauth_error.ts'
 
 /**
@@ -29,16 +30,27 @@ export default class ConsentController {
   })
 
   /**
-   * Retrieve the session from the HTTP context, ensuring
-   * session middleware is active.
+   * Atomically consume a pending authorization request from the
+   * database. Uses DELETE-by-PK with affected-row check to prevent
+   * concurrent consent submissions from producing two authorization
+   * codes.
    */
-  #getAuthorizationSession(ctx: HttpContext) {
-    const session = (ctx as any).session
-    if (!session || typeof session.pull !== 'function') {
-      throw new E_INVALID_REQUEST('Session middleware is required for the browser authorization flow')
-    }
+  async #consumePendingRequest(hashedToken: string, userId: string) {
+    const row = await OAuthPendingAuthorizationRequest.query()
+      .where('token', hashedToken)
+      .where('userId', userId)
+      .where('expiresAt', '>', DateTime.now().toSQL()!)
+      .first()
 
-    return session
+    if (!row) return null
+
+    // Atomic delete by PK — only the first concurrent request succeeds
+    const deleted = await OAuthPendingAuthorizationRequest.query().where('id', row.id).delete()
+
+    const count = Array.isArray(deleted) ? Number(deleted[0]) : Number(deleted)
+    if (count === 0) return null
+
+    return row
   }
 
   /**
@@ -90,7 +102,6 @@ export default class ConsentController {
 
   async handle(ctx: HttpContext) {
     const manager = await ctx.containerResolver.make(SesameManager)
-    const session = this.#getAuthorizationSession(ctx)
 
     await ctx.auth.check()
     const user = ctx.auth.user as { id: string | number } | undefined
@@ -101,39 +112,25 @@ export default class ConsentController {
 
     const accept = ctx.request.body().accept
 
-    const expectedAuthToken = session.pull('sesame.authToken')
-    const authorizationRequest = session.pull('sesame.authRequest') as
-      | {
-          clientId: string
-          redirectUri: string
-          scopes: string[]
-          state: string | null
-          codeChallenge: string | null
-          codeChallengeMethod: string | null
-        }
-      | undefined
+    const tokenService = new TokenService(manager)
+    const hashedToken = tokenService.hashToken(body.auth_token)
+    const pendingRequest = await this.#consumePendingRequest(hashedToken, String(user.id))
 
-    if (!expectedAuthToken || expectedAuthToken !== body.auth_token) {
-      session.forget(['sesame.authToken', 'sesame.authRequest'])
-      throw new E_INVALID_GRANT('Authorization request token mismatch')
-    }
-    if (!authorizationRequest) throw new E_INVALID_GRANT('Authorization request not found')
+    if (!pendingRequest) throw new E_INVALID_GRANT('Authorization request not found or expired')
 
-    const client = await OAuthClient.query()
-      .where('clientId', authorizationRequest.clientId)
-      .first()
+    const client = await OAuthClient.query().where('clientId', pendingRequest.clientId).first()
     if (!client) throw new E_INVALID_CLIENT('Client not found')
     if (client.isDisabled) throw new E_INVALID_CLIENT('Client is disabled')
-    if (!client.redirectUris.includes(authorizationRequest.redirectUri)) {
+    if (!client.redirectUris.includes(pendingRequest.redirectUri)) {
       throw new E_INVALID_REQUEST('Invalid redirect_uri')
     }
 
     // User denied — redirect back with access_denied error
     if (!accept) {
-      const url = new URL(authorizationRequest.redirectUri)
+      const url = new URL(pendingRequest.redirectUri)
       url.searchParams.set('error', 'access_denied')
       url.searchParams.set('error_description', 'The user denied the authorization request')
-      if (authorizationRequest.state) url.searchParams.set('state', authorizationRequest.state)
+      if (pendingRequest.state) url.searchParams.set('state', pendingRequest.state)
       url.searchParams.set('iss', manager.config.issuer)
 
       return ctx.response.redirect().toPath(url.toString())
@@ -146,7 +143,7 @@ export default class ConsentController {
       .first()
 
     if (existingConsent) {
-      const merged = [...new Set([...existingConsent.scopes, ...authorizationRequest.scopes])]
+      const merged = [...new Set([...existingConsent.scopes, ...pendingRequest.scopes])]
       existingConsent.scopes = merged
       await existingConsent.save()
     } else {
@@ -154,18 +151,18 @@ export default class ConsentController {
         id: crypto.randomUUID(),
         clientId: client.clientId,
         userId: String(user.id),
-        scopes: authorizationRequest.scopes,
+        scopes: pendingRequest.scopes,
       })
     }
 
     return this.#issueAuthorizationCode(ctx, manager, {
       client,
       userId: String(user.id),
-      scopes: authorizationRequest.scopes,
-      redirectUri: authorizationRequest.redirectUri,
-      codeChallenge: authorizationRequest.codeChallenge ?? undefined,
-      codeChallengeMethod: authorizationRequest.codeChallengeMethod ?? undefined,
-      state: authorizationRequest.state ?? undefined,
+      scopes: pendingRequest.scopes,
+      redirectUri: pendingRequest.redirectUri,
+      codeChallenge: pendingRequest.codeChallenge ?? undefined,
+      codeChallengeMethod: pendingRequest.codeChallengeMethod ?? undefined,
+      state: pendingRequest.state ?? undefined,
     })
   }
 }

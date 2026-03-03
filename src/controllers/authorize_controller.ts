@@ -9,11 +9,8 @@ import { ClientService } from '../services/client_service.ts'
 import { OAuthClient } from '../models/oauth_client.ts'
 import { OAuthAuthorizationCode } from '../models/oauth_authorization_code.ts'
 import { OAuthConsent } from '../models/oauth_consent.ts'
-import {
-  E_INVALID_CLIENT,
-  E_INVALID_REQUEST,
-  E_UNSUPPORTED_RESPONSE_TYPE,
-} from '../oauth_error.ts'
+import { OAuthPendingAuthorizationRequest } from '../models/oauth_pending_authorization_request.ts'
+import { E_INVALID_CLIENT, E_INVALID_REQUEST, E_UNSUPPORTED_RESPONSE_TYPE } from '../oauth_error.ts'
 
 /**
  * Handles the OAuth 2.0 Authorization Endpoint (RFC 6749 §3.1).
@@ -42,19 +39,6 @@ export default class AuthorizeController {
   })
 
   /**
-   * Retrieve the session from the HTTP context, ensuring
-   * session middleware is active.
-   */
-  #getAuthorizationSession(ctx: HttpContext) {
-    const session = (ctx as any).session
-    if (!session || typeof session.put !== 'function') {
-      throw new E_INVALID_REQUEST('Session middleware is required for the browser authorization flow')
-    }
-
-    return session
-  }
-
-  /**
    * Redirect back to the client with an OAuth error response
    * in the query string (RFC 6749 §4.1.2.1).
    */
@@ -76,13 +60,16 @@ export default class AuthorizeController {
   }
 
   /**
-   * Store the authorization request in the session and return
-   * query params containing the auth_token for CSRF-like validation.
+   * Store the authorization request in the database and return
+   * query params containing the auth_token for consent validation.
+   *
+   * Stored in DB instead of the HTTP session to avoid last-write-wins
+   * race conditions when concurrent SPA requests overwrite session data.
    */
-  #buildAuthorizationRequestParams(
-    ctx: HttpContext,
+  async #buildAuthorizationRequestParams(
     manager: SesameManager,
     options: {
+      userId: string
       clientId: string
       redirectUri: string
       scopes: string[]
@@ -93,16 +80,19 @@ export default class AuthorizeController {
   ) {
     const tokenService = new TokenService(manager)
     const rawRequestToken = tokenService.generateOpaqueToken()
-    const session = this.#getAuthorizationSession(ctx)
+    const ttl = manager.parseTtl(manager.config.authorizationRequestTtl)
 
-    session.put('sesame.authToken', rawRequestToken)
-    session.put('sesame.authRequest', {
+    await OAuthPendingAuthorizationRequest.create({
+      id: crypto.randomUUID(),
+      token: tokenService.hashToken(rawRequestToken),
+      userId: options.userId,
       clientId: options.clientId,
       redirectUri: options.redirectUri,
       scopes: options.scopes,
       state: options.state ?? null,
       codeChallenge: options.codeChallenge ?? null,
       codeChallengeMethod: options.codeChallengeMethod ?? null,
+      expiresAt: DateTime.now().plus({ seconds: ttl }),
     })
 
     const params = new URLSearchParams()
@@ -189,7 +179,8 @@ export default class AuthorizeController {
     const [error, query] = await AuthorizeController.validator.tryValidate(ctx.request.qs())
     if (error) throw new E_INVALID_REQUEST('Invalid authorization request parameters')
 
-    if (query.response_type !== 'code') throw new E_UNSUPPORTED_RESPONSE_TYPE('Only "code" is supported')
+    if (query.response_type !== 'code')
+      throw new E_UNSUPPORTED_RESPONSE_TYPE('Only "code" is supported')
 
     // Lookup and validate the client
     const client = await OAuthClient.query().where('clientId', query.client_id).first()
@@ -226,7 +217,14 @@ export default class AuthorizeController {
     try {
       clientService.validateClientScopes(requestedScopes, client.scopes)
     } catch (error: any) {
-      return this.#redirectWithError(ctx, manager, query.redirect_uri, 'invalid_scope', error.message, query.state)
+      return this.#redirectWithError(
+        ctx,
+        manager,
+        query.redirect_uri,
+        'invalid_scope',
+        error.message,
+        query.state
+      )
     }
 
     // PKCE is mandatory for all clients (OAuth 2.1)
@@ -285,7 +283,8 @@ export default class AuthorizeController {
     }
 
     // New or expanded scopes — redirect to consent page
-    const params = this.#buildAuthorizationRequestParams(ctx, manager, {
+    const params = await this.#buildAuthorizationRequestParams(manager, {
+      userId: String(user.id),
       clientId: client.clientId,
       redirectUri: query.redirect_uri,
       scopes: requestedScopes,

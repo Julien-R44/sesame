@@ -4,11 +4,13 @@ import { OAuthAccessToken } from './models/oauth_access_token.ts'
 import { OAuthRefreshToken } from './models/oauth_refresh_token.ts'
 import { OAuthAuthorizationCode } from './models/oauth_authorization_code.ts'
 import { OAuthConsent } from './models/oauth_consent.ts'
+import { OAuthPendingAuthorizationRequest } from './models/oauth_pending_authorization_request.ts'
 
 export interface PurgeResult {
   accessTokens: number
   refreshTokens: number
   authorizationCodes: number
+  pendingRequests: number
 }
 
 /**
@@ -82,6 +84,7 @@ export class SesameManager {
       .update({ revokedAt: now.toSQL() })
 
     await OAuthAuthorizationCode.query().where('userId', userId).delete()
+    await OAuthPendingAuthorizationRequest.query().where('userId', userId).delete()
     await OAuthConsent.query().where('userId', userId).delete()
   }
 
@@ -109,6 +112,7 @@ export class SesameManager {
     let accessTokens = 0
     let refreshTokens = 0
     let authorizationCodes = 0
+    let pendingRequests = 0
 
     if (purgeRevoked) {
       accessTokens += await this.#deleteCount(
@@ -137,7 +141,14 @@ export class SesameManager {
       )
     }
 
-    return { accessTokens, refreshTokens, authorizationCodes }
+    // Pending requests have no audit value — purge immediately on expiration
+    pendingRequests += await this.#deleteCount(
+      OAuthPendingAuthorizationRequest.query()
+        .where('expiresAt', '<', DateTime.now().toSQL()!)
+        .delete()
+    )
+
+    return { accessTokens, refreshTokens, authorizationCodes, pendingRequests }
   }
 
   #deleteCount(result: Promise<unknown>): Promise<number> {

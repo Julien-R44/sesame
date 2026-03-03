@@ -1,5 +1,5 @@
 {{{
-  exports: { defineConfig: 'import { defineConfig } from \'@adonisjs/sesame\'' }
+  exports: { defineConfig: 'import { defineConfig } from \'@julr/sesame\'' }
 }}}
 import env from '#start/env'
 

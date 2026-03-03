@@ -117,7 +117,8 @@ export class OAuthGuard<
     if (record.expiresAt.toJSDate() < new Date())
       throw this.#authenticationFailed('Invalid or expired token', includeError)
 
-    if (!record.userId) throw this.#authenticationFailed('M2M tokens are not supported', includeError)
+    if (!record.userId)
+      throw this.#authenticationFailed('M2M tokens are not supported', includeError)
 
     const providerUser = await this.#userProvider.findById(record.userId)
     if (!providerUser) throw this.#authenticationFailed('User not found', includeError)

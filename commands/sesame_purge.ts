@@ -45,7 +45,8 @@ export default class SesamePurge extends BaseCommand {
 
     if (result.accessTokens > 0) this.logger.info(`  Access tokens: ${result.accessTokens}`)
     if (result.refreshTokens > 0) this.logger.info(`  Refresh tokens: ${result.refreshTokens}`)
-    if (result.authorizationCodes > 0) this.logger.info(`  Authorization codes: ${result.authorizationCodes}`)
+    if (result.authorizationCodes > 0)
+      this.logger.info(`  Authorization codes: ${result.authorizationCodes}`)
 
     this.logger.success(`Purged ${total} record(s).`)
   }

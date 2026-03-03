@@ -9,13 +9,13 @@ import {
   createTestClient,
   createTestAuthCode,
   mockCtx,
-  createMockSession,
 } from './helpers.ts'
 import { OAuthClient } from '../src/models/oauth_client.ts'
 import { OAuthAuthorizationCode } from '../src/models/oauth_authorization_code.ts'
 import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
 import { OAuthRefreshToken } from '../src/models/oauth_refresh_token.ts'
 import { OAuthConsent } from '../src/models/oauth_consent.ts'
+import { OAuthPendingAuthorizationRequest } from '../src/models/oauth_pending_authorization_request.ts'
 import { TokenService } from '../src/services/token_service.ts'
 import { handleAuthorizationCodeGrant } from '../src/grants/authorization_code_grant.ts'
 import AuthorizeController from '../src/controllers/authorize_controller.ts'
@@ -37,6 +37,7 @@ test.group('Integration | Authorization Flow', (group) => {
   })
 
   group.each.setup(async () => {
+    await OAuthPendingAuthorizationRequest.query().delete()
     await OAuthRefreshToken.query().delete()
     await OAuthAccessToken.query().delete()
     await OAuthAuthorizationCode.query().delete()
@@ -51,7 +52,6 @@ test.group('Integration | Authorization Flow', (group) => {
     await createTestClient()
     const authorizeController = new AuthorizeController()
     const consentController = new ConsentController()
-    const session = createMockSession()
 
     const authorizeCtx = mockCtx({
       manager,
@@ -65,7 +65,6 @@ test.group('Integration | Authorization Flow', (group) => {
         code_challenge_method: 'S256',
       },
       auth: { user: { id: 'user-1' } },
-      session,
     })
 
     const authorizeResult = (await authorizeController.handle(authorizeCtx)) as any
@@ -82,7 +81,6 @@ test.group('Integration | Authorization Flow', (group) => {
         auth_token: authToken,
       },
       auth: { user: { id: 'user-1' } },
-      session,
     })
 
     const consentResult = (await consentController.handle(consentCtx)) as any
@@ -110,7 +108,6 @@ test.group('Integration | Authorization Flow', (group) => {
     const authorizeController = new AuthorizeController()
     const consentController = new ConsentController()
     const legitCodeChallenge = createHash('sha256').update('legit-verifier').digest('base64url')
-    const session = createMockSession()
 
     const authorizeCtx = mockCtx({
       manager,
@@ -124,7 +121,6 @@ test.group('Integration | Authorization Flow', (group) => {
         code_challenge_method: 'S256',
       },
       auth: { user: { id: 'user-1' } },
-      session,
     })
 
     const authorizeResult = (await authorizeController.handle(authorizeCtx)) as any
@@ -144,7 +140,6 @@ test.group('Integration | Authorization Flow', (group) => {
         code_challenge_method: 'S256',
       },
       auth: { user: { id: 'user-1' } },
-      session,
     })
 
     const consentResult = (await consentController.handle(consentCtx)) as any
@@ -174,7 +169,6 @@ test.group('Integration | Authorization Flow', (group) => {
   test('rejects confidential client without PKCE (OAuth 2.1)', async ({ assert }) => {
     await createTestClient({ requirePkce: false, isPublic: false })
     const controller = new AuthorizeController()
-    const session = createMockSession()
 
     const ctx = mockCtx({
       query: {
@@ -185,7 +179,6 @@ test.group('Integration | Authorization Flow', (group) => {
         state: 'some-state',
       },
       auth: { user: { id: 'user-1' } },
-      session,
     })
 
     const result = (await controller.handle(ctx)) as any
@@ -198,7 +191,6 @@ test.group('Integration | Authorization Flow', (group) => {
     const manager = createManager()
     await createTestClient()
     const controller = new AuthorizeController()
-    const session = createMockSession()
 
     // Missing code_challenge → redirectWithError
     const ctx = mockCtx({
@@ -211,7 +203,6 @@ test.group('Integration | Authorization Flow', (group) => {
         state: 'some-state',
       },
       auth: { user: { id: 'user-1' } },
-      session,
     })
 
     const result = (await controller.handle(ctx)) as any
@@ -225,7 +216,6 @@ test.group('Integration | Authorization Flow', (group) => {
     await createTestClient()
     const authorizeController = new AuthorizeController()
     const consentController = new ConsentController()
-    const session = createMockSession()
     const authMock = { user: { id: 'user-1' }, check: async () => {} }
 
     const authorizeCtx = mockCtx({
@@ -240,7 +230,6 @@ test.group('Integration | Authorization Flow', (group) => {
         code_challenge_method: 'S256',
       },
       auth: authMock,
-      session,
     })
 
     const authorizeResult = (await authorizeController.handle(authorizeCtx)) as any
@@ -254,7 +243,6 @@ test.group('Integration | Authorization Flow', (group) => {
         auth_token: authToken,
       },
       auth: authMock,
-      session,
     })
 
     const consentResult = (await consentController.handle(consentCtx)) as any
@@ -262,6 +250,222 @@ test.group('Integration | Authorization Flow', (group) => {
     assert.equal(redirectUrl.searchParams.get('error'), 'access_denied')
     assert.equal(redirectUrl.searchParams.get('state'), 'denied-state')
     assert.equal(redirectUrl.searchParams.get('iss'), 'https://auth.example.com')
+  })
+
+  test('pending authorization request is single-use (replay protection)', async ({ assert }) => {
+    const manager = createManager()
+    await createTestClient()
+    const authorizeController = new AuthorizeController()
+    const consentController = new ConsentController()
+
+    const authorizeCtx = mockCtx({
+      manager,
+      query: {
+        client_id: 'test-client',
+        response_type: 'code',
+        redirect_uri: 'https://app.example.com/callback',
+        scope: 'read',
+        code_challenge: createHash('sha256').update('replay-verifier').digest('base64url'),
+        code_challenge_method: 'S256',
+      },
+      auth: { user: { id: 'user-1' } },
+    })
+
+    const authorizeResult = (await authorizeController.handle(authorizeCtx)) as any
+    const consentUrl = new URL(authorizeResult.redirectUrl, 'https://auth.example.com')
+    const authToken = consentUrl.searchParams.get('auth_token')
+
+    // First consent — should succeed
+    const consentCtx1 = mockCtx({
+      manager,
+      body: { accept: true, auth_token: authToken },
+      auth: { user: { id: 'user-1' } },
+    })
+    const result1 = (await consentController.handle(consentCtx1)) as any
+    assert.include(result1.redirectUrl, 'code=')
+
+    // Second consent with same auth_token — should fail
+    const consentCtx2 = mockCtx({
+      manager,
+      body: { accept: true, auth_token: authToken },
+      auth: { user: { id: 'user-1' } },
+    })
+    await assert.rejects(
+      () => consentController.handle(consentCtx2),
+      'Authorization request not found or expired'
+    )
+  })
+
+  test('rejects expired pending authorization request', async ({ assert }) => {
+    const manager = createManager({ authorizationRequestTtl: '1s' })
+    await createTestClient()
+    const consentController = new ConsentController()
+    const tokenService = new TokenService(manager)
+
+    const rawToken = tokenService.generateOpaqueToken()
+    await OAuthPendingAuthorizationRequest.create({
+      id: crypto.randomUUID(),
+      token: tokenService.hashToken(rawToken),
+      userId: 'user-1',
+      clientId: 'test-client',
+      redirectUri: 'https://app.example.com/callback',
+      scopes: ['read'],
+      state: null,
+      codeChallenge: null,
+      codeChallengeMethod: null,
+      expiresAt: DateTime.now().minus({ minutes: 1 }),
+    })
+
+    const ctx = mockCtx({
+      manager,
+      body: { accept: true, auth_token: rawToken },
+      auth: { user: { id: 'user-1' } },
+    })
+
+    await assert.rejects(
+      () => consentController.handle(ctx),
+      'Authorization request not found or expired'
+    )
+  })
+
+  test('rejects cross-user auth_token consumption', async ({ assert }) => {
+    const manager = createManager()
+    await createTestClient()
+    const authorizeController = new AuthorizeController()
+    const consentController = new ConsentController()
+
+    // User 1 initiates the authorize flow
+    const authorizeCtx = mockCtx({
+      manager,
+      query: {
+        client_id: 'test-client',
+        response_type: 'code',
+        redirect_uri: 'https://app.example.com/callback',
+        scope: 'read',
+        code_challenge: createHash('sha256').update('cross-user-verifier').digest('base64url'),
+        code_challenge_method: 'S256',
+      },
+      auth: { user: { id: 'user-1' } },
+    })
+
+    const authorizeResult = (await authorizeController.handle(authorizeCtx)) as any
+    const consentUrl = new URL(authorizeResult.redirectUrl, 'https://auth.example.com')
+    const authToken = consentUrl.searchParams.get('auth_token')
+
+    // User 2 tries to consume user-1's auth_token
+    const consentCtx = mockCtx({
+      manager,
+      body: { accept: true, auth_token: authToken },
+      auth: { user: { id: 'user-2' } },
+    })
+
+    await assert.rejects(
+      () => consentController.handle(consentCtx),
+      'Authorization request not found or expired'
+    )
+
+    // Original user-1 can still consume the token
+    const consentCtx1 = mockCtx({
+      manager,
+      body: { accept: true, auth_token: authToken },
+      auth: { user: { id: 'user-1' } },
+    })
+    const result = (await consentController.handle(consentCtx1)) as any
+    assert.include(result.redirectUrl, 'code=')
+  })
+
+  test('pending request is cleaned up after deny', async ({ assert }) => {
+    const manager = createManager()
+    await createTestClient()
+    const authorizeController = new AuthorizeController()
+    const consentController = new ConsentController()
+
+    const authorizeCtx = mockCtx({
+      manager,
+      query: {
+        client_id: 'test-client',
+        response_type: 'code',
+        redirect_uri: 'https://app.example.com/callback',
+        scope: 'read',
+        code_challenge: createHash('sha256').update('deny-cleanup-verifier').digest('base64url'),
+        code_challenge_method: 'S256',
+      },
+      auth: { user: { id: 'user-1' } },
+    })
+
+    await authorizeController.handle(authorizeCtx)
+    const pendingBefore = await OAuthPendingAuthorizationRequest.query()
+    assert.lengthOf(pendingBefore, 1)
+
+    const consentUrl = new URL(
+      (
+        (await authorizeController.handle(
+          mockCtx({
+            manager,
+            query: authorizeCtx.request.qs(),
+            auth: { user: { id: 'user-1' } },
+          })
+        )) as any
+      ).redirectUrl,
+      'https://auth.example.com'
+    )
+    const authToken = consentUrl.searchParams.get('auth_token')
+
+    const consentCtx = mockCtx({
+      manager,
+      body: { accept: false, auth_token: authToken },
+      auth: { user: { id: 'user-1' } },
+    })
+    const result = (await consentController.handle(consentCtx)) as any
+    assert.include(result.redirectUrl, 'error=access_denied')
+
+    // Pending request should be consumed even on deny
+    const pendingAfter = await OAuthPendingAuthorizationRequest.query().where(
+      'token',
+      new TokenService(manager).hashToken(authToken!)
+    )
+    assert.lengthOf(pendingAfter, 0)
+  })
+
+  test('skips consent and issues code directly when all scopes already consented', async ({
+    assert,
+  }) => {
+    const manager = createManager()
+    await createTestClient()
+
+    // Pre-create consent for 'read' scope
+    await OAuthConsent.create({
+      id: crypto.randomUUID(),
+      clientId: 'test-client',
+      userId: 'user-1',
+      scopes: ['read'],
+    })
+
+    const authorizeCtx = mockCtx({
+      manager,
+      query: {
+        client_id: 'test-client',
+        response_type: 'code',
+        redirect_uri: 'https://app.example.com/callback',
+        scope: 'read',
+        state: 'skip-consent-state',
+        code_challenge: createHash('sha256').update('skip-consent-verifier').digest('base64url'),
+        code_challenge_method: 'S256',
+      },
+      auth: { user: { id: 'user-1' } },
+    })
+
+    const result = (await new AuthorizeController().handle(authorizeCtx)) as any
+    const redirectUrl = new URL(result.redirectUrl)
+
+    // Should redirect directly with a code, not to consent page
+    assert.isNotNull(redirectUrl.searchParams.get('code'))
+    assert.equal(redirectUrl.searchParams.get('state'), 'skip-consent-state')
+    assert.equal(redirectUrl.origin + redirectUrl.pathname, 'https://app.example.com/callback')
+
+    // No pending request should be created
+    const pending = await OAuthPendingAuthorizationRequest.query()
+    assert.lengthOf(pending, 0)
   })
 })
 
@@ -277,6 +481,7 @@ test.group('Integration | Authorization Code Grant', (group) => {
   })
 
   group.each.setup(async () => {
+    await OAuthPendingAuthorizationRequest.query().delete()
     await OAuthRefreshToken.query().delete()
     await OAuthAccessToken.query().delete()
     await OAuthAuthorizationCode.query().delete()
