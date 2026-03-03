@@ -177,3 +177,34 @@ export const E_SERVER_ERROR = class extends OAuthError {
   static readonly message: string = 'Server error'
   static readonly oauthCode: string = 'server_error'
 }
+
+/**
+ * The access token does not have the required scope(s) to access
+ * the protected resource. Returns 403 with a WWW-Authenticate header
+ * per RFC 6750 §3.1.
+ *
+ * @see https://datatracker.ietf.org/doc/html/rfc6750#section-3.1
+ */
+export const E_INSUFFICIENT_SCOPE = class extends OAuthError {
+  static readonly status: number = 403
+  static readonly code: string = 'E_INSUFFICIENT_SCOPE'
+  static readonly message: string = 'Insufficient scope'
+  static readonly oauthCode: string = 'insufficient_scope'
+
+  missingScopes: string[]
+
+  constructor(missingScopes: string[], message?: string) {
+    super(message ?? 'The token does not have the required scope(s)')
+    this.missingScopes = missingScopes
+  }
+
+  handle(error: this, ctx: HttpContext) {
+    const scope = error.missingScopes.join(' ')
+    ctx.response.header(
+      'WWW-Authenticate',
+      `Bearer error="insufficient_scope", error_description="${error.message}", scope="${scope}"`
+    )
+
+    super.handle(error, ctx)
+  }
+}

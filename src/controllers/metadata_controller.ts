@@ -1,6 +1,20 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import { SesameManager } from '../sesame_manager.ts'
+import { E_SERVER_ERROR } from '../oauth_error.ts'
 import type { AuthServerMetadata, ResourceServerMetadata } from '../types.ts'
+
+type RouterLike = {
+  has(routeIdentifier: string): boolean
+  makeUrl(name: string, params?: Record<string, any>, opts?: { prefixUrl?: string }): string
+}
+
+const DISCOVERY_ROUTE_NAMES = {
+  authorization_endpoint: 'sesame.authorize',
+  token_endpoint: 'sesame.token',
+  registration_endpoint: 'sesame.register',
+  introspection_endpoint: 'sesame.introspect',
+  revocation_endpoint: 'sesame.revoke',
+} as const
 
 /**
  * Serves OAuth 2.0 discovery metadata documents.
@@ -15,6 +29,29 @@ import type { AuthServerMetadata, ResourceServerMetadata } from '../types.ts'
  * @see https://openid.net/specs/openid-connect-discovery-1_0.html
  */
 export default class MetadataController {
+  #assertDiscoveryRoutes(
+    router: RouterLike,
+    options: { includeRegistration: boolean }
+  ): asserts router is RouterLike {
+    const requiredRoutes: string[] = [
+      DISCOVERY_ROUTE_NAMES.authorization_endpoint,
+      DISCOVERY_ROUTE_NAMES.token_endpoint,
+      DISCOVERY_ROUTE_NAMES.introspection_endpoint,
+      DISCOVERY_ROUTE_NAMES.revocation_endpoint,
+    ]
+
+    if (options.includeRegistration) {
+      requiredRoutes.push(DISCOVERY_ROUTE_NAMES.registration_endpoint)
+    }
+
+    const missingRoutes = requiredRoutes.filter((routeName) => !router.has(routeName))
+    if (missingRoutes.length > 0) {
+      throw new E_SERVER_ERROR(
+        `OAuth discovery is misconfigured. Missing named route(s): ${missingRoutes.join(', ')}. Register OAuth routes with sesame.registerRoutes(router) before exposing well-known metadata.`
+      )
+    }
+  }
+
   /**
    * OAuth 2.0 Authorization Server Metadata (RFC 8414).
    *
@@ -26,7 +63,12 @@ export default class MetadataController {
    */
   async authServer(ctx: HttpContext): Promise<AuthServerMetadata> {
     const manager = await ctx.containerResolver.make(SesameManager)
+    const router = (await ctx.containerResolver.make('router')) as RouterLike
     const issuer = manager.config.issuer
+    const prefixUrl = issuer
+    this.#assertDiscoveryRoutes(router, {
+      includeRegistration: manager.config.allowDynamicRegistration,
+    })
 
     ctx.response.header(
       'Cache-Control',
@@ -35,13 +77,13 @@ export default class MetadataController {
 
     return {
       issuer,
-      authorization_endpoint: `${issuer}/oauth/authorize`,
-      token_endpoint: `${issuer}/oauth/token`,
+      authorization_endpoint: router.makeUrl('sesame.authorize', {}, { prefixUrl }),
+      token_endpoint: router.makeUrl('sesame.token', {}, { prefixUrl }),
       registration_endpoint: manager.config.allowDynamicRegistration
-        ? `${issuer}/oauth/register`
+        ? router.makeUrl('sesame.register', {}, { prefixUrl })
         : undefined,
-      introspection_endpoint: `${issuer}/oauth/introspect`,
-      revocation_endpoint: `${issuer}/oauth/revoke`,
+      introspection_endpoint: router.makeUrl('sesame.introspect', {}, { prefixUrl }),
+      revocation_endpoint: router.makeUrl('sesame.revoke', {}, { prefixUrl }),
       response_types_supported: ['code'],
       response_modes_supported: ['query'],
       grant_types_supported: manager.config.grantTypes,

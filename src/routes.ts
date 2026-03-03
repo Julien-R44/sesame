@@ -1,6 +1,4 @@
-import type { HttpContext } from '@adonisjs/core/http'
 import { Router } from '@adonisjs/core/http'
-import type { ResourceServerMetadata, Scope } from './types.ts'
 
 /**
  * Lazy-loaded controller imports for all OAuth 2.1 endpoints.
@@ -19,29 +17,42 @@ const controllers = {
 }
 
 /**
- * Register all OAuth 2.1 routes on the given AdonisJS router.
+ * Register OAuth 2.1 endpoint routes on the given router.
+ *
+ * Paths are relative (no prefix) — the user wraps the call
+ * in a `router.group().prefix('/oauth')` to control the mount point.
  *
  * Endpoints registered:
- * - `POST /oauth/token` — Token endpoint (RFC 6749 §3.2)
- * - `GET /oauth/authorize` — Authorization endpoint (RFC 6749 §3.1)
- * - `POST /oauth/consent` — User consent submission
- * - `POST /oauth/introspect` — Token introspection (RFC 7662)
- * - `POST /oauth/revoke` — Token revocation (RFC 7009)
- * - `POST /oauth/register` — Dynamic client registration (RFC 7591)
- * - `GET /oauth/client-info` — Public client information (RFC 6819 §4.4.1.4)
+ * - `POST /token` — Token endpoint (RFC 6749 §3.2)
+ * - `GET /authorize` — Authorization endpoint (RFC 6749 §3.1)
+ * - `POST /consent` — User consent submission
+ * - `POST /introspect` — Token introspection (RFC 7662)
+ * - `POST /revoke` — Token revocation (RFC 7009)
+ * - `POST /register` — Dynamic client registration (RFC 7591)
+ * - `GET /client-info` — Public client information (RFC 6819 §4.4.1.4)
+ */
+export function registerOAuthRoutes(router: Router) {
+  router.post('/token', [controllers.token]).as('sesame.token')
+  router.get('/authorize', [controllers.authorize]).as('sesame.authorize')
+  router.post('/consent', [controllers.consent]).as('sesame.consent')
+  router.get('/client-info', [controllers.clientInfo]).as('sesame.clientInfo')
+  router.post('/introspect', [controllers.introspect]).as('sesame.introspect')
+  router.post('/revoke', [controllers.revoke]).as('sesame.revoke')
+  router.post('/register', [controllers.register]).as('sesame.register')
+}
+
+/**
+ * Register well-known discovery routes at the root level.
+ *
+ * These must be registered outside any prefix group so they
+ * remain at `/.well-known/...`.
+ *
+ * Endpoints registered:
  * - `GET /.well-known/oauth-authorization-server` — Server metadata (RFC 8414)
  * - `GET /.well-known/openid-configuration` — OpenID Connect discovery
  * - `GET /.well-known/oauth-protected-resource` — Protected resource metadata (RFC 9728)
  */
-export function registerRoutes(router: Router) {
-  router.post('/oauth/token', [controllers.token]).as('sesame.token')
-  router.get('/oauth/authorize', [controllers.authorize]).as('sesame.authorize')
-  router.post('/oauth/consent', [controllers.consent]).as('sesame.consent')
-  router.get('/oauth/client-info', [controllers.clientInfo]).as('sesame.clientInfo')
-  router.post('/oauth/introspect', [controllers.introspect]).as('sesame.introspect')
-  router.post('/oauth/revoke', [controllers.revoke]).as('sesame.revoke')
-  router.post('/oauth/register', [controllers.register]).as('sesame.register')
-
+export function registerWellKnownRoutes(router: Router) {
   router
     .get('/.well-known/oauth-authorization-server', [controllers.metadata, 'authServer'])
     .as('sesame.metadata.authServer')
@@ -51,36 +62,4 @@ export function registerRoutes(router: Router) {
   router
     .get('/.well-known/oauth-protected-resource', [controllers.metadata, 'protectedResource'])
     .as('sesame.metadata.protectedResource')
-}
-
-/**
- * Register a `/.well-known/oauth-protected-resource` endpoint for a
- * specific resource path (RFC 9728). Useful for MCP servers that need
- * per-resource discovery.
- *
- * @see https://datatracker.ietf.org/doc/html/rfc9728
- */
-export function registerProtectedResource(
-  router: Router,
-  options: { resource: string; scopes?: Scope[] }
-) {
-  const wellKnownPath = `/.well-known/oauth-protected-resource${options.resource}`
-
-  router.get(wellKnownPath, async (ctx: HttpContext): Promise<ResourceServerMetadata> => {
-    const { SesameManager } = await import('./sesame_manager.ts')
-    const manager = await ctx.containerResolver.make(SesameManager)
-    const issuer = manager.config.issuer
-
-    ctx.response.header(
-      'Cache-Control',
-      'public, max-age=15, stale-while-revalidate=15, stale-if-error=86400'
-    )
-
-    return {
-      resource: `${issuer}${options.resource}`,
-      authorization_servers: [issuer],
-      scopes_supported: options.scopes ?? Object.keys(manager.config.scopes),
-      bearer_methods_supported: ['header'],
-    }
-  })
 }

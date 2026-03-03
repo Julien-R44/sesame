@@ -13,6 +13,7 @@ export {
   E_ACCESS_DENIED,
   E_INVALID_CLIENT_METADATA,
   E_SERVER_ERROR,
+  E_INSUFFICIENT_SCOPE,
 } from './src/oauth_error.ts'
 export { OAuthClient } from './src/models/oauth_client.ts'
 export { OAuthAccessToken } from './src/models/oauth_access_token.ts'
@@ -22,4 +23,3 @@ export { OAuthConsent } from './src/models/oauth_consent.ts'
 export { OAuthGuard } from './src/guard/guard.ts'
 export { OAuthLucidUserProvider } from './src/guard/user_provider.ts'
 export { oauthGuard, oauthUserProvider } from './src/guard/main.ts'
-export { registerRoutes, registerProtectedResource } from './src/routes.ts'

@@ -90,12 +90,25 @@ export function mockCtx(
     query?: Record<string, any>
     headers?: Record<string, string>
     manager?: SesameManager
+    router?: {
+      has(routeIdentifier: string): boolean
+      makeUrl(name: string, params?: any, opts?: { prefixUrl?: string }): string
+    }
     auth?: { user?: any }
   } = {}
 ) {
   const headers: Record<string, string> = { ...options.headers }
   const manager = options.manager ?? createManager()
   const responseHeaders: Record<string, string> = {}
+  const routes: Record<string, string> = {
+    'sesame.token': '/oauth/token',
+    'sesame.authorize': '/oauth/authorize',
+    'sesame.consent': '/oauth/consent',
+    'sesame.clientInfo': '/oauth/client-info',
+    'sesame.introspect': '/oauth/introspect',
+    'sesame.revoke': '/oauth/revoke',
+    'sesame.register': '/oauth/register',
+  }
 
   const ctx: any = {
     request: {
@@ -126,6 +139,22 @@ export function mockCtx(
     containerResolver: {
       make: async (binding: any) => {
         if (binding === SesameManager) return manager
+
+        if (binding === 'router') {
+          if (options.router) return options.router
+
+          return {
+            has(name: string) {
+              return name in routes
+            },
+            makeUrl(name: string, _params: any, opts?: { prefixUrl?: string }) {
+              const path = routes[name]
+              if (!path) throw new Error(`Unknown route: ${name}`)
+
+              return opts?.prefixUrl ? `${opts.prefixUrl}${path}` : path
+            },
+          }
+        }
 
         throw new Error(`Unknown binding: ${binding}`)
       },

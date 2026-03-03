@@ -18,6 +18,8 @@
     "./types": "./build/src/types.js",
     "./sesame_provider": "./build/providers/sesame_provider.js",
     "./guard": "./build/src/guard/main.js",
+    "./scope_middleware": "./build/src/middleware/scope_middleware.js",
+    "./any_scope_middleware": "./build/src/middleware/any_scope_middleware.js",
     "./commands/*": "./build/commands/*.js",
     "./commands": "./build/commands/main.js"
   },
@@ -95,7 +97,9 @@
       "./configure.ts",
       "./providers/sesame_provider.ts",
       "./src/guard/main.ts",
-      "./commands/sesame_purge.ts"
+      "./commands/sesame_purge.ts",
+      "./src/middleware/scope_middleware.ts",
+      "./src/middleware/any_scope_middleware.ts"
     ],
     "outDir": "./build",
     "clean": true,

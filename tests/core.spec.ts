@@ -18,7 +18,12 @@ import { OAuthConsent } from '../src/models/oauth_consent.ts'
 import { OAuthPendingAuthorizationRequest } from '../src/models/oauth_pending_authorization_request.ts'
 import { TokenService } from '../src/services/token_service.ts'
 import MetadataController from '../src/controllers/metadata_controller.ts'
-import { OAuthError, E_INVALID_CLIENT, E_INVALID_CLIENT_METADATA } from '../src/oauth_error.ts'
+import {
+  OAuthError,
+  E_INVALID_CLIENT,
+  E_INVALID_CLIENT_METADATA,
+  E_SERVER_ERROR,
+} from '../src/oauth_error.ts'
 import { ClientService } from '../src/services/client_service.ts'
 import AuthorizeController from '../src/controllers/authorize_controller.ts'
 import RegisterController from '../src/controllers/register_controller.ts'
@@ -74,6 +79,73 @@ test.group('Integration | Metadata Endpoints', () => {
     const controller = new MetadataController()
     const result = await controller.authServer(ctx)
     assert.isUndefined(result.registration_endpoint)
+  })
+
+  test('uses router-generated URLs for discovery metadata', async ({ assert }) => {
+    const manager = createManager()
+    const ctx = mockCtx({
+      manager,
+      router: {
+        has(name: string) {
+          return [
+            'sesame.authorize',
+            'sesame.token',
+            'sesame.register',
+            'sesame.introspect',
+            'sesame.revoke',
+          ].includes(name)
+        },
+        makeUrl(name: string, _params: any, opts?: { prefixUrl?: string }) {
+          const paths: Record<string, string> = {
+            'sesame.authorize': '/auth/authorize',
+            'sesame.token': '/auth/token',
+            'sesame.register': '/auth/register',
+            'sesame.introspect': '/auth/introspect',
+            'sesame.revoke': '/auth/revoke',
+          }
+
+          return `${opts?.prefixUrl ?? ''}${paths[name]}`
+        },
+      },
+    })
+
+    const controller = new MetadataController()
+    const result = await controller.authServer(ctx)
+
+    assert.equal(result.authorization_endpoint, 'https://auth.example.com/auth/authorize')
+    assert.equal(result.token_endpoint, 'https://auth.example.com/auth/token')
+    assert.equal(result.registration_endpoint, 'https://auth.example.com/auth/register')
+    assert.equal(result.introspection_endpoint, 'https://auth.example.com/auth/introspect')
+    assert.equal(result.revocation_endpoint, 'https://auth.example.com/auth/revoke')
+  })
+
+  test('throws a clear server error when OAuth routes are missing from discovery', async ({
+    assert,
+  }) => {
+    const manager = createManager()
+    const ctx = mockCtx({
+      manager,
+      router: {
+        has() {
+          return false
+        },
+        makeUrl(): string {
+          throw new Error('makeUrl should not be called when required routes are missing')
+        },
+      },
+    })
+
+    try {
+      await new MetadataController().authServer(ctx)
+      assert.fail('Should have thrown')
+    } catch (error: any) {
+      assert.instanceOf(error, E_SERVER_ERROR)
+      assert.include(error.message, 'OAuth discovery is misconfigured')
+      assert.include(error.message, 'sesame.authorize')
+      assert.include(error.message, 'sesame.token')
+      assert.include(error.message, 'sesame.introspect')
+      assert.include(error.message, 'sesame.revoke')
+    }
   })
 })
 

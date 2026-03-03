@@ -1,5 +1,8 @@
 import { DateTime } from 'luxon'
-import type { ResolvedSesameConfig, Scope } from './types.ts'
+import type { HttpContext } from '@adonisjs/core/http'
+import type { Router } from '@adonisjs/core/http'
+import type { ResolvedSesameConfig, ResourceServerMetadata, Scope } from './types.ts'
+import { registerOAuthRoutes, registerWellKnownRoutes as registerWellKnown } from './routes.ts'
 import { OAuthAccessToken } from './models/oauth_access_token.ts'
 import { OAuthRefreshToken } from './models/oauth_refresh_token.ts'
 import { OAuthAuthorizationCode } from './models/oauth_authorization_code.ts'
@@ -147,6 +150,62 @@ export class SesameManager {
     )
 
     return { accessTokens, refreshTokens, authorizationCodes, pendingRequests }
+  }
+
+  /**
+   * Register OAuth 2.1 endpoint routes (token, authorize, consent, etc.).
+   *
+   * Paths are relative — wrap the call in a `router.group().prefix()`
+   * to control the mount point.
+   *
+   * Do not apply session-auth middleware to the entire OAuth group.
+   * Endpoints like `/token`, `/introspect`, `/revoke`, and `/register`
+   * must stay callable without a browser session.
+   *
+   * @example
+   * ```ts
+   * router.group(() => {
+   *   sesame.registerRoutes(router)
+   * }).prefix('/oauth')
+   * ```
+   */
+  registerRoutes(router: Router) {
+    registerOAuthRoutes(router)
+  }
+
+  /**
+   * Register well-known discovery routes at the root level.
+   *
+   * Must be called outside any prefix group so endpoints
+   * remain at `/.well-known/...`.
+   */
+  registerWellKnownRoutes(router: Router) {
+    registerWellKnown(router)
+  }
+
+  /**
+   * Register a `/.well-known/oauth-protected-resource` endpoint
+   * for a specific resource path (RFC 9728). Useful for MCP
+   * servers that need per-resource discovery.
+   *
+   * @see https://datatracker.ietf.org/doc/html/rfc9728
+   */
+  registerProtectedResource(router: Router, options: { resource: string; scopes?: Scope[] }) {
+    const wellKnownPath = `/.well-known/oauth-protected-resource${options.resource}`
+
+    router.get(wellKnownPath, async (ctx: HttpContext): Promise<ResourceServerMetadata> => {
+      ctx.response.header(
+        'Cache-Control',
+        'public, max-age=15, stale-while-revalidate=15, stale-if-error=86400'
+      )
+
+      return {
+        resource: `${this.#config.issuer}${options.resource}`,
+        authorization_servers: [this.#config.issuer],
+        scopes_supported: options.scopes ?? Object.keys(this.#config.scopes),
+        bearer_methods_supported: ['header'],
+      }
+    })
   }
 
   #deleteCount(result: Promise<unknown>): Promise<number> {
