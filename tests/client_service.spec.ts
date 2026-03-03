@@ -34,17 +34,31 @@ test.group('ClientService', () => {
     assert.isNull(service.parseBasicAuth(`Basic ${encoded}`))
   })
 
-  test('extracts credentials from Basic header first', ({ assert }) => {
+  test('rejects mixed client authentication methods', ({ assert }) => {
     const service = new ClientService()
     const encoded = Buffer.from('header-client:header-secret').toString('base64')
 
+    assert.throws(
+      () =>
+        service.extractCredentials({
+          authorizationHeader: `Basic ${encoded}`,
+          bodyClientId: 'body-client',
+          bodyClientSecret: 'body-secret',
+        }),
+      'Multiple client authentication methods are not allowed'
+    )
+  })
+
+  test('allows body client_id with non-Basic auth header', ({ assert }) => {
+    const service = new ClientService()
+
     const result = service.extractCredentials({
-      authorizationHeader: `Basic ${encoded}`,
+      authorizationHeader: 'Bearer some-token',
       bodyClientId: 'body-client',
       bodyClientSecret: 'body-secret',
     })
 
-    assert.deepEqual(result, { clientId: 'header-client', clientSecret: 'header-secret' })
+    assert.deepEqual(result, { clientId: 'body-client', clientSecret: 'body-secret' })
   })
 
   test('falls back to body credentials', ({ assert }) => {

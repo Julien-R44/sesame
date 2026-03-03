@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
-import { E_INVALID_SCOPE } from '../oauth_error.ts'
+import { E_INVALID_REQUEST, E_INVALID_SCOPE } from '../oauth_error.ts'
 
 /**
  * Extracted client credentials from a request.
@@ -57,10 +57,15 @@ export class ClientService {
     bodyClientId?: string
     bodyClientSecret?: string
   }): ClientCredentials | null {
-    if (options.authorizationHeader) {
-      const basic = this.parseBasicAuth(options.authorizationHeader)
-      if (basic) return basic
+    const basic = options.authorizationHeader
+      ? this.parseBasicAuth(options.authorizationHeader)
+      : null
+
+    if (basic && options.bodyClientId) {
+      throw new E_INVALID_REQUEST('Multiple client authentication methods are not allowed')
     }
+
+    if (basic) return basic
 
     if (options.bodyClientId) {
       return {
