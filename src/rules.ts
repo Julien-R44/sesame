@@ -35,8 +35,16 @@ export const redirectUriRule = vine.createRule(
 )
 
 /**
- * Blocks dangerous URI schemes and enforces same host+scheme
- * matching with redirect_uris (RFC 7591 §5).
+ * Blocks dangerous URI schemes for metadata URIs (client_uri, logo_uri, etc.).
+ *
+ * RFC 7591 §5 says the server MAY verify that metadata URIs match the
+ * host+scheme of redirect_uris, but this is NOT required.
+ *
+ * We intentionally skip this check because it breaks legitimate CLI/desktop clients
+ * (e.g. OpenCode, Claude Code) that use localhost redirect URIs but have a
+ * different `client_uri` pointing to their website.
+ *
+ * Maybe we can add an option to enable this check in the future if needed.
  *
  * @see https://datatracker.ietf.org/doc/html/rfc7591#section-5
  */
@@ -46,30 +54,6 @@ export const metadataUriRule = vine.createRule(
 
     if (DANGEROUS_SCHEMES.includes(parsed.protocol)) {
       field.report('{{ field }} uses a disallowed scheme', 'metadataUri', field)
-      return
-    }
-
-    const redirectUris: string[] = field.data.redirect_uris ?? []
-    const redirectOrigins = new Set(
-      redirectUris
-        .map((u: string) => {
-          try {
-            return new URL(u)
-          } catch {
-            return null
-          }
-        })
-        .filter(Boolean)
-        .map((u: URL | null) => `${u!.protocol}//${u!.hostname}`)
-    )
-
-    const metaOrigin = `${parsed.protocol}//${parsed.hostname}`
-    if (!redirectOrigins.has(metaOrigin)) {
-      field.report(
-        '{{ field }} host and scheme must match at least one redirect_uri',
-        'metadataUri',
-        field
-      )
     }
   }
 )

@@ -29,24 +29,26 @@ const metadataUrl = vine.string().url({ require_protocol: true }).use(metadataUr
  * @see https://datatracker.ietf.org/doc/html/rfc7591
  */
 export default class RegisterController {
-  static validator = vine.create({
-    redirect_uris: vine.array(vine.string().use(redirectUriRule())).minLength(1),
-    token_endpoint_auth_method: vine
-      .string()
-      .in(['client_secret_basic', 'client_secret_post', 'none'])
-      .optional(),
-    grant_types: vine.array(vine.string()).optional(),
-    response_types: vine.array(vine.string()).optional(),
-    scope: vine.string().optional(),
-    client_name: vine.string().maxLength(255).trim().optional(),
-    client_uri: metadataUrl,
-    logo_uri: metadataUrl,
-    tos_uri: metadataUrl,
-    policy_uri: metadataUrl,
-    contacts: vine.array(vine.string().email()).optional(),
-    software_id: vine.string().optional(),
-    software_version: vine.string().optional(),
-  })
+  static validator = vine.create(
+    vine.object({
+      redirect_uris: vine.array(vine.string().use(redirectUriRule())).minLength(1),
+      token_endpoint_auth_method: vine
+        .string()
+        .in(['client_secret_basic', 'client_secret_post', 'none'])
+        .optional(),
+      grant_types: vine.array(vine.string()).optional(),
+      response_types: vine.array(vine.string()).optional(),
+      scope: vine.string().optional(),
+      client_name: vine.string().maxLength(255).trim().optional(),
+      client_uri: metadataUrl,
+      logo_uri: metadataUrl,
+      tos_uri: metadataUrl,
+      policy_uri: metadataUrl,
+      contacts: vine.array(vine.string().email()).optional(),
+      software_id: vine.string().optional(),
+      software_version: vine.string().optional(),
+    }).allowUnknownProperties()
+  )
 
   async handle(ctx: HttpContext) {
     const manager = await ctx.containerResolver.make(SesameManager)

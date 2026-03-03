@@ -373,7 +373,7 @@ test.group('Integration | Dynamic Registration', (group) => {
     }
   })
 
-  test('rejects client_uri with mismatched host', async ({ assert }) => {
+  test('accepts client_uri with different host than redirect_uris', async ({ assert }) => {
     const manager = createManager()
 
     const ctx = mockCtx({
@@ -381,53 +381,7 @@ test.group('Integration | Dynamic Registration', (group) => {
       body: {
         client_name: 'Test',
         redirect_uris: ['https://example.com/cb'],
-        client_uri: 'https://evil.com/about',
-      },
-    })
-
-    const controller = new RegisterController()
-
-    try {
-      await controller.handle(ctx)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.instanceOf(error, OAuthError)
-      assert.equal(error.oauthCode, 'invalid_client_metadata')
-    }
-  })
-
-  test('rejects client_uri with mismatched scheme', async ({ assert }) => {
-    const manager = createManager()
-
-    const ctx = mockCtx({
-      manager,
-      body: {
-        client_name: 'Test',
-        redirect_uris: ['https://example.com/cb'],
-        client_uri: 'http://example.com/about',
-      },
-    })
-
-    const controller = new RegisterController()
-
-    try {
-      await controller.handle(ctx)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.instanceOf(error, OAuthError)
-      assert.equal(error.oauthCode, 'invalid_client_metadata')
-    }
-  })
-
-  test('accepts client_uri matching one of multiple redirect hosts', async ({ assert }) => {
-    const manager = createManager()
-
-    const ctx = mockCtx({
-      manager,
-      body: {
-        client_name: 'Multi-Host App',
-        redirect_uris: ['https://app.example.com/cb', 'https://www.example.com/cb'],
-        client_uri: 'https://www.example.com/about',
+        client_uri: 'https://other-domain.com/about',
       },
     })
 
@@ -435,6 +389,29 @@ test.group('Integration | Dynamic Registration', (group) => {
     const result = await controller.handle(ctx)
 
     assert.isDefined(result.client_id)
+    assert.equal(result.client_uri, 'https://other-domain.com/about')
+  })
+
+  test('accepts CLI client with localhost redirect and external client_uri', async ({ assert }) => {
+    const manager = createManager()
+
+    const ctx = mockCtx({
+      manager,
+      body: {
+        client_name: 'OpenCode',
+        redirect_uris: ['http://127.0.0.1:19876/mcp/oauth/callback'],
+        client_uri: 'https://opencode.ai',
+        token_endpoint_auth_method: 'none',
+        grant_types: ['authorization_code', 'refresh_token'],
+        response_types: ['code'],
+      },
+    })
+
+    const controller = new RegisterController()
+    const result = await controller.handle(ctx)
+
+    assert.isDefined(result.client_id)
+    assert.equal(result.client_uri, 'https://opencode.ai')
   })
 
   test('rejects invalid contact email', async ({ assert }) => {
@@ -469,6 +446,25 @@ test.group('Integration | Dynamic Registration', (group) => {
         client_name: 'Test',
         redirect_uris: ['https://example.com/cb'],
         contacts: ['admin@example.com', 'support@example.com'],
+      },
+    })
+
+    const controller = new RegisterController()
+    const result = await controller.handle(ctx)
+
+    assert.isDefined(result.client_id)
+  })
+
+  test('ignores unknown metadata fields instead of rejecting', async ({ assert }) => {
+    const manager = createManager()
+
+    const ctx = mockCtx({
+      manager,
+      body: {
+        client_name: 'Test',
+        redirect_uris: ['https://example.com/cb'],
+        some_future_field: 'value',
+        another_unknown: ['a', 'b'],
       },
     })
 
