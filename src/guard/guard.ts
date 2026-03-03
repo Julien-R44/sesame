@@ -156,6 +156,13 @@ export class OAuthGuard<
     return scopes.some((s) => this.scopes.includes(s))
   }
 
+  /**
+   * Used internally by Japa's `loginAs` helper during testing.
+   * Creates a test client and access token in DB, then returns
+   * the authorization headers for the test HTTP client to use.
+   *
+   * @see https://docs.adonisjs.com/guides/auth/custom-auth-guard#implementing-the-guard
+   */
   async authenticateAsClient(
     user: UserProvider[typeof symbols.PROVIDER_REAL_USER]
   ): Promise<AuthClientResponse> {
