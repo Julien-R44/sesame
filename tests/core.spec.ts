@@ -72,6 +72,21 @@ test.group('Integration | Metadata Endpoints', () => {
     assert.isArray(result.scopes_supported)
   })
 
+  test('advertises none auth method for all endpoints', async ({ assert }) => {
+    const manager = createManager()
+    const ctx = mockCtx({ manager })
+
+    const controller = new MetadataController()
+    const result = await controller.authServer(ctx)
+
+    const allEndpoints = [
+      result.token_endpoint_auth_methods_supported,
+      result.introspection_endpoint_auth_methods_supported,
+      result.revocation_endpoint_auth_methods_supported,
+    ]
+    for (const methods of allEndpoints) assert.include(methods!, 'none')
+  })
+
   test('hides registration endpoint when disabled', async ({ assert }) => {
     const manager = createManager({ allowDynamicRegistration: false })
     const ctx = mockCtx({ manager })
