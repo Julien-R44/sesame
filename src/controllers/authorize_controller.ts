@@ -294,6 +294,7 @@ export default class AuthorizeController {
       codeChallengeMethod: query.code_challenge_method,
     })
     this.#copyAuthorizeDisplayParams(params, ctx.request.qs())
+    params.set('scope', requestedScopes.join(' '))
     const consentPage = this.#resolvePageUrl(manager.config.consentPage, ctx, params)
 
     return ctx.response.redirect().toPath(consentPage)
