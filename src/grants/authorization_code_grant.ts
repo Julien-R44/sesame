@@ -1,6 +1,7 @@
 import vine from '@vinejs/vine'
 import { DateTime } from 'luxon'
 import { createHash } from 'node:crypto'
+import string from '@adonisjs/core/helpers/string'
 import type { HttpContext } from '@adonisjs/core/http'
 import type { SesameManager } from '../sesame_manager.ts'
 import { TokenService } from '../services/token_service.ts'
@@ -133,7 +134,7 @@ export async function handleAuthorizationCodeGrant(ctx: HttpContext, manager: Se
   let refreshTokenRaw: string | undefined
   if (authCode.scopes.includes('offline_access')) {
     const { raw, hash } = tokenService.createRefreshToken()
-    const refreshTtl = manager.parseTtl(manager.config.refreshTokenTtl)
+    const refreshTtl = string.seconds.parse(manager.config.refreshTokenTtl)
 
     await OAuthRefreshToken.create({
       id: crypto.randomUUID(),
@@ -148,7 +149,7 @@ export async function handleAuthorizationCodeGrant(ctx: HttpContext, manager: Se
     refreshTokenRaw = raw
   }
 
-  const ttlSeconds = manager.parseTtl(manager.config.accessTokenTtl)
+  const ttlSeconds = string.seconds.parse(manager.config.accessTokenTtl)
 
   return {
     access_token: accessTokenRaw,

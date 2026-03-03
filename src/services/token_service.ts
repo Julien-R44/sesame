@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto'
+import string from '@adonisjs/core/helpers/string'
 import type { SesameManager } from '../sesame_manager.ts'
 
 /**
@@ -23,7 +24,7 @@ export class TokenService {
    */
   createAccessToken(): { raw: string; hash: string; expiresAt: Date } {
     const raw = this.generateOpaqueToken()
-    const ttlSeconds = this.#manager.parseTtl(this.#manager.config.accessTokenTtl)
+    const ttlSeconds = string.seconds.parse(this.#manager.config.accessTokenTtl)
 
     return {
       raw,

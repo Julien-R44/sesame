@@ -94,8 +94,6 @@ export class SesameManager {
    * Returns the total number of deleted records. Expired tokens are
    * retained for `retentionHours` (default 168 = 7 days) to allow
    * for debugging and audit trails.
-   *
-   * Inspired by Laravel Passport's `passport:purge` command.
    */
   async purgeTokens(options?: {
     revokedOnly?: boolean
@@ -155,17 +153,4 @@ export class SesameManager {
     return result.then((r) => (Array.isArray(r) ? Number(r[0] ?? 0) : Number(r)))
   }
 
-  /**
-   * Parse a duration string like '1h', '30m', '10d' into seconds.
-   * Supported units: `s` (seconds), `m` (minutes), `h` (hours), `d` (days).
-   */
-  parseTtl(ttl: string): number {
-    const match = ttl.match(/^(\d+)(s|m|h|d)$/)
-    if (!match) throw new Error(`Invalid TTL format: ${ttl}`)
-
-    const value = Number.parseInt(match[1], 10)
-    const unitMap: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 }
-
-    return value * unitMap[match[2]]
-  }
 }

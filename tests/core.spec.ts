@@ -118,22 +118,6 @@ test.group('Integration | SesameManager', () => {
     assert.isTrue(manager.isGrantTypeEnabled('refresh_token'))
     assert.isFalse(manager.isGrantTypeEnabled('client_credentials'))
   })
-
-  test('parses TTL strings', ({ assert }) => {
-    const manager = createManager()
-
-    assert.equal(manager.parseTtl('1h'), 3600)
-    assert.equal(manager.parseTtl('30m'), 1800)
-    assert.equal(manager.parseTtl('10d'), 864000)
-    assert.equal(manager.parseTtl('60s'), 60)
-  })
-
-  test('throws on invalid TTL', ({ assert }) => {
-    const manager = createManager()
-
-    assert.throws(() => manager.parseTtl('invalid'))
-    assert.throws(() => manager.parseTtl('10x'))
-  })
 })
 
 test.group('Integration | revokeAllForUser', (group) => {

@@ -2,6 +2,7 @@
 
 import vine from '@vinejs/vine'
 import { DateTime } from 'luxon'
+import string from '@adonisjs/core/helpers/string'
 import type { HttpContext } from '@adonisjs/core/http'
 import { SesameManager } from '../sesame_manager.ts'
 import { TokenService } from '../services/token_service.ts'
@@ -78,7 +79,7 @@ export default class ConsentController {
     const tokenService = new TokenService(manager)
     const raw = tokenService.generateOpaqueToken()
     const hashed = tokenService.hashToken(raw)
-    const ttl = manager.parseTtl(manager.config.authorizationCodeTtl)
+    const ttl = string.seconds.parse(manager.config.authorizationCodeTtl)
 
     await OAuthAuthorizationCode.create({
       id: crypto.randomUUID(),
