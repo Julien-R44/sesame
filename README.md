@@ -84,11 +84,11 @@ import sesame from '@julr/sesame/services/main'
 
 // OAuth endpoints under /oauth
 router.group(() => {
-  sesame.registerRoutes(router)
+  sesame.registerRoutes()
 }).prefix('/oauth')
 
 // Discovery endpoints at the root
-sesame.registerWellKnownRoutes(router)
+sesame.registerWellKnownRoutes()
 ```
 
 This registers the following endpoints:
@@ -159,7 +159,7 @@ router
 For MCP (Model Context Protocol) servers, register per-resource discovery:
 
 ```ts
-sesame.registerProtectedResource(router, {
+sesame.registerProtectedResource({
   resource: '/api/mcp',
   scopes: ['read:mcp'],
 })

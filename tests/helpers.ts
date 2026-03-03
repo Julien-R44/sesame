@@ -35,7 +35,7 @@ export function createTestConfig(overrides?: Record<string, any>) {
 }
 
 export function createManager(overrides?: Record<string, any>) {
-  return new SesameManager(createTestConfig(overrides))
+  return new SesameManager(createTestConfig(overrides), {} as any)
 }
 
 export async function createTestClient(overrides?: TestClientOverrides) {

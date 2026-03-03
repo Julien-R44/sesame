@@ -13,9 +13,10 @@ export default class SesameProvider {
    * The manager is resolved from the `sesame` config key.
    */
   register() {
-    this.app.container.singleton(SesameManager, () => {
+    this.app.container.singleton(SesameManager, async () => {
       const config = this.app.config.get<ResolvedSesameConfig>('sesame')
-      return new SesameManager(config)
+      const router = await this.app.container.make('router')
+      return new SesameManager(config, router)
     })
   }
 }

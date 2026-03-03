@@ -1,6 +1,5 @@
 import { DateTime } from 'luxon'
-import type { HttpContext } from '@adonisjs/core/http'
-import type { Router } from '@adonisjs/core/http'
+import type { HttpContext, Router } from '@adonisjs/core/http'
 import type { ResolvedSesameConfig, ResourceServerMetadata, Scope } from './types.ts'
 import { registerOAuthRoutes, registerWellKnownRoutes as registerWellKnown } from './routes.ts'
 import { OAuthAccessToken } from './models/oauth_access_token.ts'
@@ -24,9 +23,11 @@ export interface PurgeResult {
  */
 export class SesameManager {
   #config: ResolvedSesameConfig
+  #router: Router
 
-  constructor(config: ResolvedSesameConfig) {
+  constructor(config: ResolvedSesameConfig, router: Router) {
     this.#config = config
+    this.#router = router
   }
 
   get config() {
@@ -165,12 +166,12 @@ export class SesameManager {
    * @example
    * ```ts
    * router.group(() => {
-   *   sesame.registerRoutes(router)
+   *   sesame.registerRoutes()
    * }).prefix('/oauth')
    * ```
    */
-  registerRoutes(router: Router) {
-    registerOAuthRoutes(router)
+  registerRoutes() {
+    registerOAuthRoutes(this.#router)
   }
 
   /**
@@ -179,8 +180,8 @@ export class SesameManager {
    * Must be called outside any prefix group so endpoints
    * remain at `/.well-known/...`.
    */
-  registerWellKnownRoutes(router: Router) {
-    registerWellKnown(router)
+  registerWellKnownRoutes() {
+    registerWellKnown(this.#router)
   }
 
   /**
@@ -190,10 +191,10 @@ export class SesameManager {
    *
    * @see https://datatracker.ietf.org/doc/html/rfc9728
    */
-  registerProtectedResource(router: Router, options: { resource: string; scopes?: Scope[] }) {
+  registerProtectedResource(options: { resource: string; scopes?: Scope[] }) {
     const wellKnownPath = `/.well-known/oauth-protected-resource${options.resource}`
 
-    router.get(wellKnownPath, async (ctx: HttpContext): Promise<ResourceServerMetadata> => {
+    this.#router.get(wellKnownPath, async (ctx: HttpContext): Promise<ResourceServerMetadata> => {
       ctx.response.header(
         'Cache-Control',
         'public, max-age=15, stale-while-revalidate=15, stale-if-error=86400'

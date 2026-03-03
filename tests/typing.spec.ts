@@ -98,7 +98,8 @@ test.group('Typing | SesameManager', () => {
         scopes: { read: 'Read' },
         loginPage: '/login',
         consentPage: '/consent',
-      })
+      }),
+      {} as any
     )
 
     // Without augmentation, Scope = string, so any string works
@@ -112,7 +113,8 @@ test.group('Typing | SesameManager', () => {
         scopes: { read: 'Read' },
         loginPage: '/login',
         consentPage: '/consent',
-      })
+      }),
+      {} as any
     )
 
     expectTypeOf(manager.validateScopes(['x'])).toEqualTypeOf<string[]>()
