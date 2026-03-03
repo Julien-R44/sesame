@@ -114,15 +114,15 @@ export class OAuthGuard<
     const hashed = tokenService.hashToken(rawToken)
     const record = await OAuthAccessToken.query().where('tokenHash', hashed).first()
     if (!record) throw this.#authenticationFailed('Invalid or expired token', includeError)
-    if (record.revokedAt) throw this.#authenticationFailed('Token has been revoked', includeError)
+    if (record.revokedAt) throw this.#authenticationFailed('Invalid or expired token', includeError)
     if (record.expiresAt.toJSDate() < new Date())
       throw this.#authenticationFailed('Invalid or expired token', includeError)
 
     if (!record.userId)
-      throw this.#authenticationFailed('M2M tokens are not supported', includeError)
+      throw this.#authenticationFailed('Invalid or expired token', includeError)
 
     const providerUser = await this.#userProvider.findById(record.userId)
-    if (!providerUser) throw this.#authenticationFailed('User not found', includeError)
+    if (!providerUser) throw this.#authenticationFailed('Invalid or expired token', includeError)
 
     this.isAuthenticated = true
     this.user = providerUser.getOriginal() as UserProvider[typeof symbols.PROVIDER_REAL_USER]

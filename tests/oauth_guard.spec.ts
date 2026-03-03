@@ -113,7 +113,7 @@ test.group('OAuthGuard', (group) => {
     const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
 
-    await assert.rejects(() => guard.authenticate(), 'Token has been revoked')
+    await assert.rejects(() => guard.authenticate(), 'Invalid or expired token')
   })
 
   test('throws when the access token row is missing', async ({ assert }) => {
@@ -154,7 +154,7 @@ test.group('OAuthGuard', (group) => {
     const provider = new FakeUserProvider([])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
 
-    await assert.rejects(() => guard.authenticate(), 'M2M tokens are not supported')
+    await assert.rejects(() => guard.authenticate(), 'Invalid or expired token')
   })
 
   test('throws when user not found', async ({ assert }) => {
@@ -178,7 +178,7 @@ test.group('OAuthGuard', (group) => {
     const provider = new FakeUserProvider([])
     const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
 
-    await assert.rejects(() => guard.authenticate(), 'User not found')
+    await assert.rejects(() => guard.authenticate(), 'Invalid or expired token')
   })
 
   test('check() returns false instead of throwing', async ({ assert }) => {
