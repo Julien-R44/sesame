@@ -1,6 +1,6 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import { Router } from '@adonisjs/core/http'
-import type { ResourceServerMetadata } from './types.ts'
+import type { ResourceServerMetadata, Scope } from './types.ts'
 
 /**
  * Lazy-loaded controller imports for all OAuth 2.1 endpoints.
@@ -62,7 +62,7 @@ export function registerRoutes(router: Router) {
  */
 export function registerProtectedResource(
   router: Router,
-  options: { resource: string; scopes?: string[] }
+  options: { resource: string; scopes?: Scope[] }
 ) {
   const wellKnownPath = `/.well-known/oauth-protected-resource${options.resource}`
 

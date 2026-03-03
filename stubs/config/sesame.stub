@@ -2,6 +2,7 @@
   exports: { defineConfig: 'import { defineConfig } from \'@julr/sesame\'' }
 }}}
 import env from '#start/env'
+import type { InferScopes } from '@julr/sesame/types'
 
 const sesameConfig = defineConfig({
   issuer: env.get('APP_URL'),
@@ -28,3 +29,7 @@ const sesameConfig = defineConfig({
 })
 
 export default sesameConfig
+
+declare module '@julr/sesame/types' {
+  interface SesameScopes extends InferScopes<typeof sesameConfig> {}
+}

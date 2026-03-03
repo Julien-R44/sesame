@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import type { ResolvedSesameConfig } from './types.ts'
+import type { ResolvedSesameConfig, Scope } from './types.ts'
 import { OAuthAccessToken } from './models/oauth_access_token.ts'
 import { OAuthRefreshToken } from './models/oauth_refresh_token.ts'
 import { OAuthAuthorizationCode } from './models/oauth_authorization_code.ts'
@@ -35,7 +35,7 @@ export class SesameManager {
    *
    * @see https://datatracker.ietf.org/doc/html/rfc6749#section-3.3
    */
-  hasScope(scope: string): boolean {
+  hasScope(scope: Scope): boolean {
     return scope in this.#config.scopes
   }
 
@@ -49,7 +49,7 @@ export class SesameManager {
    * @see https://datatracker.ietf.org/doc/html/rfc6749#section-3.3
    * @see https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2.1
    */
-  validateScopes(scopes: string[]): string[] {
+  validateScopes(scopes: Scope[]): string[] {
     if (Object.keys(this.#config.scopes).length === 0) return scopes
 
     return scopes.filter((s) => !this.hasScope(s))

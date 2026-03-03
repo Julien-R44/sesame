@@ -1,6 +1,34 @@
 import type { HttpContext } from '@adonisjs/core/http'
 
 /**
+ * Augment this interface via module augmentation to enable
+ * type-safe scope names across the application.
+ *
+ * @example
+ * ```ts
+ * declare module '@julr/sesame/types' {
+ *   interface SesameScopes extends InferScopes<typeof sesameConfig> {}
+ * }
+ * ```
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-interface
+export interface SesameScopes {}
+
+/**
+ * Resolved scope type. When `SesameScopes` is augmented, narrows
+ * to the declared scope keys. Otherwise falls back to `string`.
+ */
+export type Scope = keyof SesameScopes extends never ? string : keyof SesameScopes & string
+
+/**
+ * Extract scope keys from a config object returned by `defineConfig`.
+ * Use with `declare module` to propagate type-safe scopes globally.
+ */
+export type InferScopes<T extends { scopes: Record<string, string> }> = {
+  [K in keyof T['scopes'] & string]: true
+}
+
+/**
  * Supported grant types for v1 (MCP-focused).
  *
  * - `authorization_code`: RFC 6749 §4.1 — Authorization Code Grant

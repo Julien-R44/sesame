@@ -4,6 +4,7 @@ import type { EmitterLike } from '@adonisjs/core/types/events'
 import { symbols } from '@adonisjs/auth'
 import { errors } from '@adonisjs/auth'
 import type { AuthClientResponse, GuardContract } from '@adonisjs/auth/types'
+import type { Scope } from '../types.ts'
 import type { SesameManager } from '../sesame_manager.ts'
 import { TokenService } from '../services/token_service.ts'
 import { OAuthAccessToken } from '../models/oauth_access_token.ts'
@@ -29,7 +30,7 @@ export class OAuthGuard<
   isAuthenticated = false
   user?: UserProvider[typeof symbols.PROVIDER_REAL_USER]
 
-  scopes: string[] = []
+  scopes: Scope[] = []
   clientId?: string
 
   #name: string
@@ -125,7 +126,7 @@ export class OAuthGuard<
 
     this.isAuthenticated = true
     this.user = providerUser.getOriginal() as UserProvider[typeof symbols.PROVIDER_REAL_USER]
-    this.scopes = record.scopes
+    this.scopes = record.scopes as Scope[]
     this.clientId = record.clientId
 
     this.#emitter.emit('oauth_auth:authentication_succeeded', {
@@ -147,11 +148,11 @@ export class OAuthGuard<
     }
   }
 
-  hasScope(...scopes: string[]): boolean {
+  hasScope(...scopes: Scope[]): boolean {
     return scopes.every((s) => this.scopes.includes(s))
   }
 
-  hasAnyScope(...scopes: string[]): boolean {
+  hasAnyScope(...scopes: Scope[]): boolean {
     return scopes.some((s) => this.scopes.includes(s))
   }
 
