@@ -1,130 +1,211 @@
-# AdonisJS package starter kit
+# Sésame
 
-> [!note]
-> This starter kit targets **AdonisJS v7**
+> OAuth 2.1 + OIDC server for AdonisJS
 
-> A boilerplate for creating AdonisJS packages
+Sésame is an AdonisJS package that turns your application into a full-featured OAuth 2.1 authorization server. It implements the core OAuth 2.1 specification along with OIDC discovery, token introspection, dynamic client registration, and MCP (Model Context Protocol) support.
 
-This repo provides you with a starting point for creating AdonisJS packages. Of course, you can create a package from scratch with your folder structure and workflow. However, using this starter kit can speed up the process, as you have fewer decisions to make.
+## Features
 
-## Setup
+- **Authorization Code Grant** with PKCE (S256)
+- **Refresh Token Rotation** with replay detection
+- **Token Introspection** (RFC 7662) and **Revocation** (RFC 7009)
+- **Dynamic Client Registration** (RFC 7591)
+- **OIDC Discovery** (`/.well-known/openid-configuration`)
+- **OAuth Server Metadata** (RFC 8414)
+- **Protected Resource Metadata** (RFC 9728) for MCP servers
+- **Type-safe scopes** via module augmentation
+- **OAuth guard** for `@adonisjs/auth` with scope-checking middleware
+- **Token cleanup** via `sesame:purge` Ace command
 
-- Clone the repo on your computer, or use `giget` to download this repo without the Git history.
-  ```sh
-  npx giget@latest gh:adonisjs/pkg-starter-kit
-  ```
-- Install dependencies.
-- Update the `package.json` file and define the `name`, `description`, `keywords`, and `author` properties.
-- The repo is configured with an MIT license. Feel free to change that if you are not publishing under the MIT license.
+## Installation
 
-## Folder structure
-
-The starter kit mimics the folder structure of the official packages. Feel free to rename files and folders as per your requirements.
-
-```
-├── providers
-├── src
-├── bin
-├── stubs
-├── configure.ts
-├── index.ts
-├── LICENSE.md
-├── package.json
-├── README.md
-├── tsconfig.json
-├── tsnode.esm.js
+```bash
+node ace add @julr/sesame
 ```
 
-- The `configure.ts` file exports the `configure` hook to configure the package using the `node ace configure` command.
-- The `index.ts` file is the main entry point of the package.
-- The `tsnode.esm.js` file runs TypeScript code using TS-Node + SWC. Please read the code comment in this file to learn more.
-- The `bin` directory contains the entry point file to run Japa tests.
-- Learn more about [the `providers` directory](./providers/README.md).
-- Learn more about [the `src` directory](./src/README.md).
-- Learn more about [the `stubs` directory](./stubs/README.md).
+This will:
+- Publish the configuration file to `config/sesame.ts`
+- Publish database migrations (6 tables)
+- Register the service provider and commands
 
-### File system naming convention
+Then run the migrations:
 
-We use `snake_case` naming conventions for the file system. The rule is enforced using ESLint. However, turn off the rule and use your preferred naming conventions.
+```bash
+node ace migration:run
+```
 
-## Peer dependencies
+## Configuration
 
-The starter kit has a peer dependency on `@adonisjs/core@6`. Since you are creating a package for AdonisJS, you must make it against a specific version of the framework core.
+The configuration file lives at `config/sesame.ts`:
 
-If your package needs Lucid to be functional, you may install `@adonisjs/lucid` as a development dependency and add it to the list of `peerDependencies`.
+```ts
+import env from '#start/env'
+import { defineConfig } from '@julr/sesame'
+import type { InferScopes } from '@julr/sesame/types'
 
-As a rule of thumb, packages installed in the user application should be part of the `peerDependencies` of your package and not the main dependency.
+const sesameConfig = defineConfig({
+  issuer: env.get('APP_URL'),
 
-For example, if you install `@adonisjs/core` as a main dependency, then essentially, you are importing a separate copy of `@adonisjs/core` and not sharing the one from the user application. Here is a great article explaining [peer dependencies](https://blog.bitsrc.io/understanding-peer-dependencies-in-javascript-dbdb4ab5a7be).
+  scopes: {
+    'read': 'Read access',
+    'write': 'Write access',
+  },
 
-## Published files
+  defaultScopes: ['read'],
 
-Instead of publishing your repo's source code to npm, you must cherry-pick files and folders to publish only the required files.
+  grantTypes: ['authorization_code', 'refresh_token'],
 
-The cherry-picking uses the `files` property inside the `package.json` file. By default, we publish the following files and folders.
+  accessTokenTtl: '1h',
+  refreshTokenTtl: '30d',
+  authorizationCodeTtl: '10m',
 
-```json
-{
-  "files": [
-    "build/src",
-    "build/providers",
-    "build/stubs",
-    "build/index.d.ts",
-    "build/index.js",
-    "build/configure.d.ts",
-    "build/configure.js"
-  ]
+  loginPage: '/login',
+  consentPage: '/oauth/consent',
+
+  allowDynamicRegistration: false,
+  allowPublicRegistration: false,
+})
+
+export default sesameConfig
+
+declare module '@julr/sesame/types' {
+  interface SesameScopes extends InferScopes<typeof sesameConfig> {}
 }
 ```
 
-If you create additional folders or files, mention them inside the `files` array.
+The `SesameScopes` augmentation gives you type-safe scope names throughout your application.
 
-## Exports
+## Routes
 
-[Node.js Subpath exports](https://nodejs.org/api/packages.html#subpath-exports) allows you to define the exports of your package regardless of the folder structure. This starter kit defines the following exports.
+Register OAuth routes from your `start/routes.ts` file:
 
-```json
-{
-  "exports": {
-    ".": "./build/index.js",
-    "./types": "./build/src/types.js"
+```ts
+import { SesameManager } from '@julr/sesame'
+
+const sesame = await app.container.make(SesameManager)
+
+// OAuth endpoints under /oauth
+router.group(() => {
+  sesame.registerRoutes(router)
+}).prefix('/oauth')
+
+// Discovery endpoints at the root
+sesame.registerWellKnownRoutes(router)
+```
+
+This registers the following endpoints:
+
+| Method | Path                                      | Description                            |
+| ------ | ----------------------------------------- | -------------------------------------- |
+| `POST` | `/oauth/token`                            | Token endpoint                         |
+| `GET`  | `/oauth/authorize`                        | Authorization endpoint                 |
+| `POST` | `/oauth/consent`                          | Consent submission                     |
+| `POST` | `/oauth/introspect`                       | Token introspection (RFC 7662)         |
+| `POST` | `/oauth/revoke`                           | Token revocation (RFC 7009)            |
+| `POST` | `/oauth/register`                         | Dynamic client registration (RFC 7591) |
+| `GET`  | `/oauth/client-info`                      | Public client info                     |
+| `GET`  | `/.well-known/oauth-authorization-server` | Server metadata (RFC 8414)             |
+| `GET`  | `/.well-known/openid-configuration`       | OIDC discovery                         |
+
+## Authentication Guard
+
+Sésame provides an OAuth guard for `@adonisjs/auth`. Configure it in `config/auth.ts`:
+
+```ts
+import { oauthGuard, oauthUserProvider } from '@julr/sesame/guard'
+import User from '#models/user'
+
+const authConfig = defineConfig({
+  default: 'web',
+  guards: {
+    // ...your other guards
+    oauth: oauthGuard({
+      provider: oauthUserProvider({ model: () => import('#models/user') }),
+    }),
+  },
+})
+```
+
+Then use it in your controllers:
+
+```ts
+export default class ApiController {
+  async index({ auth }: HttpContext) {
+    const guard = auth.use('oauth')
+    await guard.authenticate()
+
+    const user = auth.user!
+    const scopes = guard.scopes
   }
 }
 ```
 
-- The dot `.` export is the main export.
-- The `./types` exports all the types defined inside the `./build/src/types.js` file (the compiled output).
+## Scope Middleware
 
-Feel free to change the exports as per your requirements.
+Two named middleware are available for checking scopes on authenticated requests:
 
-## Testing
+```ts
+// Requires ALL listed scopes
+router
+  .get('/admin', [AdminController])
+  .use(middleware.scopes({ scopes: ['admin', 'write'] }))
 
-We configure the [Japa test runner](https://japa.dev/) with this starter kit. Japa is used in AdonisJS applications as well. Just run one of the following commands to execute tests.
+// Requires AT LEAST ONE of the listed scopes
+router
+  .get('/data', [DataController])
+  .use(middleware.anyScope({ scopes: ['read', 'write'] }))
+```
 
-- `npm run test`: This command will first lint the code using ESlint and then run tests and report the test coverage using [c8](https://github.com/bcoe/c8).
-- `npm run quick:test`: Runs only the tests without linting or coverage reporting.
+## MCP Support
 
-The starter kit also has a Github workflow file to run tests using Github Actions. The tests are executed against `Node.js 20.x` and `Node.js 21.x` versions on both Linux and Windows. Feel free to edit the workflow file in the `.github/workflows` directory.
+For MCP (Model Context Protocol) servers, register per-resource discovery:
 
-## TypeScript workflow
+```ts
+sesame.registerProtectedResource(router, {
+  resource: '/api/mcp',
+  scopes: ['read:mcp'],
+})
+```
 
-- The starter kit uses [tsc](https://www.typescriptlang.org/docs/handbook/compiler-options.html) for compiling the TypeScript to JavaScript when publishing the package.
-- [TS-Node](https://typestrong.org/ts-node/) and [SWC](https://swc.rs/) are used to run tests without compiling the source code.
-- The `tsconfig.json` file is extended from [`@adonisjs/tsconfig`](https://github.com/adonisjs/tooling-config/tree/main/packages/typescript-config) and uses the `NodeNext` module system. Meaning the packages are written using ES modules.
-- You can perform type checking without compiling the source code using the `npm run type check` script.
+This creates a `/.well-known/oauth-protected-resource/api/mcp` endpoint following RFC 9728.
 
-Feel free to explore the `tsconfig.json` file for all the configured options.
+You can also enable public client registration for MCP clients:
 
-## ESLint and Prettier setup
+```ts
+const sesameConfig = defineConfig({
+  // ...
+  allowDynamicRegistration: true,
+  allowPublicRegistration: true,
+})
+```
 
-The starter kit configures ESLint and Prettier
-using our [shared config](https://github.com/adonisjs/tooling-config/tree/main/packages).
-ESLint configuration is stored within the `eslint.config.js` file.
-Prettier configuration is stored within the `package.json` file.
-Feel free to change the configuration, use custom plugins, or remove both tools altogether.
+## Token Cleanup
 
-## Using Stale bot
+Purge expired and revoked tokens with the Ace command:
 
-The [Stale bot](https://github.com/apps/stale) is a Github application that automatically marks issues and PRs as stale and closes after a specific duration of inactivity.
+```bash
+node ace sesame:purge
+node ace sesame:purge --revoked-only
+node ace sesame:purge --expired-only
+node ace sesame:purge --retention-hours=168
+```
 
-Feel free to delete the `.github/stale.yml` and `.github/lock.yml` files if you decide not to use the Stale bot.
+You can also call it programmatically:
+
+```ts
+const sesame = await app.container.make(SesameManager)
+const result = await sesame.purgeTokens({ retentionHours: 168 })
+```
+
+## Security
+
+- Tokens (access, refresh, authorization codes, client secrets) are stored as **SHA-256 hashes** — raw values are never persisted
+- PKCE with **S256** is required for public clients
+- Refresh tokens use **rotation** — the old token is revoked on each use
+- **Replay detection**: if a revoked refresh token is reused, all tokens for that client+user pair are revoked
+- Client secret verification uses **timing-safe comparison**
+- OAuth errors follow the standard JSON format with proper HTTP status codes and `WWW-Authenticate` headers
+
+## License
+
+MIT
