@@ -11,7 +11,11 @@ import { OAuthAuthorizationCode } from '../src/models/oauth_authorization_code.t
 import { ClientService } from '../src/services/client_service.ts'
 import { TokenService } from '../src/services/token_service.ts'
 import { MigrationRunner } from '@adonisjs/lucid/migration'
-import type { OAuthUserProviderContract, OAuthGuardUser, OAuthGuardEvents } from '../src/guard/types.ts'
+import type {
+  OAuthUserProviderContract,
+  OAuthGuardUser,
+  OAuthGuardEvents,
+} from '../src/guard/types.ts'
 
 const BASE_URL = new URL('./', import.meta.url)
 
@@ -260,10 +264,18 @@ export function createFakeEmitter() {
   const emitter: EmitterLike<OAuthGuardEvents<FakeUser>> & {
     events: { name: string; data: any }[]
   } = {
-    async emit(name: string, data: any) { events.push({ name, data }) },
-    async emitSerial(name: string, data: any) { events.push({ name, data }) },
-    listenerCount() { return 0 },
-    hasListeners() { return false },
+    async emit(name: string, data: any) {
+      events.push({ name, data })
+    },
+    async emitSerial(name: string, data: any) {
+      events.push({ name, data })
+    },
+    listenerCount() {
+      return 0
+    },
+    hasListeners() {
+      return false
+    },
     events,
   }
 

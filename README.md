@@ -24,6 +24,7 @@ node ace add @julr/sesame
 ```
 
 This will:
+
 - Publish the configuration file to `config/sesame.ts`
 - Publish database migrations (6 tables)
 - Register the service provider and commands
@@ -47,8 +48,8 @@ const sesameConfig = defineConfig({
   issuer: env.get('APP_URL'),
 
   scopes: {
-    'read': 'Read access',
-    'write': 'Write access',
+    read: 'Read access',
+    write: 'Write access',
   },
 
   defaultScopes: ['read'],
@@ -83,9 +84,11 @@ Register OAuth routes from your `start/routes.ts` file:
 import sesame from '@julr/sesame/services/main'
 
 // OAuth endpoints under /oauth
-router.group(() => {
-  sesame.registerRoutes()
-}).prefix('/oauth')
+router
+  .group(() => {
+    sesame.registerRoutes()
+  })
+  .prefix('/oauth')
 
 // Discovery endpoints at the root
 sesame.registerWellKnownRoutes()
@@ -144,14 +147,10 @@ Two named middleware are available for checking scopes on authenticated requests
 
 ```ts
 // Requires ALL listed scopes
-router
-  .get('/admin', [AdminController])
-  .use(middleware.scopes({ scopes: ['admin', 'write'] }))
+router.get('/admin', [AdminController]).use(middleware.scopes({ scopes: ['admin', 'write'] }))
 
 // Requires AT LEAST ONE of the listed scopes
-router
-  .get('/data', [DataController])
-  .use(middleware.anyScope({ scopes: ['read', 'write'] }))
+router.get('/data', [DataController]).use(middleware.anyScope({ scopes: ['read', 'write'] }))
 ```
 
 ## MCP Support

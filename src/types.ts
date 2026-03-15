@@ -42,15 +42,17 @@ export type InferScopes<T extends { scopes: Record<string, string> }> = {
 export const BUILTIN_SCOPES = new Set(['offline_access'])
 
 /**
- * Supported grant types for v1 (MCP-focused).
+ * Supported OAuth 2.1 grant types.
  *
  * - `authorization_code`: RFC 6749 §4.1 — Authorization Code Grant
  * - `refresh_token`: RFC 6749 §6 — Refreshing an Access Token
+ * - `client_credentials`: RFC 6749 §4.4 — Client Credentials Grant (M2M)
  *
  * @see https://datatracker.ietf.org/doc/html/rfc6749#section-4.1
+ * @see https://datatracker.ietf.org/doc/html/rfc6749#section-4.4
  * @see https://datatracker.ietf.org/doc/html/rfc6749#section-6
  */
-export type GrantType = 'authorization_code' | 'refresh_token'
+export type GrantType = 'authorization_code' | 'refresh_token' | 'client_credentials'
 
 /**
  * User-facing configuration interface for Sésame.
@@ -98,6 +100,12 @@ export interface SesameConfig {
    * Defaults to '30d'.
    */
   refreshTokenTtl?: string
+
+  /**
+   * Access token TTL for the client_credentials grant (M2M).
+   * Defaults to `accessTokenTtl`.
+   */
+  clientCredentialsAccessTokenTtl?: string
 
   /**
    * Authorization code TTL as a string duration.
@@ -153,6 +161,7 @@ export interface ResolvedSesameConfig {
   defaultScopes: string[]
   grantTypes: GrantType[]
   accessTokenTtl: string
+  clientCredentialsAccessTokenTtl: string
   refreshTokenTtl: string
   authorizationCodeTtl: string
   authorizationRequestTtl: string

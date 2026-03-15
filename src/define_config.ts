@@ -26,6 +26,8 @@ export function defineConfig<const TScopes extends Record<string, string>>(
     defaultScopes: (config.defaultScopes ?? []) as string[],
     grantTypes: config.grantTypes ?? ['authorization_code', 'refresh_token'],
     accessTokenTtl: config.accessTokenTtl ?? '1h',
+    clientCredentialsAccessTokenTtl:
+      config.clientCredentialsAccessTokenTtl ?? config.accessTokenTtl ?? '1h',
     refreshTokenTtl: config.refreshTokenTtl ?? '30d',
     authorizationCodeTtl: config.authorizationCodeTtl ?? '10m',
     authorizationRequestTtl: config.authorizationRequestTtl ?? config.authorizationCodeTtl ?? '10m',

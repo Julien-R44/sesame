@@ -103,7 +103,10 @@ test.group('Middleware | ScopeMiddleware', (group) => {
 
   test('throws 401 when no Bearer token is provided', async ({ assert }) => {
     const { ctx } = mockCtxWithGuard({})
-    await assert.rejects(() => middleware.handle(ctx, async () => {}, { scopes: ['read'] }), 'Missing Bearer token')
+    await assert.rejects(
+      () => middleware.handle(ctx, async () => {}, { scopes: ['read'] }),
+      'Missing Bearer token'
+    )
   })
 
   test('throws 401 when token is invalid', async ({ assert }) => {
@@ -120,7 +123,9 @@ test.group('Middleware | ScopeMiddleware', (group) => {
     patchBearerToken(ctx, raw)
 
     try {
-      await middleware.handle(ctx, async () => assert.fail('Should not reach next()'), { scopes: ['admin'] })
+      await middleware.handle(ctx, async () => assert.fail('Should not reach next()'), {
+        scopes: ['admin'],
+      })
     } catch (error: any) {
       assert.instanceOf(error, E_INSUFFICIENT_SCOPE)
       assert.equal(error.status, 403)
@@ -134,7 +139,9 @@ test.group('Middleware | ScopeMiddleware', (group) => {
     patchBearerToken(ctx, raw)
 
     try {
-      await middleware.handle(ctx, async () => assert.fail('Should not reach next()'), { scopes: ['read', 'admin'] })
+      await middleware.handle(ctx, async () => assert.fail('Should not reach next()'), {
+        scopes: ['read', 'admin'],
+      })
     } catch (error: any) {
       assert.instanceOf(error, E_INSUFFICIENT_SCOPE)
       assert.deepEqual(error.missingScopes, ['read', 'admin'])
@@ -147,7 +154,13 @@ test.group('Middleware | ScopeMiddleware', (group) => {
     patchBearerToken(ctx, raw)
 
     let nextCalled = false
-    await middleware.handle(ctx, async () => { nextCalled = true }, { scopes: ['read', 'write'] })
+    await middleware.handle(
+      ctx,
+      async () => {
+        nextCalled = true
+      },
+      { scopes: ['read', 'write'] }
+    )
 
     assert.isTrue(nextCalled)
   })
@@ -174,7 +187,9 @@ test.group('Middleware | AnyScopeMiddleware', (group) => {
     patchBearerToken(ctx, raw)
 
     try {
-      await middleware.handle(ctx, async () => assert.fail('Should not reach next()'), { scopes: ['admin', 'delete'] })
+      await middleware.handle(ctx, async () => assert.fail('Should not reach next()'), {
+        scopes: ['admin', 'delete'],
+      })
     } catch (error: any) {
       assert.instanceOf(error, E_INSUFFICIENT_SCOPE)
       assert.equal(error.status, 403)
@@ -188,7 +203,13 @@ test.group('Middleware | AnyScopeMiddleware', (group) => {
     patchBearerToken(ctx, raw)
 
     let nextCalled = false
-    await middleware.handle(ctx, async () => { nextCalled = true }, { scopes: ['admin', 'read'] })
+    await middleware.handle(
+      ctx,
+      async () => {
+        nextCalled = true
+      },
+      { scopes: ['admin', 'read'] }
+    )
 
     assert.isTrue(nextCalled)
   })
@@ -207,22 +228,38 @@ test.group('Middleware | TransientToken (session bypass)', (group) => {
 
   group.each.setup(cleanModels())
 
-  test('session-authenticated user bypasses ScopeMiddleware without Bearer token', async ({ assert }) => {
+  test('session-authenticated user bypasses ScopeMiddleware without Bearer token', async ({
+    assert,
+  }) => {
     const { ctx } = mockCtxWithGuard({ sessionAuthenticated: true })
     const middleware = new ScopeMiddleware()
 
     let nextCalled = false
-    await middleware.handle(ctx, async () => { nextCalled = true }, { scopes: ['admin', 'manage'] })
+    await middleware.handle(
+      ctx,
+      async () => {
+        nextCalled = true
+      },
+      { scopes: ['admin', 'manage'] }
+    )
 
     assert.isTrue(nextCalled)
   })
 
-  test('session-authenticated user bypasses AnyScopeMiddleware without Bearer token', async ({ assert }) => {
+  test('session-authenticated user bypasses AnyScopeMiddleware without Bearer token', async ({
+    assert,
+  }) => {
     const { ctx } = mockCtxWithGuard({ sessionAuthenticated: true })
     const middleware = new AnyScopeMiddleware()
 
     let nextCalled = false
-    await middleware.handle(ctx, async () => { nextCalled = true }, { scopes: ['admin', 'delete'] })
+    await middleware.handle(
+      ctx,
+      async () => {
+        nextCalled = true
+      },
+      { scopes: ['admin', 'delete'] }
+    )
 
     assert.isTrue(nextCalled)
   })
@@ -245,7 +282,9 @@ test.group('Middleware | TransientToken (session bypass)', (group) => {
     const middleware = new ScopeMiddleware()
 
     try {
-      await middleware.handle(ctx, async () => assert.fail('Should not reach next()'), { scopes: ['admin'] })
+      await middleware.handle(ctx, async () => assert.fail('Should not reach next()'), {
+        scopes: ['admin'],
+      })
     } catch (error: any) {
       assert.instanceOf(error, E_INSUFFICIENT_SCOPE)
       assert.equal(error.status, 403)
@@ -276,7 +315,13 @@ test.group('Middleware | Idempotency & WWW-Authenticate', (group) => {
 
     const middleware = new ScopeMiddleware()
     let nextCalled = false
-    await middleware.handle(ctx, async () => { nextCalled = true }, { scopes: ['read'] })
+    await middleware.handle(
+      ctx,
+      async () => {
+        nextCalled = true
+      },
+      { scopes: ['read'] }
+    )
 
     assert.isTrue(nextCalled)
   })
@@ -291,7 +336,9 @@ test.group('Middleware | Idempotency & WWW-Authenticate', (group) => {
     const middleware = new ScopeMiddleware()
 
     try {
-      await middleware.handle(ctx, async () => assert.fail('Should not reach next()'), { scopes: ['admin', 'manage'] })
+      await middleware.handle(ctx, async () => assert.fail('Should not reach next()'), {
+        scopes: ['admin', 'manage'],
+      })
     } catch (error: any) {
       assert.instanceOf(error, E_INSUFFICIENT_SCOPE)
 

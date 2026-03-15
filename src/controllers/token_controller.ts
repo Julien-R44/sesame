@@ -3,6 +3,7 @@ import type { HttpContext } from '@adonisjs/core/http'
 import { SesameManager } from '../sesame_manager.ts'
 import { handleAuthorizationCodeGrant } from '../grants/authorization_code_grant.ts'
 import { handleRefreshTokenGrant } from '../grants/refresh_token_grant.ts'
+import { handleClientCredentialsGrant } from '../grants/client_credentials_grant.ts'
 import { E_UNSUPPORTED_GRANT_TYPE } from '../oauth_error.ts'
 
 type GrantHandler = (ctx: HttpContext, manager: SesameManager) => Promise<any>
@@ -14,6 +15,7 @@ type GrantHandler = (ctx: HttpContext, manager: SesameManager) => Promise<any>
 const grantHandlers: Record<string, GrantHandler> = {
   authorization_code: handleAuthorizationCodeGrant,
   refresh_token: handleRefreshTokenGrant,
+  client_credentials: handleClientCredentialsGrant,
 }
 
 /**

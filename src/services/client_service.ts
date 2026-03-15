@@ -96,7 +96,10 @@ export class ClientService {
     if (!client || client.isDisabled) throw new E_INVALID_CLIENT('Client authentication failed')
 
     if (!client.isPublic) {
-      if (!credentials.clientSecret || !this.verifySecret(credentials.clientSecret, client.clientSecret!))
+      if (
+        !credentials.clientSecret ||
+        !this.verifySecret(credentials.clientSecret, client.clientSecret!)
+      )
         throw new E_INVALID_CLIENT('Client authentication failed')
     }
 

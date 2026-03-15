@@ -1,6 +1,11 @@
 import { DateTime } from 'luxon'
 import type { HttpContext, Router } from '@adonisjs/core/http'
-import { BUILTIN_SCOPES, type ResolvedSesameConfig, type ResourceServerMetadata, type Scope } from './types.ts'
+import {
+  BUILTIN_SCOPES,
+  type ResolvedSesameConfig,
+  type ResourceServerMetadata,
+  type Scope,
+} from './types.ts'
 import { registerOAuthRoutes, registerWellKnownRoutes as registerWellKnown } from './routes.ts'
 import { OAuthAccessToken } from './models/oauth_access_token.ts'
 import { OAuthRefreshToken } from './models/oauth_refresh_token.ts'
@@ -214,5 +219,4 @@ export class SesameManager {
   #deleteCount(result: Promise<unknown>): Promise<number> {
     return result.then((r) => (Array.isArray(r) ? Number(r[0] ?? 0) : Number(r)))
   }
-
 }

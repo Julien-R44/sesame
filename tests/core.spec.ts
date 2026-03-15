@@ -381,7 +381,9 @@ test.group('Integration | revokeAllForUser', (group) => {
 })
 
 test.group('Security | Scope validation bypass (C1/C2)', () => {
-  test('C1: validateScopes rejects all scopes when server scopes config is empty (except builtins)', ({ assert }) => {
+  test('C1: validateScopes rejects all scopes when server scopes config is empty (except builtins)', ({
+    assert,
+  }) => {
     const manager = createManager({ scopes: {} })
     const invalid = manager.validateScopes(['admin', 'superuser', 'delete_all'])
     assert.deepEqual(invalid, ['admin', 'superuser', 'delete_all'])
