@@ -564,6 +564,44 @@ test.group('Integration | Authorization Code Grant', (group) => {
     assert.include(result.scope, 'offline_access')
   })
 
+  test('offline_access is accepted even when not in server or client configured scopes', async ({
+    assert,
+  }) => {
+    const manager = createManager({ scopes: { read: 'Read access' } })
+    const client = await createTestClient({ scopes: ['read'] })
+    const rawCode = 'offline-builtin-code'
+    const codeVerifier = 'offline-builtin-verifier-testing-rfc7636-format-ok'
+    const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
+
+    await createTestAuthCode({
+      clientId: client.clientId,
+      userId: 'user-1',
+      scopes: ['read', 'offline_access'],
+      redirectUri: 'https://app.example.com/callback',
+      rawCode,
+      codeChallenge,
+      codeChallengeMethod: 'S256',
+    })
+
+    const ctx = mockCtx({
+      manager,
+      body: {
+        grant_type: 'authorization_code',
+        code: rawCode,
+        redirect_uri: 'https://app.example.com/callback',
+        client_id: client.clientId,
+        client_secret: 'test-secret',
+        code_verifier: codeVerifier,
+      },
+    })
+
+    const result = await handleAuthorizationCodeGrant(ctx, manager)
+
+    assert.isDefined(result.access_token)
+    assert.isDefined(result.refresh_token)
+    assert.include(result.scope, 'offline_access')
+  })
+
   test('rejects expired authorization code', async ({ assert }) => {
     const manager = createManager()
     const tokenService = new TokenService(manager)

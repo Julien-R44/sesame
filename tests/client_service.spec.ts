@@ -102,6 +102,19 @@ test.group('ClientService', () => {
     assert.throws(() => service.validateClientScopes(['admin'], ['read', 'write']))
   })
 
+  test('offline_access is always allowed even when not in client scopes', ({ assert }) => {
+    const service = new ClientService()
+
+    assert.doesNotThrow(() => service.validateClientScopes(['read', 'offline_access'], ['read']))
+    assert.doesNotThrow(() => service.validateClientScopes(['offline_access'], []))
+  })
+
+  test('offline_access bypass does not allow other invalid scopes through', ({ assert }) => {
+    const service = new ClientService()
+
+    assert.throws(() => service.validateClientScopes(['offline_access', 'admin'], ['read']))
+  })
+
   test('generates unique client IDs', ({ assert }) => {
     const service = new ClientService()
     const ids = new Set<string>()

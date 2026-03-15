@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 import type { HttpContext, Router } from '@adonisjs/core/http'
-import type { ResolvedSesameConfig, ResourceServerMetadata, Scope } from './types.ts'
+import { BUILTIN_SCOPES, type ResolvedSesameConfig, type ResourceServerMetadata, type Scope } from './types.ts'
 import { registerOAuthRoutes, registerWellKnownRoutes as registerWellKnown } from './routes.ts'
 import { OAuthAccessToken } from './models/oauth_access_token.ts'
 import { OAuthRefreshToken } from './models/oauth_refresh_token.ts'
@@ -54,9 +54,11 @@ export class SesameManager {
    * @see https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2.1
    */
   validateScopes(scopes: Scope[]): string[] {
-    if (Object.keys(this.#config.scopes).length === 0) return scopes
+    if (Object.keys(this.#config.scopes).length === 0) {
+      return scopes.filter((s) => !BUILTIN_SCOPES.has(s))
+    }
 
-    return scopes.filter((s) => !this.hasScope(s))
+    return scopes.filter((s) => !BUILTIN_SCOPES.has(s) && !this.hasScope(s))
   }
 
   /**

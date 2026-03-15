@@ -29,6 +29,19 @@ export type InferScopes<T extends { scopes: Record<string, string> }> = {
 }
 
 /**
+ * Standard OAuth/OIDC scopes that are always valid regardless
+ * of server or client scope configuration.
+ *
+ * - `offline_access`: signals that the client needs a refresh token
+ *   (OIDC Core §11, OAuth 2.1). Without this built-in treatment,
+ *   MCP clients that don't explicitly configure scopes would never
+ *   receive a refresh token and would expire after the access token TTL.
+ *
+ * @see https://openid.net/specs/openid-connect-core-1_0.html#OfflineAccess
+ */
+export const BUILTIN_SCOPES = new Set(['offline_access'])
+
+/**
  * Supported grant types for v1 (MCP-focused).
  *
  * - `authorization_code`: RFC 6749 §4.1 — Authorization Code Grant

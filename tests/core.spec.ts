@@ -198,6 +198,20 @@ test.group('Integration | SesameManager', () => {
     assert.deepEqual(manager.validateScopes(['read', 'admin']), ['admin'])
   })
 
+  test('offline_access is always valid even when not in configured scopes', ({ assert }) => {
+    const manager = createManager({ scopes: { read: 'Read access' } })
+
+    assert.deepEqual(manager.validateScopes(['read', 'offline_access']), [])
+    assert.deepEqual(manager.validateScopes(['offline_access']), [])
+  })
+
+  test('offline_access is valid even when scopes config is empty', ({ assert }) => {
+    const manager = createManager({ scopes: {} })
+
+    assert.deepEqual(manager.validateScopes(['offline_access']), [])
+    assert.deepEqual(manager.validateScopes(['offline_access', 'admin']), ['admin'])
+  })
+
   test('checks grant type support', ({ assert }) => {
     const manager = createManager()
 
@@ -367,7 +381,7 @@ test.group('Integration | revokeAllForUser', (group) => {
 })
 
 test.group('Security | Scope validation bypass (C1/C2)', () => {
-  test('C1: validateScopes rejects all scopes when server scopes config is empty', ({ assert }) => {
+  test('C1: validateScopes rejects all scopes when server scopes config is empty (except builtins)', ({ assert }) => {
     const manager = createManager({ scopes: {} })
     const invalid = manager.validateScopes(['admin', 'superuser', 'delete_all'])
     assert.deepEqual(invalid, ['admin', 'superuser', 'delete_all'])

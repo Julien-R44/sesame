@@ -1,6 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { OAuthClient } from '../models/oauth_client.ts'
 import { E_INVALID_CLIENT, E_INVALID_REQUEST, E_INVALID_SCOPE } from '../oauth_error.ts'
+import { BUILTIN_SCOPES } from '../types.ts'
 
 /**
  * Extracted client credentials from a request.
@@ -111,12 +112,14 @@ export class ClientService {
    * @see https://datatracker.ietf.org/doc/html/rfc6749#section-3.3
    */
   validateClientScopes(requestedScopes: string[], clientScopes: string[]): void {
-    if (clientScopes.length === 0 && requestedScopes.length > 0) {
-      throw new E_INVALID_SCOPE(`Scope not allowed: ${requestedScopes.join(', ')}`)
+    const nonBuiltinScopes = requestedScopes.filter((s) => !BUILTIN_SCOPES.has(s))
+
+    if (clientScopes.length === 0 && nonBuiltinScopes.length > 0) {
+      throw new E_INVALID_SCOPE(`Scope not allowed: ${nonBuiltinScopes.join(', ')}`)
     }
 
     const allowedSet = new Set(clientScopes)
-    const invalid = requestedScopes.filter((s) => !allowedSet.has(s))
+    const invalid = nonBuiltinScopes.filter((s) => !allowedSet.has(s))
     if (invalid.length > 0) {
       throw new E_INVALID_SCOPE(`Scope not allowed: ${invalid.join(', ')}`)
     }
