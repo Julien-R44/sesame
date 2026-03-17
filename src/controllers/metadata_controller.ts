@@ -1,7 +1,7 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import { SesameManager } from '../sesame_manager.ts'
 import { E_SERVER_ERROR } from '../oauth_error.ts'
-import type { AuthServerMetadata, ResourceServerMetadata } from '../types.ts'
+import { BUILTIN_SCOPES, type AuthServerMetadata, type ResourceServerMetadata } from '../types.ts'
 
 type RouterLike = {
   has(routeIdentifier: string): boolean
@@ -120,7 +120,7 @@ export default class MetadataController {
     return {
       ...base,
       subject_types_supported: ['public'],
-      scopes_supported: Object.keys(manager.config.scopes),
+      scopes_supported: [...Object.keys(manager.config.scopes), ...BUILTIN_SCOPES],
     }
   }
 
@@ -146,7 +146,7 @@ export default class MetadataController {
     return {
       resource: issuer,
       authorization_servers: [issuer],
-      scopes_supported: Object.keys(manager.config.scopes),
+      scopes_supported: [...Object.keys(manager.config.scopes), ...BUILTIN_SCOPES],
       bearer_methods_supported: ['header'],
     }
   }

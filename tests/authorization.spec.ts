@@ -525,7 +525,7 @@ test.group('Integration | Authorization Code Grant', (group) => {
     assert.equal(result.token_type, 'Bearer')
     assert.equal(result.expires_in, 3600)
     assert.equal(result.scope, 'read write')
-    assert.isUndefined(result.refresh_token)
+    assert.isDefined(result.refresh_token)
   })
 
   test('issues refresh token with offline_access scope', async ({ assert }) => {
@@ -600,6 +600,86 @@ test.group('Integration | Authorization Code Grant', (group) => {
     assert.isDefined(result.access_token)
     assert.isDefined(result.refresh_token)
     assert.include(result.scope, 'offline_access')
+  })
+
+  test('issues refresh token even without offline_access when refresh_token grant is enabled', async ({
+    assert,
+  }) => {
+    const manager = createManager({ scopes: { read: 'Read access' } })
+    const client = await createTestClient({ scopes: ['read'] })
+    const rawCode = 'no-offline-access-code'
+    const codeVerifier = 'no-offline-access-verifier-testing-rfc7636-format-ok'
+    const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
+
+    await createTestAuthCode({
+      clientId: client.clientId,
+      userId: 'user-1',
+      scopes: ['read'],
+      redirectUri: 'https://app.example.com/callback',
+      rawCode,
+      codeChallenge,
+      codeChallengeMethod: 'S256',
+    })
+
+    const ctx = mockCtx({
+      manager,
+      body: {
+        grant_type: 'authorization_code',
+        code: rawCode,
+        redirect_uri: 'https://app.example.com/callback',
+        client_id: client.clientId,
+        client_secret: 'test-secret',
+        code_verifier: codeVerifier,
+      },
+    })
+
+    const result = await handleAuthorizationCodeGrant(ctx, manager)
+
+    assert.isDefined(result.access_token)
+    assert.isDefined(result.refresh_token)
+  })
+
+  test('does not issue refresh token when refresh_token grant is disabled', async ({
+    assert,
+  }) => {
+    const manager = createManager({
+      scopes: { read: 'Read access' },
+      grantTypes: ['authorization_code'],
+    })
+    const client = await createTestClient({
+      scopes: ['read'],
+      grantTypes: ['authorization_code'],
+    })
+    const rawCode = 'no-refresh-grant-code'
+    const codeVerifier = 'no-refresh-grant-verifier-testing-rfc7636-format-ok'
+    const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
+
+    await createTestAuthCode({
+      clientId: client.clientId,
+      userId: 'user-1',
+      scopes: ['read'],
+      redirectUri: 'https://app.example.com/callback',
+      rawCode,
+      codeChallenge,
+      codeChallengeMethod: 'S256',
+    })
+
+    const ctx = mockCtx({
+      manager,
+      body: {
+        grant_type: 'authorization_code',
+        code: rawCode,
+        redirect_uri: 'https://app.example.com/callback',
+        client_id: client.clientId,
+        client_secret: 'test-secret',
+        code_verifier: codeVerifier,
+      },
+    })
+
+    const result = await handleAuthorizationCodeGrant(ctx, manager)
+
+    assert.isDefined(result.access_token)
+    assert.isUndefined(result.refresh_token)
   })
 
   test('rejects expired authorization code', async ({ assert }) => {

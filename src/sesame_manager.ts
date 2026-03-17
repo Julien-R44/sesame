@@ -210,7 +210,10 @@ export class SesameManager {
       return {
         resource: `${this.#config.issuer}${options.resource}`,
         authorization_servers: [this.#config.issuer],
-        scopes_supported: options.scopes ?? Object.keys(this.#config.scopes),
+        scopes_supported: [
+          ...(options.scopes ?? Object.keys(this.#config.scopes)),
+          ...BUILTIN_SCOPES,
+        ],
         bearer_methods_supported: ['header'],
       }
     })

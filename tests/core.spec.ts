@@ -57,7 +57,21 @@ test.group('Integration | Metadata Endpoints', () => {
     assert.equal(result.resource, 'https://auth.example.com')
     assert.deepEqual(result.authorization_servers, ['https://auth.example.com'])
     assert.isArray(result.scopes_supported)
+    assert.include(result.scopes_supported!, 'offline_access')
     assert.deepEqual(result.bearer_methods_supported, ['header'])
+  })
+
+  test('protected resource metadata includes offline_access even with minimal scopes', async ({
+    assert,
+  }) => {
+    const manager = createManager({ scopes: { 'mcp:full': 'Full MCP access' } })
+    const ctx = mockCtx({ manager })
+
+    const controller = new MetadataController()
+    const result = await controller.protectedResource(ctx)
+
+    assert.include(result.scopes_supported!, 'mcp:full')
+    assert.include(result.scopes_supported!, 'offline_access')
   })
 
   test('returns OIDC metadata', async ({ assert }) => {
@@ -70,6 +84,7 @@ test.group('Integration | Metadata Endpoints', () => {
     assert.equal(result.issuer, 'https://auth.example.com')
     assert.deepEqual(result.subject_types_supported, ['public'])
     assert.isArray(result.scopes_supported)
+    assert.include(result.scopes_supported, 'offline_access')
   })
 
   test('advertises none auth method for all endpoints', async ({ assert }) => {

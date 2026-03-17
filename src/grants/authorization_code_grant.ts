@@ -28,17 +28,13 @@ const codeVerifierValidator = vine.create({
 /**
  * Handle the Authorization Code Grant (RFC 6749 §4.1.3).
  *
- * Exchanges an authorization code for an access token (and optionally
- * a refresh token if the `offline_access` scope was granted).
+ * Exchanges an authorization code for an access token and a refresh
+ * token. A refresh token is always issued when the `refresh_token`
+ * grant type is enabled on the server — the client does not need
+ * to request `offline_access` explicitly.
  *
- * Performs the following validations:
- * - Client authentication (Basic header or POST body credentials)
- * - Authorization code existence, expiration, and single-use enforcement
- * - Redirect URI matching against the original authorization request
- * - PKCE code_verifier verification using S256 (RFC 7636 §4.6)
- *
- * All tokens (access tokens, refresh tokens, authorization codes)
- * are opaque values stored as SHA-256 hashes.
+ * This matches the behavior of major OAuth providers and avoids
+ * forcing MCP clients like ClaudeDesktop to know about `offline_access` to get long-lived sessions.
  *
  * @see https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3
  * @see https://datatracker.ietf.org/doc/html/rfc7636#section-4.6
@@ -116,9 +112,13 @@ export async function handleAuthorizationCodeGrant(ctx: HttpContext, manager: Se
     expiresAt: DateTime.fromJSDate(expiresAt),
   })
 
-  // Issue a refresh token only if the offline_access scope was granted
+  // Issue a refresh token when the server has the refresh_token grant
+  // enabled. Per RFC 6749 §5.1, refresh token issuance is "at the
+  // discretion of the authorization server" — we always emit one so
+  // that MCP clients that don't request offline_access still get
+  // long-lived sessions
   let refreshTokenRaw: string | undefined
-  if (authCode.scopes.includes('offline_access')) {
+  if (manager.isGrantTypeEnabled('refresh_token')) {
     const { raw, hash } = tokenService.createRefreshToken()
     const refreshTtl = string.seconds.parse(manager.config.refreshTokenTtl)
 

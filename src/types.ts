@@ -32,12 +32,21 @@ export type InferScopes<T extends { scopes: Record<string, string> }> = {
  * Standard OAuth/OIDC scopes that are always valid regardless
  * of server or client scope configuration.
  *
+ * These scopes are:
+ * - Accepted during scope validation (client and server level)
+ * - Advertised in `scopes_supported` of all metadata endpoints
+ *   (protected resource, OIDC discovery) so MCP clients know
+ *   they can request them
+ *
  * - `offline_access`: signals that the client needs a refresh token
- *   (OIDC Core §11, OAuth 2.1). Without this built-in treatment,
- *   MCP clients that don't explicitly configure scopes would never
- *   receive a refresh token and would expire after the access token TTL.
+ *   (OIDC Core §11). Note: Sesame issues refresh tokens by default
+ *   when the `refresh_token` grant is enabled, regardless of whether
+ *   the client requests this scope (per RFC 6749 §5.1). This scope
+ *   is still advertised for clients that check metadata before
+ *   building their authorization request.
  *
  * @see https://openid.net/specs/openid-connect-core-1_0.html#OfflineAccess
+ * @see https://datatracker.ietf.org/doc/html/rfc6749#section-5.1
  */
 export const BUILTIN_SCOPES = new Set(['offline_access'])
 
