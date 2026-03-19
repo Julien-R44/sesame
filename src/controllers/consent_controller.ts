@@ -74,6 +74,7 @@ export default class ConsentController {
       codeChallenge?: string
       codeChallengeMethod?: string
       state?: string
+      nonce?: string
     }
   ) {
     const tokenService = new TokenService(manager)
@@ -90,6 +91,7 @@ export default class ConsentController {
       redirectUri: options.redirectUri,
       codeChallenge: options.codeChallenge ?? null,
       codeChallengeMethod: options.codeChallengeMethod ?? null,
+      nonce: options.nonce ?? null,
       expiresAt: DateTime.now().plus({ seconds: ttl }),
     })
 
@@ -164,6 +166,7 @@ export default class ConsentController {
       codeChallenge: pendingRequest.codeChallenge ?? undefined,
       codeChallengeMethod: pendingRequest.codeChallengeMethod ?? undefined,
       state: pendingRequest.state ?? undefined,
+      nonce: pendingRequest.nonce ?? undefined,
     })
   }
 }

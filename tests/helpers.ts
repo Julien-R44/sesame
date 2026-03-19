@@ -1,5 +1,6 @@
 import { resolve } from 'node:path'
 import { DateTime } from 'luxon'
+import { exportJWK, generateKeyPair, type JWK } from 'jose'
 import { IgnitorFactory } from '@adonisjs/core/factories'
 import type { ApplicationService } from '@adonisjs/core/types'
 import type { EmitterLike } from '@adonisjs/core/types/events'
@@ -21,6 +22,16 @@ const BASE_URL = new URL('./', import.meta.url)
 
 export type TestClientOverrides = Partial<Record<string, any>> & {
   rawClientSecret?: string
+}
+
+let cachedTestJwk: JWK | undefined
+
+export async function getTestJwk(): Promise<JWK> {
+  if (cachedTestJwk) return cachedTestJwk
+  const { privateKey } = await generateKeyPair('RS256', { extractable: true })
+  cachedTestJwk = await exportJWK(privateKey)
+
+  return cachedTestJwk
 }
 
 export function createTestConfig(overrides?: Record<string, any>) {
@@ -115,6 +126,8 @@ export function mockCtx(
     'sesame.introspect': '/oauth/introspect',
     'sesame.revoke': '/oauth/revoke',
     'sesame.register': '/oauth/register',
+    'sesame.userinfo': '/oauth/userinfo',
+    'sesame.jwks': '/jwks',
   }
 
   const ctx: any = {

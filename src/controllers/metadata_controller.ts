@@ -16,6 +16,11 @@ const DISCOVERY_ROUTE_NAMES = {
   revocation_endpoint: 'sesame.revoke',
 } as const
 
+const OIDC_DISCOVERY_ROUTE_NAMES = {
+  userinfo_endpoint: 'sesame.userinfo',
+  jwks_uri: 'sesame.jwks',
+} as const
+
 /**
  * Serves OAuth 2.0 discovery metadata documents.
  *
@@ -48,6 +53,17 @@ export default class MetadataController {
     if (missingRoutes.length > 0) {
       throw new E_SERVER_ERROR(
         `OAuth discovery is misconfigured. Missing named route(s): ${missingRoutes.join(', ')}. Register OAuth routes with sesame.registerRoutes(router) before exposing well-known metadata.`
+      )
+    }
+  }
+
+  #assertOidcDiscoveryRoutes(router: RouterLike): asserts router is RouterLike {
+    const requiredRoutes = Object.values(OIDC_DISCOVERY_ROUTE_NAMES)
+    const missingRoutes = requiredRoutes.filter((routeName) => !router.has(routeName))
+
+    if (missingRoutes.length > 0) {
+      throw new E_SERVER_ERROR(
+        `OIDC discovery is misconfigured. Missing named route(s): ${missingRoutes.join(', ')}. Register OAuth routes with sesame.registerRoutes(router) and sesame.registerWellKnownRoutes(router) before exposing OpenID discovery.`
       )
     }
   }
@@ -113,14 +129,31 @@ export default class MetadataController {
    * @see https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderMetadata
    */
   async oidc(ctx: HttpContext) {
-    const base = await this.authServer(ctx)
-
     const manager = await ctx.containerResolver.make(SesameManager)
+
+    if (!manager.isOidcEnabled) {
+      ctx.response.status(404)
+      return { error: 'OIDC is not configured' }
+    }
+
+    const base = await this.authServer(ctx)
+    const router = (await ctx.containerResolver.make('router')) as RouterLike
+    const prefixUrl = manager.config.issuer
+    this.#assertOidcDiscoveryRoutes(router)
 
     return {
       ...base,
+      userinfo_endpoint: router.makeUrl('sesame.userinfo', {}, { prefixUrl }),
+      jwks_uri: router.makeUrl('sesame.jwks', {}, { prefixUrl }),
       subject_types_supported: ['public'],
-      scopes_supported: [...Object.keys(manager.config.scopes), ...BUILTIN_SCOPES],
+      id_token_signing_alg_values_supported: ['RS256'],
+      scopes_supported: [...new Set([
+        'openid', 'profile', 'email',
+        ...Object.keys(manager.config.scopes),
+        ...BUILTIN_SCOPES,
+      ])],
+      claims_supported: ['sub', 'iss', 'aud', 'exp', 'iat', 'nonce', 'at_hash'],
+      response_types_supported: ['code'],
     }
   }
 

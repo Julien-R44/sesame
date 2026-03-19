@@ -19,6 +19,7 @@ export default class extends BaseSchema {
       table.string('state').nullable()
       table.string('code_challenge').nullable()
       table.string('code_challenge_method').nullable()
+      table.string('nonce').nullable()
       table.timestamp('expires_at').notNullable()
       table.timestamp('created_at').notNullable()
     })

@@ -211,6 +211,32 @@ test.group('Integration | Authorization Flow', (group) => {
     assert.equal(url.searchParams.get('iss'), 'https://auth.example.com')
   })
 
+  test('rejects openid when JWK is configured without an OIDC provider', async ({ assert }) => {
+    const manager = createManager({ jwk: { kty: 'RSA' } })
+    await createTestClient({ scopes: ['read', 'openid'] })
+    const controller = new AuthorizeController()
+
+    const ctx = mockCtx({
+      manager,
+      query: {
+        client_id: 'test-client',
+        response_type: 'code',
+        redirect_uri: 'https://app.example.com/callback',
+        scope: 'openid read',
+        state: 'oidc-misconfigured',
+        code_challenge: createHash('sha256').update('oidc-provider-required').digest('base64url'),
+        code_challenge_method: 'S256',
+      },
+      auth: { user: { id: 'user-1' } },
+    })
+
+    const result = (await controller.handle(ctx)) as any
+    const url = new URL(result.redirectUrl)
+
+    assert.equal(url.searchParams.get('error'), 'invalid_scope')
+    assert.include(url.searchParams.get('error_description'), 'set jwk and oidcProvider')
+  })
+
   test('includes iss parameter when user denies consent (RFC 9207)', async ({ assert }) => {
     const manager = createManager()
     await createTestClient()

@@ -5,7 +5,7 @@ import type { SesameManager } from '../sesame_manager.ts'
 import { TokenService } from '../services/token_service.ts'
 import { ClientService } from '../services/client_service.ts'
 import { OAuthAccessToken } from '../models/oauth_access_token.ts'
-import { BUILTIN_SCOPES } from '../types.ts'
+import { BUILTIN_SCOPES, OIDC_SCOPES } from '../types.ts'
 import { E_INVALID_CLIENT, E_INVALID_SCOPE } from '../oauth_error.ts'
 
 /**
@@ -18,8 +18,9 @@ import { E_INVALID_CLIENT, E_INVALID_SCOPE } from '../oauth_error.ts'
  *
  * No refresh token is issued (per spec and convention).
  *
- * Built-in OIDC scopes (e.g. `offline_access`) are rejected
- * since they are user-centric and meaningless in an M2M context.
+ * User-centric OAuth/OIDC scopes (e.g. `offline_access`, `openid`,
+ * `profile`, `email`) are rejected since they are meaningless in an
+ * M2M context.
  *
  * @see https://datatracker.ietf.org/doc/html/rfc6749#section-4.4
  */
@@ -44,13 +45,17 @@ export async function handleClientCredentialsGrant(ctx: HttpContext, manager: Se
   // Resolve scopes: use requested scopes or fall back to client's configured scopes
   const requestedScopes: string[] = body.scope
     ? body.scope.split(' ')
-    : client.scopes.filter((scope: string) => !BUILTIN_SCOPES.has(scope))
+    : client.scopes.filter(
+        (scope: string) => !BUILTIN_SCOPES.has(scope) && !OIDC_SCOPES.has(scope)
+      )
 
-  // Reject built-in OIDC scopes (offline_access, etc.) — they are meaningless in M2M
-  const builtinRequested = requestedScopes.filter((s: string) => BUILTIN_SCOPES.has(s))
-  if (builtinRequested.length > 0) {
+  // Reject user-centric OAuth/OIDC scopes — they are meaningless in M2M
+  const forbiddenRequested = requestedScopes.filter(
+    (scope: string) => BUILTIN_SCOPES.has(scope) || OIDC_SCOPES.has(scope)
+  )
+  if (forbiddenRequested.length > 0) {
     throw new E_INVALID_SCOPE(
-      `Scopes not allowed for client_credentials: ${builtinRequested.join(', ')}`
+      `Scopes not allowed for client_credentials: ${forbiddenRequested.join(', ')}`
     )
   }
 

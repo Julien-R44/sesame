@@ -9,6 +9,8 @@ import {
   createManager,
   createTestClient,
   mockCtx,
+  getTestJwk,
+  FakeUserProvider,
 } from './helpers.ts'
 import { OAuthClient } from '../src/models/oauth_client.ts'
 import { OAuthAuthorizationCode } from '../src/models/oauth_authorization_code.ts'
@@ -75,11 +77,12 @@ test.group('Integration | Metadata Endpoints', () => {
   })
 
   test('returns OIDC metadata', async ({ assert }) => {
-    const manager = createManager()
+    const jwk = await getTestJwk()
+    const manager = createManager({ jwk, oidcProvider: new FakeUserProvider([]) })
     const ctx = mockCtx({ manager })
 
     const controller = new MetadataController()
-    const result = await controller.oidc(ctx)
+    const result = await controller.oidc(ctx) as any
 
     assert.equal(result.issuer, 'https://auth.example.com')
     assert.deepEqual(result.subject_types_supported, ['public'])
@@ -225,6 +228,14 @@ test.group('Integration | SesameManager', () => {
 
     assert.deepEqual(manager.validateScopes(['offline_access']), [])
     assert.deepEqual(manager.validateScopes(['offline_access', 'admin']), ['admin'])
+  })
+
+  test('OIDC scopes are valid even when scopes config is empty', ({ assert }) => {
+    const manager = createManager({ scopes: {} })
+
+    assert.deepEqual(manager.validateScopes(['openid']), [])
+    assert.deepEqual(manager.validateScopes(['openid', 'profile', 'email']), [])
+    assert.deepEqual(manager.validateScopes(['openid', 'profile', 'admin']), ['admin'])
   })
 
   test('checks grant type support', ({ assert }) => {

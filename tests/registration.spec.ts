@@ -533,6 +533,35 @@ test.group('Integration | Dynamic Registration', (group) => {
     assert.equal(result.scope, 'read write')
   })
 
+  test('rejects registration with profile/email without openid', async ({ assert }) => {
+    const manager = createManager({
+      scopes: {
+        read: 'Read access',
+      },
+    })
+
+    const ctx = mockCtx({
+      manager,
+      body: {
+        client_name: 'OIDC claims only client',
+        redirect_uris: ['https://example.com/cb'],
+        scope: 'profile email',
+      },
+    })
+
+    const controller = new RegisterController()
+
+    try {
+      await controller.handle(ctx)
+      assert.fail('Should have thrown')
+    } catch (error: any) {
+      assert.instanceOf(error, OAuthError)
+      assert.equal(error.oauthCode, 'invalid_scope')
+      assert.include(error.message, 'profile')
+      assert.include(error.message, 'email')
+    }
+  })
+
   test('rejects unknown scopes when config.scopes is empty', async ({ assert }) => {
     const manager = createManager({ scopes: {} })
 

@@ -208,6 +208,46 @@ test.group('Integration | Refresh Token Grant', (group) => {
     assert.equal(result.scope, 'read')
   })
 
+  test('rejects narrowing OIDC scopes to profile/email without openid', async ({ assert }) => {
+    const manager = createManager()
+    const tokenService = new TokenService(manager)
+    await createTestClient({
+      scopes: ['read', 'openid', 'profile', 'email', 'offline_access'],
+    })
+
+    const rawRefreshToken = 'oidc-scope-narrowing-refresh'
+    await OAuthRefreshToken.create({
+      id: crypto.randomUUID(),
+      token: tokenService.hashToken(rawRefreshToken),
+      accessTokenId: 'oidc-scope-narrowing-access',
+      clientId: 'test-client',
+      userId: 'user-1',
+      scopes: ['openid', 'profile', 'email'],
+      expiresAt: DateTime.now().plus({ days: 30 }),
+    })
+
+    const ctx = mockCtx({
+      manager,
+      body: {
+        grant_type: 'refresh_token',
+        refresh_token: rawRefreshToken,
+        client_id: 'test-client',
+        client_secret: 'test-secret',
+        scope: 'profile email',
+      },
+    })
+
+    try {
+      await handleRefreshTokenGrant(ctx, manager)
+      assert.fail('Should have thrown')
+    } catch (error: any) {
+      assert.instanceOf(error, OAuthError)
+      assert.equal(error.oauthCode, 'invalid_scope')
+      assert.include(error.message, 'profile')
+      assert.include(error.message, 'email')
+    }
+  })
+
   test('rejects scope escalation', async ({ assert }) => {
     const manager = createManager()
     const tokenService = new TokenService(manager)

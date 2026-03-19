@@ -1,4 +1,6 @@
 import type { HttpContext } from '@adonisjs/core/http'
+import type { JWK } from 'jose'
+import type { OAuthUserProviderContract } from './guard/types.ts'
 
 /**
  * Augment this interface via module augmentation to enable
@@ -49,6 +51,35 @@ export type InferScopes<T extends { scopes: Record<string, string> }> = {
  * @see https://datatracker.ietf.org/doc/html/rfc6749#section-5.1
  */
 export const BUILTIN_SCOPES = new Set(['offline_access'])
+
+/**
+ * OIDC-recognized scopes that are accepted by server-level validation
+ * without needing to be declared in the config `scopes` map.
+ *
+ * Unlike `BUILTIN_SCOPES`, these still require explicit client authorization
+ * via `ClientService.validateClientScopes()`.
+ */
+export const OIDC_SCOPES = new Set(['openid', 'profile', 'email'])
+
+/**
+ * Protocol-managed claims that must never be overridden by `getOidcClaims()`.
+ */
+export const RESERVED_OIDC_CLAIMS = new Set([
+  'sub', 'iss', 'aud', 'exp', 'iat', 'nbf', 'jti',
+  'nonce', 'at_hash', 'auth_time', 'acr', 'azp', 'sid',
+])
+
+/**
+ * Interface for User models that provide OIDC claims.
+ * Implement this on your User model to include custom claims
+ * in id_tokens and /userinfo responses.
+ *
+ * If not implemented, only protocol-level claims (sub, iss, aud, exp, iat)
+ * are included.
+ */
+export interface OidcClaimable {
+  getOidcClaims(scopes: Scope[]): Record<string, unknown> | Promise<Record<string, unknown>>
+}
 
 /**
  * Supported OAuth 2.1 grant types.
@@ -158,6 +189,30 @@ export interface SesameConfig {
    * Defaults to `false`.
    */
   allowPublicRegistration?: boolean
+
+  /**
+   * JWK (JSON Web Key) for signing ID tokens.
+   * Must be an RSA private key in JWK format.
+   * Required together with `oidcProvider` when OIDC scopes (openid) are used.
+   * Passed via env var, parsed at boot, lives in memory.
+   */
+  jwk?: JWK
+
+  /**
+   * User provider used by OIDC flows to resolve the subject for
+   * `id_token` emission and `/userinfo`.
+   *
+   * This is independent from `@adonisjs/auth` guards. The provider is
+   * configured once for the authorization server and must be stable for
+   * the issuer. Required together with `jwk` to enable OIDC.
+   */
+  oidcProvider?: OAuthUserProviderContract<unknown>
+
+  /**
+   * ID token TTL as a string duration (e.g. '1h', '10m').
+   * Defaults to '1h'.
+   */
+  idTokenTtl?: string
 }
 
 /**
@@ -178,6 +233,9 @@ export interface ResolvedSesameConfig {
   consentPage: string | ((ctx: HttpContext, params: URLSearchParams) => string)
   allowDynamicRegistration: boolean
   allowPublicRegistration: boolean
+  jwk?: JWK
+  oidcProvider?: OAuthUserProviderContract<unknown>
+  idTokenTtl: string
 }
 
 /**

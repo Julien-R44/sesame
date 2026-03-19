@@ -45,6 +45,9 @@ export class OAuthPendingAuthorizationRequest extends BaseModel {
   @column()
   declare codeChallengeMethod: string | null
 
+  @column()
+  declare nonce: string | null
+
   @column.dateTime()
   declare expiresAt: DateTime
 

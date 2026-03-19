@@ -84,6 +84,12 @@ export default class RegisterController {
     if (invalidScopes.length > 0)
       throw new E_INVALID_SCOPE(`Unknown scopes: ${invalidScopes.join(', ')}`)
 
+    if (manager.usesOidcScopes(scopes) && !manager.isOidcEnabled) {
+      throw new E_INVALID_SCOPE(
+        'OIDC scopes require OIDC to be configured (set jwk and oidcProvider in config)'
+      )
+    }
+
     const clientName = body.client_name ?? 'Unnamed Client'
 
     // Validate requested grant types and response types

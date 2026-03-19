@@ -278,6 +278,38 @@ test.group('Integration | Client Credentials Grant', (group) => {
     }
   })
 
+  test('rejects openid/profile/email scopes (OIDC user scopes are meaningless in M2M)', async ({
+    assert,
+  }) => {
+    const manager = createManager({ grantTypes: ['client_credentials'] })
+    await createTestClient({
+      grantTypes: ['client_credentials'],
+      scopes: ['read', 'openid', 'profile', 'email'],
+      userId: 'user-1',
+    })
+
+    const ctx = mockCtx({
+      manager,
+      body: {
+        grant_type: 'client_credentials',
+        client_id: 'test-client',
+        client_secret: 'test-secret',
+        scope: 'read openid profile email',
+      },
+    })
+
+    try {
+      await handleClientCredentialsGrant(ctx, manager)
+      assert.fail('Should have thrown')
+    } catch (error: any) {
+      assert.instanceOf(error, OAuthError)
+      assert.equal(error.oauthCode, 'invalid_scope')
+      assert.include(error.message, 'openid')
+      assert.include(error.message, 'profile')
+      assert.include(error.message, 'email')
+    }
+  })
+
   test('rejects scopes not allowed for the client', async ({ assert }) => {
     const manager = createManager({ grantTypes: ['client_credentials'] })
     await createTestClient({ grantTypes: ['client_credentials'], scopes: ['read'] })
@@ -322,6 +354,34 @@ test.group('Integration | Client Credentials Grant', (group) => {
       assert.instanceOf(error, OAuthError)
       assert.equal(error.oauthCode, 'invalid_scope')
     }
+  })
+
+  test('does not inherit OIDC scopes from client defaults when no scope is requested', async ({
+    assert,
+  }) => {
+    const manager = createManager({ grantTypes: ['client_credentials'] })
+    await createTestClient({
+      grantTypes: ['client_credentials'],
+      scopes: ['read', 'openid', 'profile', 'email', 'offline_access', 'write'],
+      userId: 'user-1',
+    })
+
+    const ctx = mockCtx({
+      manager,
+      body: {
+        grant_type: 'client_credentials',
+        client_id: 'test-client',
+        client_secret: 'test-secret',
+      },
+    })
+
+    const result = await handleClientCredentialsGrant(ctx, manager)
+
+    assert.equal(result.scope, 'read write')
+
+    const tokens = await OAuthAccessToken.query().where('clientId', 'test-client')
+    assert.lengthOf(tokens, 1)
+    assert.deepEqual(tokens[0].scopes, ['read', 'write'])
   })
 
   test('uses clientCredentialsAccessTokenTtl when configured', async ({ assert }) => {

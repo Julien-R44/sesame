@@ -14,6 +14,8 @@ const controllers = {
   register: () => import('./controllers/register_controller.ts'),
   metadata: () => import('./controllers/metadata_controller.ts'),
   clientInfo: () => import('./controllers/client_info_controller.ts'),
+  jwks: () => import('./controllers/jwks_controller.ts'),
+  userinfo: () => import('./controllers/userinfo_controller.ts'),
 }
 
 /**
@@ -39,6 +41,8 @@ export function registerOAuthRoutes(router: Router) {
   router.post('/introspect', [controllers.introspect]).as('sesame.introspect')
   router.post('/revoke', [controllers.revoke]).as('sesame.revoke')
   router.post('/register', [controllers.register]).as('sesame.register')
+  router.get('/userinfo', [controllers.userinfo]).as('sesame.userinfo')
+  router.post('/userinfo', [controllers.userinfo]).as('sesame.userinfo.post')
 }
 
 /**
@@ -52,7 +56,9 @@ export function registerOAuthRoutes(router: Router) {
  * - `GET /.well-known/openid-configuration` — OpenID Connect discovery
  * - `GET /.well-known/oauth-protected-resource` — Protected resource metadata (RFC 9728)
  */
-export function registerWellKnownRoutes(router: Router) {
+export function registerWellKnownRoutes(router: Router, options?: { jwksPath?: string }) {
+  const jwksPath = options?.jwksPath ?? '/jwks'
+
   router
     .get('/.well-known/oauth-authorization-server', [controllers.metadata, 'authServer'])
     .as('sesame.metadata.authServer')
@@ -62,4 +68,5 @@ export function registerWellKnownRoutes(router: Router) {
   router
     .get('/.well-known/oauth-protected-resource', [controllers.metadata, 'protectedResource'])
     .as('sesame.metadata.protectedResource')
+  router.get(jwksPath, [controllers.jwks]).as('sesame.jwks')
 }

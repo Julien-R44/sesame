@@ -112,6 +112,15 @@ export const E_INVALID_TOKEN = class extends OAuthError {
   static readonly code: string = 'E_INVALID_TOKEN'
   static readonly message: string = 'Invalid token'
   static readonly oauthCode: string = 'invalid_token'
+
+  handle(error: this, ctx: HttpContext) {
+    ctx.response.header(
+      'WWW-Authenticate',
+      `Bearer error="invalid_token", error_description="${error.message}"`
+    )
+
+    super.handle(error, ctx)
+  }
 }
 
 /**

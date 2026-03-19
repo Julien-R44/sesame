@@ -35,5 +35,8 @@ export function defineConfig<const TScopes extends Record<string, string>>(
     consentPage: config.consentPage,
     allowDynamicRegistration: config.allowDynamicRegistration ?? false,
     allowPublicRegistration: config.allowPublicRegistration ?? false,
+    jwk: config.jwk,
+    oidcProvider: config.oidcProvider,
+    idTokenTtl: config.idTokenTtl ?? '1h',
   } as Omit<ResolvedSesameConfig, 'scopes'> & { scopes: TScopes }
 }

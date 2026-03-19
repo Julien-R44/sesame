@@ -2,10 +2,12 @@ import { DateTime } from 'luxon'
 import type { HttpContext, Router } from '@adonisjs/core/http'
 import {
   BUILTIN_SCOPES,
+  OIDC_SCOPES,
   type ResolvedSesameConfig,
   type ResourceServerMetadata,
   type Scope,
 } from './types.ts'
+import { KeyService } from './services/key_service.ts'
 import { registerOAuthRoutes, registerWellKnownRoutes as registerWellKnown } from './routes.ts'
 import { OAuthAccessToken } from './models/oauth_access_token.ts'
 import { OAuthRefreshToken } from './models/oauth_refresh_token.ts'
@@ -29,14 +31,39 @@ export interface PurgeResult {
 export class SesameManager {
   #config: ResolvedSesameConfig
   #router: Router
+  #keyService: KeyService | null
 
   constructor(config: ResolvedSesameConfig, router: Router) {
     this.#config = config
     this.#router = router
+    this.#keyService = config.jwk ? new KeyService(config.jwk) : null
   }
 
   get config() {
     return this.#config
+  }
+
+  get keyService(): KeyService {
+    if (!this.#keyService) {
+      throw new Error('OIDC requires a JWK. Set the `jwk` option in defineConfig().')
+    }
+
+    return this.#keyService
+  }
+
+  get isOidcEnabled(): boolean {
+    return this.#keyService !== null && this.#config.oidcProvider !== undefined
+  }
+
+  /**
+   * Load a user by ID using the configured user provider.
+   * Returns the original user model instance, or null if not found.
+   */
+  async findUserById(userId: string): Promise<unknown | null> {
+    if (!this.#config.oidcProvider) return null
+    const guardUser = await this.#config.oidcProvider.findById(userId)
+
+    return guardUser?.getOriginal() ?? null
   }
 
   /**
@@ -46,6 +73,13 @@ export class SesameManager {
    */
   hasScope(scope: Scope): boolean {
     return scope in this.#config.scopes
+  }
+
+  /**
+   * Check if the requested scope list uses any OIDC-specific scopes.
+   */
+  usesOidcScopes(scopes: Scope[]): boolean {
+    return scopes.some((scope) => OIDC_SCOPES.has(scope))
   }
 
   /**
@@ -59,11 +93,28 @@ export class SesameManager {
    * @see https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2.1
    */
   validateScopes(scopes: Scope[]): string[] {
-    if (Object.keys(this.#config.scopes).length === 0) {
-      return scopes.filter((s) => !BUILTIN_SCOPES.has(s))
+    const invalidScopes = new Set<string>()
+    const hasOpenid = scopes.includes('openid')
+
+    if (!hasOpenid) {
+      scopes
+        .filter((scope) => scope !== 'openid' && OIDC_SCOPES.has(scope))
+        .forEach((scope) => invalidScopes.add(scope))
     }
 
-    return scopes.filter((s) => !BUILTIN_SCOPES.has(s) && !this.hasScope(s))
+    if (Object.keys(this.#config.scopes).length === 0) {
+      scopes
+        .filter((scope) => !BUILTIN_SCOPES.has(scope) && !OIDC_SCOPES.has(scope))
+        .forEach((scope) => invalidScopes.add(scope))
+
+      return [...invalidScopes]
+    }
+
+    scopes
+      .filter((scope) => !BUILTIN_SCOPES.has(scope) && !OIDC_SCOPES.has(scope) && !this.hasScope(scope))
+      .forEach((scope) => invalidScopes.add(scope))
+
+    return [...invalidScopes]
   }
 
   /**
@@ -182,13 +233,20 @@ export class SesameManager {
   }
 
   /**
-   * Register well-known discovery routes at the root level.
+   * Register discovery routes at the root level.
    *
    * Must be called outside any prefix group so endpoints
    * remain at `/.well-known/...`.
    */
-  registerWellKnownRoutes() {
-    registerWellKnown(this.#router)
+  registerDiscoveryRoutes(options?: { jwksPath?: string }) {
+    registerWellKnown(this.#router, options)
+  }
+
+  /**
+   * @deprecated Use `registerDiscoveryRoutes()` instead.
+   */
+  registerWellKnownRoutes(options?: { jwksPath?: string }) {
+    this.registerDiscoveryRoutes(options)
   }
 
   /**

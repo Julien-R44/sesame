@@ -5,6 +5,7 @@ import string from '@adonisjs/core/helpers/string'
 import type { HttpContext } from '@adonisjs/core/http'
 import type { SesameManager } from '../sesame_manager.ts'
 import { TokenService } from '../services/token_service.ts'
+import { IdTokenService } from '../services/id_token_service.ts'
 import { ClientService } from '../services/client_service.ts'
 import { OAuthAuthorizationCode } from '../models/oauth_authorization_code.ts'
 import { OAuthAccessToken } from '../models/oauth_access_token.ts'
@@ -75,65 +76,100 @@ export async function handleAuthorizationCodeGrant(ctx: HttpContext, manager: Se
   }
   if (authCode.redirectUri !== redirectUri) throw new E_INVALID_GRANT('Redirect URI mismatch')
 
-  // Consume the code before verification — authorization codes are single-use
-  // even if PKCE fails, so attackers cannot retry with different verifiers
-  const deleteResult = await OAuthAuthorizationCode.query().where('id', authCode.id).delete()
-  const deletedRows = Array.isArray(deleteResult)
-    ? Number(deleteResult[0] ?? 0)
-    : Number(deleteResult)
-  if (deletedRows !== 1) {
-    throw new E_INVALID_GRANT('Authorization code has already been consumed')
-  }
-
   // PKCE S256 verification (mandatory per OAuth 2.1)
   // @see https://datatracker.ietf.org/doc/html/rfc7636#section-4.1
   const [verifierError] = await codeVerifierValidator.tryValidate({ code_verifier: codeVerifier })
   if (verifierError) {
+    await OAuthAuthorizationCode.query().where('id', authCode.id).delete()
     throw new E_INVALID_REQUEST(
       'code_verifier must be 43-128 characters using only [A-Za-z0-9-._~] (RFC 7636 §4.1)'
     )
   }
-  if (!authCode.codeChallenge)
+  if (!authCode.codeChallenge) {
+    await OAuthAuthorizationCode.query().where('id', authCode.id).delete()
     throw new E_INVALID_GRANT('Authorization code is missing PKCE challenge')
+  }
   const challenge = createHash('sha256').update(codeVerifier).digest('base64url')
-  if (challenge !== authCode.codeChallenge) throw new E_INVALID_GRANT('PKCE verification failed')
+  if (challenge !== authCode.codeChallenge) {
+    await OAuthAuthorizationCode.query().where('id', authCode.id).delete()
+    throw new E_INVALID_GRANT('PKCE verification failed')
+  }
 
   clientService.validateClientScopes(authCode.scopes, client.scopes)
 
   // Issue an opaque access token
   const { raw: accessTokenRaw, hash: tokenHash, expiresAt } = tokenService.createAccessToken()
 
-  await OAuthAccessToken.create({
-    id: crypto.randomUUID(),
-    tokenHash,
-    clientId: client.clientId,
-    userId: authCode.userId,
-    scopes: authCode.scopes,
-    expiresAt: DateTime.fromJSDate(expiresAt),
-  })
-
-  // Issue a refresh token when the server has the refresh_token grant
-  // enabled. Per RFC 6749 §5.1, refresh token issuance is "at the
-  // discretion of the authorization server" — we always emit one so
-  // that MCP clients that don't request offline_access still get
-  // long-lived sessions
+  // Precompute refresh token and id_token before mutating OAuth state so OIDC
+  // failures do not consume the authorization code or persist partial tokens.
   let refreshTokenRaw: string | undefined
+  let refreshTokenHash: string | undefined
+  let refreshTokenExpiresAt: DateTime | undefined
   if (manager.isGrantTypeEnabled('refresh_token')) {
     const { raw, hash } = tokenService.createRefreshToken()
     const refreshTtl = string.seconds.parse(manager.config.refreshTokenTtl)
-
-    await OAuthRefreshToken.create({
-      id: crypto.randomUUID(),
-      token: hash,
-      accessTokenId: tokenHash,
-      clientId: client.clientId,
-      userId: authCode.userId,
-      scopes: authCode.scopes,
-      expiresAt: DateTime.now().plus({ seconds: refreshTtl }),
-    })
-
     refreshTokenRaw = raw
+    refreshTokenHash = hash
+    refreshTokenExpiresAt = DateTime.now().plus({ seconds: refreshTtl })
   }
+
+  // Issue an id_token if the openid scope was granted
+  let idToken: string | undefined
+  if (authCode.scopes.includes('openid')) {
+    const idTokenService = new IdTokenService(manager)
+    const user = await manager.findUserById(authCode.userId)
+    if (!user) throw new E_INVALID_GRANT('OIDC user not found')
+
+    idToken = await idTokenService.sign({
+      sub: authCode.userId,
+      clientId: client.clientId,
+      scopes: authCode.scopes,
+      accessToken: accessTokenRaw,
+      user,
+      nonce: authCode.nonce ?? undefined,
+    })
+  }
+
+  await OAuthAuthorizationCode.transaction(async (trx) => {
+    const deleteResult = await OAuthAuthorizationCode.query()
+      .useTransaction(trx)
+      .where('id', authCode.id)
+      .delete()
+    const deletedRows = Array.isArray(deleteResult)
+      ? Number(deleteResult[0] ?? 0)
+      : Number(deleteResult)
+
+    if (deletedRows !== 1) {
+      throw new E_INVALID_GRANT('Authorization code has already been consumed')
+    }
+
+    await OAuthAccessToken.create(
+      {
+        id: crypto.randomUUID(),
+        tokenHash,
+        clientId: client.clientId,
+        userId: authCode.userId,
+        scopes: authCode.scopes,
+        expiresAt: DateTime.fromJSDate(expiresAt),
+      },
+      { client: trx }
+    )
+
+    if (refreshTokenRaw && refreshTokenHash && refreshTokenExpiresAt) {
+      await OAuthRefreshToken.create(
+        {
+          id: crypto.randomUUID(),
+          token: refreshTokenHash,
+          accessTokenId: tokenHash,
+          clientId: client.clientId,
+          userId: authCode.userId,
+          scopes: authCode.scopes,
+          expiresAt: refreshTokenExpiresAt,
+        },
+        { client: trx }
+      )
+    }
+  })
 
   const ttlSeconds = string.seconds.parse(manager.config.accessTokenTtl)
 
@@ -143,5 +179,6 @@ export async function handleAuthorizationCodeGrant(ctx: HttpContext, manager: Se
     expires_in: ttlSeconds,
     scope: authCode.scopes.join(' '),
     ...(refreshTokenRaw ? { refresh_token: refreshTokenRaw } : {}),
+    ...(idToken ? { id_token: idToken } : {}),
   }
 }

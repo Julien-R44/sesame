@@ -37,6 +37,7 @@ export default class AuthorizeController {
     state: vine.string().optional(),
     code_challenge: vine.string().optional(),
     code_challenge_method: vine.string().optional(),
+    nonce: vine.string().optional(),
   })
 
   /**
@@ -77,6 +78,7 @@ export default class AuthorizeController {
       state?: string
       codeChallenge?: string
       codeChallengeMethod?: string
+      nonce?: string
     }
   ) {
     const tokenService = new TokenService(manager)
@@ -93,6 +95,7 @@ export default class AuthorizeController {
       state: options.state ?? null,
       codeChallenge: options.codeChallenge ?? null,
       codeChallengeMethod: options.codeChallengeMethod ?? null,
+      nonce: options.nonce ?? null,
       expiresAt: DateTime.now().plus({ seconds: ttl }),
     })
 
@@ -146,6 +149,7 @@ export default class AuthorizeController {
       codeChallenge?: string
       codeChallengeMethod?: string
       state?: string
+      nonce?: string
     }
   ) {
     const tokenService = new TokenService(manager)
@@ -162,6 +166,7 @@ export default class AuthorizeController {
       redirectUri: options.redirectUri,
       codeChallenge: options.codeChallenge ?? null,
       codeChallengeMethod: options.codeChallengeMethod ?? null,
+      nonce: options.nonce ?? null,
       expiresAt: DateTime.now().plus({ seconds: ttl }),
     })
 
@@ -228,6 +233,18 @@ export default class AuthorizeController {
       )
     }
 
+    // Reject OIDC scopes unless OIDC is fully configured
+    if (manager.usesOidcScopes(requestedScopes) && !manager.isOidcEnabled) {
+      return this.#redirectWithError(
+        ctx,
+        manager,
+        query.redirect_uri,
+        'invalid_scope',
+        'OIDC scopes require OIDC to be configured (set jwk and oidcProvider in config)',
+        query.state
+      )
+    }
+
     // PKCE is mandatory for all clients (OAuth 2.1)
     if (!query.code_challenge) {
       return this.#redirectWithError(
@@ -279,6 +296,7 @@ export default class AuthorizeController {
           codeChallenge: query.code_challenge,
           codeChallengeMethod: query.code_challenge_method,
           state: query.state,
+          nonce: query.nonce,
         })
       }
     }
@@ -292,6 +310,7 @@ export default class AuthorizeController {
       state: query.state,
       codeChallenge: query.code_challenge,
       codeChallengeMethod: query.code_challenge_method,
+      nonce: query.nonce,
     })
     this.#copyAuthorizeDisplayParams(params, ctx.request.qs())
     params.set('scope', requestedScopes.join(' '))
