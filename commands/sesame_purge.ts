@@ -9,8 +9,6 @@ import { SesameManager } from '../src/sesame_manager.ts'
  * or `--expired` to target only one category. Expired tokens are
  * retained for a configurable period (default 168h / 7 days) to
  * allow for debugging and audit trails.
- *
- * @see https://datatracker.ietf.org/doc/html/rfc6749
  */
 export default class SesamePurge extends BaseCommand {
   static commandName = 'sesame:purge'

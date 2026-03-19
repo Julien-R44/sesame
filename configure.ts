@@ -3,7 +3,7 @@ import { join } from 'node:path'
 
 export async function configure(command: Configure) {
   const codemods = await command.createCodemods()
-  const stubsRoot = join(import.meta.url, './stubs')
+  const stubsRoot = join(import.meta.dirname, 'stubs')
 
   // Publish config stub
   await codemods.makeUsingStub(stubsRoot, 'config/sesame.stub', {})

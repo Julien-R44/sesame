@@ -174,6 +174,15 @@ router.get('/admin', [AdminController]).use(middleware.scopes({ scopes: ['admin'
 router.get('/data', [DataController]).use(middleware.anyScope({ scopes: ['read', 'write'] }))
 ```
 
+Important: these middleware are `TransientToken`-like. If the request carries an OAuth Bearer token, scopes are enforced against that token. If there is no Bearer token but the request is already authenticated through a session/web guard, the middleware lets the request through instead of rejecting on missing OAuth scopes.
+
+Use these middleware on routes that are allowed to accept either:
+
+- a scoped OAuth access token
+- or a first-party session-authenticated user
+
+If you want to require OAuth scopes strictly, authenticate with `auth.use('oauth').authenticate()` in your controller or route pipeline and check scopes on that guard explicitly.
+
 ### Programmatic Scope Checking
 
 You can also check scopes directly in your controller logic using `hasScope()` and `hasAnyScope()` on the guard instance. This is useful when you need conditional behavior based on scopes rather than a hard reject.
