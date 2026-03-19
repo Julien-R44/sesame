@@ -1,17 +1,12 @@
 import { test } from '@japa/runner'
-import { createHash } from 'node:crypto'
 import { DateTime } from 'luxon'
 import type { ApplicationService } from '@adonisjs/core/types'
-import {
-  createApp,
-  setupDatabase,
-  teardownDatabase,
-  createManager,
-  createTestClient,
-  mockCtx,
-  getTestJwk,
-  FakeUserProvider,
-} from './helpers.ts'
+import { createApp, setupDatabase, teardownDatabase, createManager } from './helpers/app.ts'
+import { mockCtx } from './helpers/mock_ctx.ts'
+import { getTestJwk, FakeUserProvider } from './helpers/fakes.ts'
+import { createTestClient } from './helpers/create_test_client.ts'
+import { createPkce } from './helpers/create_pkce.ts'
+import { cleanModels } from './helpers/clean_models.ts'
 import { OAuthClient } from '../src/models/oauth_client.ts'
 import { OAuthAuthorizationCode } from '../src/models/oauth_authorization_code.ts'
 import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
@@ -258,19 +253,13 @@ test.group('Integration | revokeAllForUser', (group) => {
     await app.terminate()
   })
 
-  group.each.setup(async () => {
-    await OAuthPendingAuthorizationRequest.query().delete()
-    await OAuthRefreshToken.query().delete()
-    await OAuthAccessToken.query().delete()
-    await OAuthAuthorizationCode.query().delete()
-    await OAuthConsent.query().delete()
-    await OAuthClient.query().delete()
-  })
+  group.each.setup(cleanModels())
 
   test('revokes all tokens, codes and consents for a user', async ({ assert }) => {
     const manager = createManager()
     const client = await createTestClient()
     const tokenService = new TokenService(manager)
+    const { codeChallenge } = createPkce('revoke-all-verifier')
 
     // Create access token
     await OAuthAccessToken.create({
@@ -294,7 +283,6 @@ test.group('Integration | revokeAllForUser', (group) => {
     })
 
     // Create authorization code
-    const revokeVerifier = 'revoke-all-verifier'
     await OAuthAuthorizationCode.create({
       id: crypto.randomUUID(),
       code: tokenService.hashToken('code-1'),
@@ -302,7 +290,7 @@ test.group('Integration | revokeAllForUser', (group) => {
       userId: 'user-1',
       scopes: ['read'],
       redirectUri: 'https://app.example.com/callback',
-      codeChallenge: createHash('sha256').update(revokeVerifier).digest('base64url'),
+      codeChallenge,
       codeChallengeMethod: 'S256',
       expiresAt: DateTime.now().plus({ minutes: 10 }),
     })
@@ -449,21 +437,13 @@ test.group('Security | Scope validation bypass (C1/C2) — Integration', (group)
     await app.terminate()
   })
 
-  group.each.setup(async () => {
-    await OAuthPendingAuthorizationRequest.query().delete()
-    await OAuthRefreshToken.query().delete()
-    await OAuthAccessToken.query().delete()
-    await OAuthAuthorizationCode.query().delete()
-    await OAuthConsent.query().delete()
-    await OAuthClient.query().delete()
-  })
+  group.each.setup(cleanModels())
 
   test('C1+C2: authorize endpoint rejects arbitrary scopes with empty configs', async ({
     assert,
   }) => {
     const manager = createManager({ scopes: {}, defaultScopes: [] })
-    const codeVerifier = 'a'.repeat(43)
-    const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
+    const { codeChallenge } = createPkce('a'.repeat(43))
 
     const clientService = new ClientService()
     await OAuthClient.create({
@@ -562,7 +542,7 @@ test.group('Security | Scope validation bypass (C1/C2) — Integration', (group)
 
   test('C1+C2: dynamic registration → authorize rejects arbitrary scopes', async ({ assert }) => {
     const manager = createManager({ scopes: {}, defaultScopes: [] })
-    const codeChallenge = createHash('sha256').update('b'.repeat(43)).digest('base64url')
+    const { codeChallenge } = createPkce('b'.repeat(43))
 
     // Step 1: Register a public client (no scopes → gets defaultScopes = [])
     const registerCtx = mockCtx({

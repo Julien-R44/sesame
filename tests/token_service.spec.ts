@@ -1,6 +1,6 @@
 import { test } from '@japa/runner'
 import { TokenService } from '../src/services/token_service.ts'
-import { createManager } from './helpers.ts'
+import { createManager } from './helpers/app.ts'
 
 test.group('TokenService', () => {
   test('creates an opaque access token', ({ assert }) => {

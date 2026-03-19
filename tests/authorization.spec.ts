@@ -1,19 +1,13 @@
 import { test } from '@japa/runner'
 import { createHash } from 'node:crypto'
 import type { ApplicationService } from '@adonisjs/core/types'
-import {
-  createApp,
-  setupDatabase,
-  teardownDatabase,
-  createManager,
-  createTestClient,
-  createTestAuthCode,
-  mockCtx,
-} from './helpers.ts'
-import { OAuthClient } from '../src/models/oauth_client.ts'
+import { createApp, setupDatabase, teardownDatabase, createManager } from './helpers/app.ts'
+import { mockCtx } from './helpers/mock_ctx.ts'
+import { createTestClient, createTestAuthCode } from './helpers/create_test_client.ts'
+import { createPkce } from './helpers/create_pkce.ts'
+import { cleanModels } from './helpers/clean_models.ts'
 import { OAuthAuthorizationCode } from '../src/models/oauth_authorization_code.ts'
 import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
-import { OAuthRefreshToken } from '../src/models/oauth_refresh_token.ts'
 import { OAuthConsent } from '../src/models/oauth_consent.ts'
 import { OAuthPendingAuthorizationRequest } from '../src/models/oauth_pending_authorization_request.ts'
 import { TokenService } from '../src/services/token_service.ts'
@@ -36,14 +30,7 @@ test.group('Integration | Authorization Flow', (group) => {
     await app.terminate()
   })
 
-  group.each.setup(async () => {
-    await OAuthPendingAuthorizationRequest.query().delete()
-    await OAuthRefreshToken.query().delete()
-    await OAuthAccessToken.query().delete()
-    await OAuthAuthorizationCode.query().delete()
-    await OAuthConsent.query().delete()
-    await OAuthClient.query().delete()
-  })
+  group.each.setup(cleanModels())
 
   test('stores an authorization request server-side and consumes it during consent', async ({
     assert,
@@ -52,6 +39,7 @@ test.group('Integration | Authorization Flow', (group) => {
     await createTestClient()
     const authorizeController = new AuthorizeController()
     const consentController = new ConsentController()
+    const { codeVerifier, codeChallenge } = createPkce('consent-verifier')
 
     const authorizeCtx = mockCtx({
       manager,
@@ -61,7 +49,7 @@ test.group('Integration | Authorization Flow', (group) => {
         redirect_uri: 'https://app.example.com/callback',
         scope: 'read',
         state: 'opaque-state',
-        code_challenge: createHash('sha256').update('consent-verifier').digest('base64url'),
+        code_challenge: codeChallenge,
         code_challenge_method: 'S256',
       },
       auth: { user: { id: 'user-1' } },
@@ -107,7 +95,7 @@ test.group('Integration | Authorization Flow', (group) => {
 
     const authorizeController = new AuthorizeController()
     const consentController = new ConsentController()
-    const legitCodeChallenge = createHash('sha256').update('legit-verifier').digest('base64url')
+    const { codeChallenge: legitCodeChallenge } = createPkce('legit-verifier')
 
     const authorizeCtx = mockCtx({
       manager,
@@ -215,6 +203,7 @@ test.group('Integration | Authorization Flow', (group) => {
     const manager = createManager({ jwk: { kty: 'RSA' } })
     await createTestClient({ scopes: ['read', 'openid'] })
     const controller = new AuthorizeController()
+    const { codeChallenge } = createPkce('oidc-provider-required')
 
     const ctx = mockCtx({
       manager,
@@ -224,7 +213,7 @@ test.group('Integration | Authorization Flow', (group) => {
         redirect_uri: 'https://app.example.com/callback',
         scope: 'openid read',
         state: 'oidc-misconfigured',
-        code_challenge: createHash('sha256').update('oidc-provider-required').digest('base64url'),
+        code_challenge: codeChallenge,
         code_challenge_method: 'S256',
       },
       auth: { user: { id: 'user-1' } },
@@ -243,6 +232,7 @@ test.group('Integration | Authorization Flow', (group) => {
     const authorizeController = new AuthorizeController()
     const consentController = new ConsentController()
     const authMock = { user: { id: 'user-1' }, check: async () => {} }
+    const { codeChallenge } = createPkce('deny-verifier')
 
     const authorizeCtx = mockCtx({
       manager,
@@ -252,7 +242,7 @@ test.group('Integration | Authorization Flow', (group) => {
         redirect_uri: 'https://app.example.com/callback',
         scope: 'read',
         state: 'denied-state',
-        code_challenge: createHash('sha256').update('deny-verifier').digest('base64url'),
+        code_challenge: codeChallenge,
         code_challenge_method: 'S256',
       },
       auth: authMock,
@@ -283,6 +273,7 @@ test.group('Integration | Authorization Flow', (group) => {
     await createTestClient()
     const authorizeController = new AuthorizeController()
     const consentController = new ConsentController()
+    const { codeChallenge } = createPkce('replay-verifier')
 
     const authorizeCtx = mockCtx({
       manager,
@@ -291,7 +282,7 @@ test.group('Integration | Authorization Flow', (group) => {
         response_type: 'code',
         redirect_uri: 'https://app.example.com/callback',
         scope: 'read',
-        code_challenge: createHash('sha256').update('replay-verifier').digest('base64url'),
+        code_challenge: codeChallenge,
         code_challenge_method: 'S256',
       },
       auth: { user: { id: 'user-1' } },
@@ -359,6 +350,7 @@ test.group('Integration | Authorization Flow', (group) => {
     await createTestClient()
     const authorizeController = new AuthorizeController()
     const consentController = new ConsentController()
+    const { codeChallenge } = createPkce('cross-user-verifier')
 
     // User 1 initiates the authorize flow
     const authorizeCtx = mockCtx({
@@ -368,7 +360,7 @@ test.group('Integration | Authorization Flow', (group) => {
         response_type: 'code',
         redirect_uri: 'https://app.example.com/callback',
         scope: 'read',
-        code_challenge: createHash('sha256').update('cross-user-verifier').digest('base64url'),
+        code_challenge: codeChallenge,
         code_challenge_method: 'S256',
       },
       auth: { user: { id: 'user-1' } },
@@ -405,6 +397,7 @@ test.group('Integration | Authorization Flow', (group) => {
     await createTestClient()
     const authorizeController = new AuthorizeController()
     const consentController = new ConsentController()
+    const { codeChallenge } = createPkce('deny-cleanup-verifier')
 
     const authorizeCtx = mockCtx({
       manager,
@@ -413,7 +406,7 @@ test.group('Integration | Authorization Flow', (group) => {
         response_type: 'code',
         redirect_uri: 'https://app.example.com/callback',
         scope: 'read',
-        code_challenge: createHash('sha256').update('deny-cleanup-verifier').digest('base64url'),
+        code_challenge: codeChallenge,
         code_challenge_method: 'S256',
       },
       auth: { user: { id: 'user-1' } },
@@ -458,6 +451,7 @@ test.group('Integration | Authorization Flow', (group) => {
   }) => {
     const manager = createManager()
     await createTestClient()
+    const { codeChallenge } = createPkce('skip-consent-verifier')
 
     // Pre-create consent for 'read' scope
     await OAuthConsent.create({
@@ -475,7 +469,7 @@ test.group('Integration | Authorization Flow', (group) => {
         redirect_uri: 'https://app.example.com/callback',
         scope: 'read',
         state: 'skip-consent-state',
-        code_challenge: createHash('sha256').update('skip-consent-verifier').digest('base64url'),
+        code_challenge: codeChallenge,
         code_challenge_method: 'S256',
       },
       auth: { user: { id: 'user-1' } },
@@ -506,22 +500,13 @@ test.group('Integration | Authorization Code Grant', (group) => {
     await app.terminate()
   })
 
-  group.each.setup(async () => {
-    await OAuthPendingAuthorizationRequest.query().delete()
-    await OAuthRefreshToken.query().delete()
-    await OAuthAccessToken.query().delete()
-    await OAuthAuthorizationCode.query().delete()
-    await OAuthConsent.query().delete()
-    await OAuthClient.query().delete()
-  })
+  group.each.setup(cleanModels())
 
   test('exchanges authorization code for tokens', async ({ assert }) => {
     const manager = createManager()
     const client = await createTestClient()
     const rawCode = 'test-auth-code-123'
-
-    const codeVerifier = 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk'
-    const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
+    const { codeVerifier, codeChallenge } = createPkce('dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk')
 
     await createTestAuthCode({
       clientId: client.clientId,
@@ -558,8 +543,7 @@ test.group('Integration | Authorization Code Grant', (group) => {
     const manager = createManager()
     const client = await createTestClient()
     const rawCode = 'test-code-with-refresh'
-    const codeVerifier = 'another-verifier-value-for-testing-pkce-rfc7636-ok'
-    const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
+    const { codeVerifier, codeChallenge } = createPkce()
 
     await createTestAuthCode({
       clientId: client.clientId,
@@ -596,8 +580,7 @@ test.group('Integration | Authorization Code Grant', (group) => {
     const manager = createManager({ scopes: { read: 'Read access' } })
     const client = await createTestClient({ scopes: ['read'] })
     const rawCode = 'offline-builtin-code'
-    const codeVerifier = 'offline-builtin-verifier-testing-rfc7636-format-ok'
-    const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
+    const { codeVerifier, codeChallenge } = createPkce()
 
     await createTestAuthCode({
       clientId: client.clientId,
@@ -634,8 +617,7 @@ test.group('Integration | Authorization Code Grant', (group) => {
     const manager = createManager({ scopes: { read: 'Read access' } })
     const client = await createTestClient({ scopes: ['read'] })
     const rawCode = 'no-offline-access-code'
-    const codeVerifier = 'no-offline-access-verifier-testing-rfc7636-format-ok'
-    const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
+    const { codeVerifier, codeChallenge } = createPkce()
 
     await createTestAuthCode({
       clientId: client.clientId,
@@ -677,8 +659,7 @@ test.group('Integration | Authorization Code Grant', (group) => {
       grantTypes: ['authorization_code'],
     })
     const rawCode = 'no-refresh-grant-code'
-    const codeVerifier = 'no-refresh-grant-verifier-testing-rfc7636-format-ok'
-    const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
+    const { codeVerifier, codeChallenge } = createPkce()
 
     await createTestAuthCode({
       clientId: client.clientId,
@@ -713,8 +694,7 @@ test.group('Integration | Authorization Code Grant', (group) => {
     const tokenService = new TokenService(manager)
     await createTestClient()
     const rawCode = 'expired-code'
-    const codeVerifier = 'verifier-for-expired-code-testing-rfc7636-compliant'
-    const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
+    const { codeVerifier, codeChallenge } = createPkce()
 
     await OAuthAuthorizationCode.create({
       id: crypto.randomUUID(),
@@ -750,7 +730,7 @@ test.group('Integration | Authorization Code Grant', (group) => {
     const manager = createManager()
     await createTestClient()
     const rawCode = 'pkce-test-code'
-    const codeChallenge = createHash('sha256').update('correct-verifier').digest('base64url')
+    const { codeChallenge } = createPkce('correct-verifier')
 
     await createTestAuthCode({
       clientId: 'test-client',
@@ -784,8 +764,7 @@ test.group('Integration | Authorization Code Grant', (group) => {
     const manager = createManager()
     await createTestClient()
     const rawCode = 'pkce-retry-code'
-    const codeVerifier = 'correct-verifier-for-retry-testing-rfc7636-compliant'
-    const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
+    const { codeVerifier, codeChallenge } = createPkce()
 
     await createTestAuthCode({
       clientId: 'test-client',
@@ -868,8 +847,7 @@ test.group('Integration | Authorization Code Grant', (group) => {
     const manager = createManager()
     const client = await createTestClient({ scopes: ['read'] })
     const rawCode = 'client-scope-bypass'
-    const codeVerifier = 'client-scope-verifier-testing-rfc7636-format-compliant'
-    const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
+    const { codeVerifier, codeChallenge } = createPkce()
 
     await createTestAuthCode({
       clientId: client.clientId,
@@ -906,8 +884,7 @@ test.group('Integration | Authorization Code Grant', (group) => {
     const manager = createManager()
     await createTestClient()
     const rawCode = 'single-use-code'
-    const codeVerifier = 'single-use-verifier-testing-rfc7636-format-compliant'
-    const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
+    const { codeVerifier, codeChallenge } = createPkce()
 
     await createTestAuthCode({
       clientId: 'test-client',
@@ -945,8 +922,7 @@ test.group('Integration | Authorization Code Grant', (group) => {
     const manager = createManager()
     await createTestClient()
     const rawCode = 'racy-auth-code'
-    const codeVerifier = 'racy-auth-code-verifier-testing-rfc7636-format-ok'
-    const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
+    const { codeVerifier, codeChallenge } = createPkce()
 
     await createTestAuthCode({
       clientId: 'test-client',
@@ -984,8 +960,7 @@ test.group('Integration | Authorization Code Grant', (group) => {
     const manager = createManager()
     await createTestClient()
     const rawCode = 'db-token-code'
-    const codeVerifier = 'db-token-verifier-testing-rfc7636-format-compliant'
-    const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
+    const { codeVerifier, codeChallenge } = createPkce()
 
     await createTestAuthCode({
       clientId: 'test-client',

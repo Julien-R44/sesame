@@ -1,18 +1,10 @@
 import { test } from '@japa/runner'
 import type { ApplicationService } from '@adonisjs/core/types'
-import {
-  createApp,
-  setupDatabase,
-  teardownDatabase,
-  createManager,
-  createTestClient,
-  mockCtx,
-} from './helpers.ts'
+import { createApp, setupDatabase, teardownDatabase, createManager } from './helpers/app.ts'
+import { mockCtx } from './helpers/mock_ctx.ts'
+import { createTestClient } from './helpers/create_test_client.ts'
+import { cleanModels } from './helpers/clean_models.ts'
 import { OAuthClient } from '../src/models/oauth_client.ts'
-import { OAuthAuthorizationCode } from '../src/models/oauth_authorization_code.ts'
-import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
-import { OAuthRefreshToken } from '../src/models/oauth_refresh_token.ts'
-import { OAuthConsent } from '../src/models/oauth_consent.ts'
 import RegisterController from '../src/controllers/register_controller.ts'
 import ClientInfoController from '../src/controllers/client_info_controller.ts'
 import { OAuthError } from '../src/oauth_error.ts'
@@ -30,13 +22,7 @@ test.group('Integration | Dynamic Registration', (group) => {
     await app.terminate()
   })
 
-  group.each.setup(async () => {
-    await OAuthRefreshToken.query().delete()
-    await OAuthAccessToken.query().delete()
-    await OAuthAuthorizationCode.query().delete()
-    await OAuthConsent.query().delete()
-    await OAuthClient.query().delete()
-  })
+  group.each.setup(cleanModels())
 
   test('registers a new confidential client', async ({ assert }) => {
     const manager = createManager()

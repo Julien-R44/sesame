@@ -1,18 +1,12 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
 import type { ApplicationService } from '@adonisjs/core/types'
-import {
-  createApp,
-  setupDatabase,
-  teardownDatabase,
-  createManager,
-  createTestClient,
-} from './helpers.ts'
+import { createApp, setupDatabase, teardownDatabase, createManager } from './helpers/app.ts'
+import { createTestClient } from './helpers/create_test_client.ts'
+import { cleanModels } from './helpers/clean_models.ts'
 import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
 import { OAuthRefreshToken } from '../src/models/oauth_refresh_token.ts'
 import { OAuthAuthorizationCode } from '../src/models/oauth_authorization_code.ts'
-import { OAuthConsent } from '../src/models/oauth_consent.ts'
-import { OAuthClient } from '../src/models/oauth_client.ts'
 import { OAuthPendingAuthorizationRequest } from '../src/models/oauth_pending_authorization_request.ts'
 import { TokenService } from '../src/services/token_service.ts'
 
@@ -29,14 +23,7 @@ test.group('SesameManager | purgeTokens', (group) => {
     await app.terminate()
   })
 
-  group.each.setup(async () => {
-    await OAuthPendingAuthorizationRequest.query().delete()
-    await OAuthRefreshToken.query().delete()
-    await OAuthAccessToken.query().delete()
-    await OAuthAuthorizationCode.query().delete()
-    await OAuthConsent.query().delete()
-    await OAuthClient.query().delete()
-  })
+  group.each.setup(cleanModels())
 
   test('purges expired access tokens beyond retention period', async ({ assert }) => {
     const client = await createTestClient()
@@ -187,7 +174,6 @@ test.group('SesameManager | purgeTokens', (group) => {
     const manager = createManager()
     const tokenService = new TokenService(manager)
 
-    // Revoked token
     await OAuthAccessToken.create({
       id: crypto.randomUUID(),
       tokenHash: tokenService.hashToken('revoked'),
@@ -198,7 +184,6 @@ test.group('SesameManager | purgeTokens', (group) => {
       revokedAt: DateTime.now(),
     })
 
-    // Expired token beyond retention
     await OAuthAccessToken.create({
       id: crypto.randomUUID(),
       tokenHash: tokenService.hashToken('expired'),
@@ -208,7 +193,6 @@ test.group('SesameManager | purgeTokens', (group) => {
       expiresAt: DateTime.now().minus({ days: 8 }),
     })
 
-    // Active token
     await OAuthAccessToken.create({
       id: crypto.randomUUID(),
       tokenHash: tokenService.hashToken('active'),
@@ -231,7 +215,6 @@ test.group('SesameManager | purgeTokens', (group) => {
     const manager = createManager()
     const tokenService = new TokenService(manager)
 
-    // Expired 2 hours ago
     await OAuthAccessToken.create({
       id: crypto.randomUUID(),
       tokenHash: tokenService.hashToken('expired-2h'),
@@ -241,7 +224,6 @@ test.group('SesameManager | purgeTokens', (group) => {
       expiresAt: DateTime.now().minus({ hours: 2 }),
     })
 
-    // With retentionHours=1, the 2h-old token should be purged
     const result = await manager.purgeTokens({ expiredOnly: true, retentionHours: 1 })
 
     assert.equal(result.accessTokens, 1)
@@ -256,7 +238,6 @@ test.group('SesameManager | purgeTokens', (group) => {
     const manager = createManager()
     const tokenService = new TokenService(manager)
 
-    // Expired 1 minute ago — should be purged immediately (no retention)
     await OAuthPendingAuthorizationRequest.create({
       id: crypto.randomUUID(),
       token: tokenService.hashToken('expired-pending'),
@@ -270,7 +251,6 @@ test.group('SesameManager | purgeTokens', (group) => {
       expiresAt: DateTime.now().minus({ minutes: 1 }),
     })
 
-    // Still valid — should not be purged
     await OAuthPendingAuthorizationRequest.create({
       id: crypto.randomUUID(),
       token: tokenService.hashToken('active-pending'),
@@ -312,7 +292,6 @@ test.group('SesameManager | purgeTokens', (group) => {
       expiresAt: DateTime.now().minus({ minutes: 1 }),
     })
 
-    // Even with revokedOnly, pending requests should still be purged
     const result = await manager.purgeTokens({ revokedOnly: true })
     assert.equal(result.pendingRequests, 1)
   })

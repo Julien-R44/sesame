@@ -3,18 +3,12 @@ import { createHash } from 'node:crypto'
 import { DateTime } from 'luxon'
 import { jwtVerify } from 'jose'
 import type { ApplicationService } from '@adonisjs/core/types'
-import {
-  createApp,
-  setupDatabase,
-  teardownDatabase,
-  createManager,
-  createTestClient,
-  createTestAuthCode,
-  mockCtx,
-  getTestJwk,
-  FakeUserProvider,
-  type FakeUser,
-} from './helpers.ts'
+import { createApp, setupDatabase, teardownDatabase, createManager } from './helpers/app.ts'
+import { mockCtx } from './helpers/mock_ctx.ts'
+import { getTestJwk, FakeUserProvider, type FakeUser } from './helpers/fakes.ts'
+import { createTestClient, createTestAuthCode } from './helpers/create_test_client.ts'
+import { createTestAccessToken } from './helpers/create_test_access_token.ts'
+import { createPkce } from './helpers/create_pkce.ts'
 import { KeyService } from '../src/services/key_service.ts'
 import { IdTokenService } from '../src/services/id_token_service.ts'
 import { TokenService } from '../src/services/token_service.ts'
@@ -448,8 +442,7 @@ test.group('Authorization Code Grant — OIDC', (group) => {
       scopes: ['read', 'openid', 'offline_access'],
     })
 
-    const codeVerifier = 'a'.repeat(43)
-    const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
+    const { codeVerifier, codeChallenge } = createPkce()
 
     await createTestAuthCode({
       clientId: client.clientId,
@@ -500,8 +493,7 @@ test.group('Authorization Code Grant — OIDC', (group) => {
       scopes: ['read', 'write'],
     })
 
-    const codeVerifier = 'b'.repeat(43)
-    const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
+    const { codeVerifier, codeChallenge } = createPkce()
 
     await createTestAuthCode({
       clientId: client.clientId,
@@ -540,8 +532,7 @@ test.group('Authorization Code Grant — OIDC', (group) => {
       scopes: ['read', 'openid', 'offline_access'],
     })
 
-    const codeVerifier = 'c'.repeat(43)
-    const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
+    const { codeVerifier, codeChallenge } = createPkce()
 
     await createTestAuthCode({
       clientId: client.clientId,
@@ -591,8 +582,7 @@ test.group('Authorization Code Grant — OIDC', (group) => {
       scopes: ['read', 'openid', 'offline_access'],
     })
 
-    const codeVerifier = 'd'.repeat(43)
-    const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
+    const { codeVerifier, codeChallenge } = createPkce()
     const rawCode = 'test-code-signing-failure'
     const hashedCode = new TokenService(manager).hashToken(rawCode)
 
@@ -800,17 +790,7 @@ test.group('UserInfo Endpoint', (group) => {
     const userProvider = new FakeUserProvider(users)
     const manager = createManager({ jwk, oidcProvider: userProvider })
 
-    const tokenService = new TokenService(manager)
-    const { raw, hash, expiresAt } = tokenService.createAccessToken()
-
-    await OAuthAccessToken.create({
-      id: crypto.randomUUID(),
-      tokenHash: hash,
-      clientId: 'test-client',
-      userId: 'user-1',
-      scopes: ['openid', 'read'],
-      expiresAt: DateTime.fromJSDate(expiresAt),
-    })
+    const { raw } = await createTestAccessToken({ manager, scopes: ['openid', 'read'] })
 
     const ctx = mockCtx({
       manager,
@@ -828,17 +808,7 @@ test.group('UserInfo Endpoint', (group) => {
     const userProvider = new FakeUserProvider(users)
     const manager = createManager({ jwk, oidcProvider: userProvider })
 
-    const tokenService = new TokenService(manager)
-    const { raw, hash, expiresAt } = tokenService.createAccessToken()
-
-    await OAuthAccessToken.create({
-      id: crypto.randomUUID(),
-      tokenHash: hash,
-      clientId: 'test-client',
-      userId: 'user-1',
-      scopes: ['openid', 'read'],
-      expiresAt: DateTime.fromJSDate(expiresAt),
-    })
+    const { raw } = await createTestAccessToken({ manager, scopes: ['openid', 'read'] })
 
     const ctx = mockCtx({
       manager,
@@ -865,17 +835,7 @@ test.group('UserInfo Endpoint', (group) => {
     const jwk = await getTestJwk()
     const manager = createManager({ jwk })
 
-    const tokenService = new TokenService(manager)
-    const { raw, hash, expiresAt } = tokenService.createAccessToken()
-
-    await OAuthAccessToken.create({
-      id: crypto.randomUUID(),
-      tokenHash: hash,
-      clientId: 'test-client',
-      userId: 'user-1',
-      scopes: ['read'],
-      expiresAt: DateTime.fromJSDate(expiresAt),
-    })
+    const { raw } = await createTestAccessToken({ manager, scopes: ['read'] })
 
     const ctx = mockCtx({
       manager,
@@ -900,17 +860,7 @@ test.group('UserInfo Endpoint', (group) => {
     const jwk = await getTestJwk()
     const manager = createManager({ jwk, oidcProvider: new FakeUserProvider([]) })
 
-    const tokenService = new TokenService(manager)
-    const { raw, hash, expiresAt } = tokenService.createAccessToken()
-
-    await OAuthAccessToken.create({
-      id: crypto.randomUUID(),
-      tokenHash: hash,
-      clientId: 'test-client',
-      userId: 'user-1',
-      scopes: ['openid', 'read'],
-      expiresAt: DateTime.fromJSDate(expiresAt),
-    })
+    const { raw } = await createTestAccessToken({ manager, scopes: ['openid', 'read'] })
 
     const ctx = mockCtx({
       manager,

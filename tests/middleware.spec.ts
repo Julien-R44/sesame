@@ -1,22 +1,11 @@
 import { test } from '@japa/runner'
-import { DateTime } from 'luxon'
 import type { ApplicationService } from '@adonisjs/core/types'
-import {
-  createApp,
-  setupDatabase,
-  teardownDatabase,
-  createManager,
-  createTestClient,
-  mockCtx,
-  FakeUserProvider,
-  createFakeEmitter,
-} from './helpers.ts'
-import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
-import { OAuthClient } from '../src/models/oauth_client.ts'
-import { OAuthConsent } from '../src/models/oauth_consent.ts'
-import { OAuthRefreshToken } from '../src/models/oauth_refresh_token.ts'
-import { OAuthAuthorizationCode } from '../src/models/oauth_authorization_code.ts'
-import { TokenService } from '../src/services/token_service.ts'
+import { createApp, setupDatabase, teardownDatabase, createManager } from './helpers/app.ts'
+import { mockCtx } from './helpers/mock_ctx.ts'
+import { FakeUserProvider, createFakeEmitter } from './helpers/fakes.ts'
+import { createTestClient } from './helpers/create_test_client.ts'
+import { createTestAccessToken } from './helpers/create_test_access_token.ts'
+import { cleanModels } from './helpers/clean_models.ts'
 import { OAuthGuard } from '../src/guard/guard.ts'
 import ScopeMiddleware from '../src/middleware/scope_middleware.ts'
 import AnyScopeMiddleware from '../src/middleware/any_scope_middleware.ts'
@@ -47,38 +36,6 @@ function mockCtxWithGuard(options: {
   }
 
   return { ctx, guard, manager }
-}
-
-async function createTokenForUser(options: {
-  manager: ReturnType<typeof createManager>
-  userId: string
-  scopes: string[]
-}) {
-  const tokenService = new TokenService(options.manager)
-  await createTestClient()
-
-  const { raw, hash } = tokenService.createAccessToken()
-
-  await OAuthAccessToken.create({
-    id: crypto.randomUUID(),
-    tokenHash: hash,
-    clientId: 'test-client',
-    userId: options.userId,
-    scopes: options.scopes,
-    expiresAt: DateTime.now().plus({ hours: 1 }),
-  })
-
-  return raw
-}
-
-function cleanModels() {
-  return async () => {
-    await OAuthRefreshToken.query().delete()
-    await OAuthAccessToken.query().delete()
-    await OAuthAuthorizationCode.query().delete()
-    await OAuthConsent.query().delete()
-    await OAuthClient.query().delete()
-  }
 }
 
 function patchBearerToken(ctx: any, raw: string) {
@@ -119,7 +76,8 @@ test.group('Middleware | ScopeMiddleware', (group) => {
 
   test('throws 403 when token lacks a required scope', async ({ assert }) => {
     const { ctx, manager } = mockCtxWithGuard({ userId: 'user-1' })
-    const raw = await createTokenForUser({ manager, userId: 'user-1', scopes: ['read'] })
+    await createTestClient()
+    const { raw } = await createTestAccessToken({ manager, scopes: ['read'] })
     patchBearerToken(ctx, raw)
 
     try {
@@ -135,7 +93,8 @@ test.group('Middleware | ScopeMiddleware', (group) => {
 
   test('throws 403 when token has some but not all required scopes', async ({ assert }) => {
     const { ctx, manager } = mockCtxWithGuard({ userId: 'user-1' })
-    const raw = await createTokenForUser({ manager, userId: 'user-1', scopes: ['read'] })
+    await createTestClient()
+    const { raw } = await createTestAccessToken({ manager, scopes: ['read'] })
     patchBearerToken(ctx, raw)
 
     try {
@@ -150,7 +109,8 @@ test.group('Middleware | ScopeMiddleware', (group) => {
 
   test('passes when token has all required scopes', async ({ assert }) => {
     const { ctx, manager } = mockCtxWithGuard({ userId: 'user-1' })
-    const raw = await createTokenForUser({ manager, userId: 'user-1', scopes: ['read', 'write'] })
+    await createTestClient()
+    const { raw } = await createTestAccessToken({ manager, scopes: ['read', 'write'] })
     patchBearerToken(ctx, raw)
 
     let nextCalled = false
@@ -183,7 +143,8 @@ test.group('Middleware | AnyScopeMiddleware', (group) => {
 
   test('throws 403 when token lacks all listed scopes', async ({ assert }) => {
     const { ctx, manager } = mockCtxWithGuard({ userId: 'user-1' })
-    const raw = await createTokenForUser({ manager, userId: 'user-1', scopes: ['read'] })
+    await createTestClient()
+    const { raw } = await createTestAccessToken({ manager, scopes: ['read'] })
     patchBearerToken(ctx, raw)
 
     try {
@@ -199,7 +160,8 @@ test.group('Middleware | AnyScopeMiddleware', (group) => {
 
   test('passes when token has at least one listed scope', async ({ assert }) => {
     const { ctx, manager } = mockCtxWithGuard({ userId: 'user-1' })
-    const raw = await createTokenForUser({ manager, userId: 'user-1', scopes: ['read'] })
+    await createTestClient()
+    const { raw } = await createTestAccessToken({ manager, scopes: ['read'] })
     patchBearerToken(ctx, raw)
 
     let nextCalled = false
@@ -276,7 +238,8 @@ test.group('Middleware | TransientToken (session bypass)', (group) => {
 
   test('Bearer token present still enforces scopes even with session', async ({ assert }) => {
     const { ctx, manager } = mockCtxWithGuard({ userId: 'user-1', sessionAuthenticated: true })
-    const raw = await createTokenForUser({ manager, userId: 'user-1', scopes: ['read'] })
+    await createTestClient()
+    const { raw } = await createTestAccessToken({ manager, scopes: ['read'] })
     patchBearerToken(ctx, raw)
 
     const middleware = new ScopeMiddleware()
@@ -307,7 +270,8 @@ test.group('Middleware | Idempotency & WWW-Authenticate', (group) => {
 
   test('works when guard.authenticate() was already called', async ({ assert }) => {
     const { ctx, guard, manager } = mockCtxWithGuard({ userId: 'user-1' })
-    const raw = await createTokenForUser({ manager, userId: 'user-1', scopes: ['read', 'write'] })
+    await createTestClient()
+    const { raw } = await createTestAccessToken({ manager, scopes: ['read', 'write'] })
     patchBearerToken(ctx, raw)
 
     await guard.authenticate()
@@ -330,7 +294,8 @@ test.group('Middleware | Idempotency & WWW-Authenticate', (group) => {
     assert,
   }) => {
     const { ctx, manager } = mockCtxWithGuard({ userId: 'user-1' })
-    const raw = await createTokenForUser({ manager, userId: 'user-1', scopes: ['read'] })
+    await createTestClient()
+    const { raw } = await createTestAccessToken({ manager, scopes: ['read'] })
     patchBearerToken(ctx, raw)
 
     const middleware = new ScopeMiddleware()

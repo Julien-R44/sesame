@@ -1,21 +1,14 @@
 import { test } from '@japa/runner'
 import type { ApplicationService } from '@adonisjs/core/types'
-import {
-  createApp,
-  setupDatabase,
-  teardownDatabase,
-  createManager,
-  createTestClient,
-  mockCtx,
-  FakeUserProvider,
-  createFakeEmitter,
-} from './helpers.ts'
-import { OAuthClient } from '../src/models/oauth_client.ts'
+import { createApp, setupDatabase, teardownDatabase, createManager } from './helpers/app.ts'
+import { mockCtx } from './helpers/mock_ctx.ts'
+import { createTestClient } from './helpers/create_test_client.ts'
+import { createTestGuard } from './helpers/create_test_guard.ts'
+import { cleanModels } from './helpers/clean_models.ts'
 import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
 import { OAuthRefreshToken } from '../src/models/oauth_refresh_token.ts'
 import { handleClientCredentialsGrant } from '../src/grants/client_credentials_grant.ts'
 import { OAuthError } from '../src/oauth_error.ts'
-import { OAuthGuard } from '../src/guard/guard.ts'
 
 let app: ApplicationService
 
@@ -30,11 +23,7 @@ test.group('Integration | Client Credentials Grant', (group) => {
     await app.terminate()
   })
 
-  group.each.setup(async () => {
-    await OAuthRefreshToken.query().delete()
-    await OAuthAccessToken.query().delete()
-    await OAuthClient.query().delete()
-  })
+  group.each.setup(cleanModels())
 
   test('issues an access token for a confidential client', async ({ assert }) => {
     const manager = createManager({ grantTypes: ['client_credentials'] })
@@ -119,16 +108,11 @@ test.group('Integration | Client Credentials Grant', (group) => {
 
     const result = await handleClientCredentialsGrant(ctx, manager)
 
-    const authCtx = mockCtx({
-      headers: { authorization: `Bearer ${result.access_token}` },
+    const { guard } = createTestGuard({
+      manager,
+      bearerToken: result.access_token,
+      users: [{ id: 'user-1', name: 'Service Account' }],
     })
-    const guard = new OAuthGuard(
-      'oauth',
-      authCtx,
-      createFakeEmitter(),
-      new FakeUserProvider([{ id: 'user-1', name: 'Service Account' }]),
-      manager
-    )
 
     const user = await guard.authenticate()
 

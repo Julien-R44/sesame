@@ -1,19 +1,14 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
 import type { ApplicationService } from '@adonisjs/core/types'
-import {
-  createApp,
-  setupDatabase,
-  teardownDatabase,
-  createManager,
-  createTestClient,
-  mockCtx,
-} from './helpers.ts'
-import { OAuthClient } from '../src/models/oauth_client.ts'
-import { OAuthAuthorizationCode } from '../src/models/oauth_authorization_code.ts'
+import { createApp, setupDatabase, teardownDatabase, createManager } from './helpers/app.ts'
+import { mockCtx } from './helpers/mock_ctx.ts'
+import { createTestClient } from './helpers/create_test_client.ts'
+import { createTestAccessToken } from './helpers/create_test_access_token.ts'
+import { createTestRefreshToken } from './helpers/create_test_refresh_token.ts'
+import { cleanModels } from './helpers/clean_models.ts'
 import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
 import { OAuthRefreshToken } from '../src/models/oauth_refresh_token.ts'
-import { OAuthConsent } from '../src/models/oauth_consent.ts'
 import { TokenService } from '../src/services/token_service.ts'
 import { handleRefreshTokenGrant } from '../src/grants/refresh_token_grant.ts'
 import TokenController from '../src/controllers/token_controller.ts'
@@ -34,40 +29,11 @@ test.group('Integration | Refresh Token Grant', (group) => {
     await app.terminate()
   })
 
-  group.each.setup(async () => {
-    await OAuthRefreshToken.query().delete()
-    await OAuthAccessToken.query().delete()
-    await OAuthAuthorizationCode.query().delete()
-    await OAuthConsent.query().delete()
-    await OAuthClient.query().delete()
-  })
+  group.each.setup(cleanModels())
 
   test('exchanges refresh token for new tokens', async ({ assert }) => {
-    const manager = createManager()
-    const tokenService = new TokenService(manager)
     await createTestClient()
-
-    const rawRefreshToken = 'test-refresh-token'
-    const hashedRefreshToken = tokenService.hashToken(rawRefreshToken)
-
-    await OAuthAccessToken.create({
-      id: crypto.randomUUID(),
-      tokenHash: 'old-token-hash',
-      clientId: 'test-client',
-      userId: 'user-1',
-      scopes: ['read', 'write', 'offline_access'],
-      expiresAt: DateTime.now().plus({ hours: 1 }),
-    })
-
-    await OAuthRefreshToken.create({
-      id: crypto.randomUUID(),
-      token: hashedRefreshToken,
-      accessTokenId: 'old-token-hash',
-      clientId: 'test-client',
-      userId: 'user-1',
-      scopes: ['read', 'write', 'offline_access'],
-      expiresAt: DateTime.now().plus({ days: 30 }),
-    })
+    const { rawRefreshToken, manager } = await createTestRefreshToken()
 
     const ctx = mockCtx({
       manager,
@@ -88,32 +54,8 @@ test.group('Integration | Refresh Token Grant', (group) => {
   })
 
   test('revokes old access token during rotation', async ({ assert }) => {
-    const manager = createManager()
-    const tokenService = new TokenService(manager)
     await createTestClient()
-
-    const rawRefreshToken = 'rotation-revoke-refresh'
-    const hashedRefreshToken = tokenService.hashToken(rawRefreshToken)
-    const oldAccessTokenHash = 'old-access-token-hash-rotation'
-
-    await OAuthAccessToken.create({
-      id: crypto.randomUUID(),
-      tokenHash: oldAccessTokenHash,
-      clientId: 'test-client',
-      userId: 'user-1',
-      scopes: ['read', 'write', 'offline_access'],
-      expiresAt: DateTime.now().plus({ hours: 1 }),
-    })
-
-    await OAuthRefreshToken.create({
-      id: crypto.randomUUID(),
-      token: hashedRefreshToken,
-      accessTokenId: oldAccessTokenHash,
-      clientId: 'test-client',
-      userId: 'user-1',
-      scopes: ['read', 'write', 'offline_access'],
-      expiresAt: DateTime.now().plus({ days: 30 }),
-    })
+    const { rawRefreshToken, accessTokenHash, manager } = await createTestRefreshToken()
 
     const ctx = mockCtx({
       manager,
@@ -131,7 +73,7 @@ test.group('Integration | Refresh Token Grant', (group) => {
     assert.isDefined(result.refresh_token)
 
     const oldAccessToken = await OAuthAccessToken.query()
-      .where('tokenHash', oldAccessTokenHash)
+      .where('tokenHash', accessTokenHash)
       .firstOrFail()
     assert.isNotNull(oldAccessToken.revokedAt)
   })
@@ -139,27 +81,15 @@ test.group('Integration | Refresh Token Grant', (group) => {
   test('rejects refresh token grant when the client is not allowed to use it', async ({
     assert,
   }) => {
-    const manager = createManager()
-    const tokenService = new TokenService(manager)
-    const client = await createTestClient({ grantTypes: ['authorization_code'] })
-
-    const rawRefreshToken = 'grant-type-bypass-refresh'
-    await OAuthRefreshToken.create({
-      id: crypto.randomUUID(),
-      token: tokenService.hashToken(rawRefreshToken),
-      accessTokenId: 'grant-type-bypass-hash',
-      clientId: client.clientId,
-      userId: 'user-1',
-      scopes: ['read'],
-      expiresAt: DateTime.now().plus({ days: 30 }),
-    })
+    await createTestClient({ grantTypes: ['authorization_code'] })
+    const { rawRefreshToken, manager } = await createTestRefreshToken({ scopes: ['read'] })
 
     const ctx = mockCtx({
       manager,
       body: {
         grant_type: 'refresh_token',
         refresh_token: rawRefreshToken,
-        client_id: client.clientId,
+        client_id: 'test-client',
         client_secret: 'test-secret',
       },
     })
@@ -178,20 +108,8 @@ test.group('Integration | Refresh Token Grant', (group) => {
   })
 
   test('supports scope downgrading', async ({ assert }) => {
-    const manager = createManager()
-    const tokenService = new TokenService(manager)
     await createTestClient()
-
-    const rawRefreshToken = 'downgrade-refresh'
-    await OAuthRefreshToken.create({
-      id: crypto.randomUUID(),
-      token: tokenService.hashToken(rawRefreshToken),
-      accessTokenId: 'old-token-hash-2',
-      clientId: 'test-client',
-      userId: 'user-1',
-      scopes: ['read', 'write', 'offline_access'],
-      expiresAt: DateTime.now().plus({ days: 30 }),
-    })
+    const { rawRefreshToken, manager } = await createTestRefreshToken()
 
     const ctx = mockCtx({
       manager,
@@ -209,21 +127,11 @@ test.group('Integration | Refresh Token Grant', (group) => {
   })
 
   test('rejects narrowing OIDC scopes to profile/email without openid', async ({ assert }) => {
-    const manager = createManager()
-    const tokenService = new TokenService(manager)
     await createTestClient({
       scopes: ['read', 'openid', 'profile', 'email', 'offline_access'],
     })
-
-    const rawRefreshToken = 'oidc-scope-narrowing-refresh'
-    await OAuthRefreshToken.create({
-      id: crypto.randomUUID(),
-      token: tokenService.hashToken(rawRefreshToken),
-      accessTokenId: 'oidc-scope-narrowing-access',
-      clientId: 'test-client',
-      userId: 'user-1',
+    const { rawRefreshToken, manager } = await createTestRefreshToken({
       scopes: ['openid', 'profile', 'email'],
-      expiresAt: DateTime.now().plus({ days: 30 }),
     })
 
     const ctx = mockCtx({
@@ -249,20 +157,8 @@ test.group('Integration | Refresh Token Grant', (group) => {
   })
 
   test('rejects scope escalation', async ({ assert }) => {
-    const manager = createManager()
-    const tokenService = new TokenService(manager)
     await createTestClient()
-
-    const rawRefreshToken = 'escalation-refresh'
-    await OAuthRefreshToken.create({
-      id: crypto.randomUUID(),
-      token: tokenService.hashToken(rawRefreshToken),
-      accessTokenId: 'old-token-hash-3',
-      clientId: 'test-client',
-      userId: 'user-1',
-      scopes: ['read'],
-      expiresAt: DateTime.now().plus({ days: 30 }),
-    })
+    const { rawRefreshToken, manager } = await createTestRefreshToken({ scopes: ['read'] })
 
     const ctx = mockCtx({
       manager,
@@ -285,10 +181,11 @@ test.group('Integration | Refresh Token Grant', (group) => {
   })
 
   test('replay detection revokes all tokens', async ({ assert }) => {
+    await createTestClient()
     const manager = createManager()
     const tokenService = new TokenService(manager)
-    await createTestClient()
 
+    // Revoked refresh token (replayed)
     const rawRefreshToken = 'replayed-refresh'
     await OAuthRefreshToken.create({
       id: crypto.randomUUID(),
@@ -301,6 +198,7 @@ test.group('Integration | Refresh Token Grant', (group) => {
       revokedAt: DateTime.now().minus({ minutes: 1 }),
     })
 
+    // Another valid refresh token for the same user+client
     await OAuthRefreshToken.create({
       id: crypto.randomUUID(),
       token: tokenService.hashToken('other-valid-token'),
@@ -336,20 +234,8 @@ test.group('Integration | Refresh Token Grant', (group) => {
   })
 
   test('rejects concurrent rotation of the same refresh token', async ({ assert }) => {
-    const manager = createManager()
-    const tokenService = new TokenService(manager)
     await createTestClient()
-
-    const rawRefreshToken = 'racy-refresh-token'
-    await OAuthRefreshToken.create({
-      id: crypto.randomUUID(),
-      token: tokenService.hashToken(rawRefreshToken),
-      accessTokenId: 'racy-refresh-hash',
-      clientId: 'test-client',
-      userId: 'user-1',
-      scopes: ['read'],
-      expiresAt: DateTime.now().plus({ days: 30 }),
-    })
+    const { rawRefreshToken, manager } = await createTestRefreshToken({ scopes: ['read'] })
 
     const makeCtx = () =>
       mockCtx({
@@ -372,17 +258,8 @@ test.group('Integration | Refresh Token Grant', (group) => {
   })
 
   test('rejects expired refresh token', async ({ assert }) => {
-    const manager = createManager()
-    const tokenService = new TokenService(manager)
     await createTestClient()
-
-    const rawRefreshToken = 'expired-refresh'
-    await OAuthRefreshToken.create({
-      id: crypto.randomUUID(),
-      token: tokenService.hashToken(rawRefreshToken),
-      accessTokenId: 'old-token-hash-5',
-      clientId: 'test-client',
-      userId: 'user-1',
+    const { rawRefreshToken, manager } = await createTestRefreshToken({
       scopes: ['read'],
       expiresAt: DateTime.now().minus({ days: 1 }),
     })
@@ -446,29 +323,11 @@ test.group('Integration | Introspection', (group) => {
     await app.terminate()
   })
 
-  group.each.setup(async () => {
-    await OAuthRefreshToken.query().delete()
-    await OAuthAccessToken.query().delete()
-    await OAuthAuthorizationCode.query().delete()
-    await OAuthConsent.query().delete()
-    await OAuthClient.query().delete()
-  })
+  group.each.setup(cleanModels())
 
   test('introspects a valid access token', async ({ assert }) => {
-    const manager = createManager()
-    const tokenService = new TokenService(manager)
     await createTestClient()
-
-    const { raw, hash } = tokenService.createAccessToken()
-
-    await OAuthAccessToken.create({
-      id: crypto.randomUUID(),
-      tokenHash: hash,
-      clientId: 'test-client',
-      userId: 'user-1',
-      scopes: ['read'],
-      expiresAt: DateTime.now().plus({ hours: 1 }),
-    })
+    const { raw, manager } = await createTestAccessToken({ scopes: ['read'] })
 
     const ctx = mockCtx({
       manager,
@@ -489,20 +348,8 @@ test.group('Integration | Introspection', (group) => {
   })
 
   test('rejects introspection for a confidential client without a secret', async ({ assert }) => {
-    const manager = createManager()
-    const tokenService = new TokenService(manager)
     await createTestClient()
-
-    const { raw, hash } = tokenService.createAccessToken()
-
-    await OAuthAccessToken.create({
-      id: crypto.randomUUID(),
-      tokenHash: hash,
-      clientId: 'test-client',
-      userId: 'user-1',
-      scopes: ['read'],
-      expiresAt: DateTime.now().plus({ hours: 1 }),
-    })
+    const { raw, manager } = await createTestAccessToken({ scopes: ['read'] })
 
     const ctx = mockCtx({
       manager,
@@ -524,19 +371,9 @@ test.group('Integration | Introspection', (group) => {
   })
 
   test('returns inactive for revoked token', async ({ assert }) => {
-    const manager = createManager()
-    const tokenService = new TokenService(manager)
     await createTestClient()
-
-    const { raw, hash } = tokenService.createAccessToken()
-
-    await OAuthAccessToken.create({
-      id: crypto.randomUUID(),
-      tokenHash: hash,
-      clientId: 'test-client',
-      userId: 'user-1',
+    const { raw, manager } = await createTestAccessToken({
       scopes: ['read'],
-      expiresAt: DateTime.now().plus({ hours: 1 }),
       revokedAt: DateTime.now(),
     })
 
@@ -590,19 +427,9 @@ test.group('Integration | Introspection', (group) => {
   })
 
   test('introspects a valid refresh token', async ({ assert }) => {
-    const manager = createManager()
-    const tokenService = new TokenService(manager)
     await createTestClient()
-
-    const rawRefreshToken = 'introspect-refresh'
-    await OAuthRefreshToken.create({
-      id: crypto.randomUUID(),
-      token: tokenService.hashToken(rawRefreshToken),
-      accessTokenId: 'some-token-hash',
-      clientId: 'test-client',
-      userId: 'user-1',
+    const { rawRefreshToken, manager } = await createTestRefreshToken({
       scopes: ['read', 'write'],
-      expiresAt: DateTime.now().plus({ days: 30 }),
     })
 
     const ctx = mockCtx({
@@ -625,8 +452,6 @@ test.group('Integration | Introspection', (group) => {
   })
 
   test('returns inactive when another client introspects the access token', async ({ assert }) => {
-    const manager = createManager()
-    const tokenService = new TokenService(manager)
     await createTestClient()
     await createTestClient({
       clientId: 'other-client',
@@ -635,16 +460,7 @@ test.group('Integration | Introspection', (group) => {
       rawClientSecret: 'other-secret',
     })
 
-    const { raw, hash } = tokenService.createAccessToken()
-
-    await OAuthAccessToken.create({
-      id: crypto.randomUUID(),
-      tokenHash: hash,
-      clientId: 'test-client',
-      userId: 'user-1',
-      scopes: ['read'],
-      expiresAt: DateTime.now().plus({ hours: 1 }),
-    })
+    const { raw, manager } = await createTestAccessToken({ scopes: ['read'] })
 
     const ctx = mockCtx({
       manager,
@@ -672,29 +488,11 @@ test.group('Integration | Revocation', (group) => {
     await app.terminate()
   })
 
-  group.each.setup(async () => {
-    await OAuthRefreshToken.query().delete()
-    await OAuthAccessToken.query().delete()
-    await OAuthAuthorizationCode.query().delete()
-    await OAuthConsent.query().delete()
-    await OAuthClient.query().delete()
-  })
+  group.each.setup(cleanModels())
 
   test('revokes an access token', async ({ assert }) => {
-    const manager = createManager()
-    const tokenService = new TokenService(manager)
     await createTestClient()
-
-    const { raw, hash } = tokenService.createAccessToken()
-
-    await OAuthAccessToken.create({
-      id: crypto.randomUUID(),
-      tokenHash: hash,
-      clientId: 'test-client',
-      userId: 'user-1',
-      scopes: ['read'],
-      expiresAt: DateTime.now().plus({ hours: 1 }),
-    })
+    const { raw, hash, manager } = await createTestAccessToken({ scopes: ['read'] })
 
     const ctx = mockCtx({
       manager,
@@ -714,20 +512,8 @@ test.group('Integration | Revocation', (group) => {
   })
 
   test('rejects revocation for a confidential client without a secret', async ({ assert }) => {
-    const manager = createManager()
-    const tokenService = new TokenService(manager)
     await createTestClient()
-
-    const { raw, hash } = tokenService.createAccessToken()
-
-    await OAuthAccessToken.create({
-      id: crypto.randomUUID(),
-      tokenHash: hash,
-      clientId: 'test-client',
-      userId: 'user-1',
-      scopes: ['read'],
-      expiresAt: DateTime.now().plus({ hours: 1 }),
-    })
+    const { raw, manager } = await createTestAccessToken({ scopes: ['read'] })
 
     const ctx = mockCtx({
       manager,
@@ -750,10 +536,9 @@ test.group('Integration | Revocation', (group) => {
   })
 
   test('revokes a refresh token and associated access token', async ({ assert }) => {
+    await createTestClient()
     const manager = createManager()
     const tokenService = new TokenService(manager)
-    await createTestClient()
-
     const rawRefreshToken = 'revoke-me-refresh'
 
     await OAuthAccessToken.create({

@@ -1,23 +1,11 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
 import type { ApplicationService } from '@adonisjs/core/types'
-import {
-  createApp,
-  setupDatabase,
-  teardownDatabase,
-  createManager,
-  createTestClient,
-  mockCtx,
-  FakeUserProvider,
-  createFakeEmitter,
-} from './helpers.ts'
-import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
-import { OAuthClient } from '../src/models/oauth_client.ts'
-import { OAuthConsent } from '../src/models/oauth_consent.ts'
-import { OAuthRefreshToken } from '../src/models/oauth_refresh_token.ts'
-import { OAuthAuthorizationCode } from '../src/models/oauth_authorization_code.ts'
-import { TokenService } from '../src/services/token_service.ts'
-import { OAuthGuard } from '../src/guard/guard.ts'
+import { createApp, setupDatabase, teardownDatabase } from './helpers/app.ts'
+import { createTestClient } from './helpers/create_test_client.ts'
+import { createTestAccessToken } from './helpers/create_test_access_token.ts'
+import { createTestGuard } from './helpers/create_test_guard.ts'
+import { cleanModels } from './helpers/clean_models.ts'
 import { errors } from '@adonisjs/auth'
 
 let app: ApplicationService
@@ -33,34 +21,12 @@ test.group('OAuthGuard', (group) => {
     await app.terminate()
   })
 
-  group.each.setup(async () => {
-    await OAuthRefreshToken.query().delete()
-    await OAuthAccessToken.query().delete()
-    await OAuthAuthorizationCode.query().delete()
-    await OAuthConsent.query().delete()
-    await OAuthClient.query().delete()
-  })
+  group.each.setup(cleanModels())
 
   test('authenticates with a valid token', async ({ assert }) => {
-    const manager = createManager()
-    const tokenService = new TokenService(manager)
     await createTestClient()
-
-    const { raw, hash } = tokenService.createAccessToken()
-
-    await OAuthAccessToken.create({
-      id: crypto.randomUUID(),
-      tokenHash: hash,
-      clientId: 'test-client',
-      userId: 'user-1',
-      scopes: ['read', 'write'],
-      expiresAt: DateTime.now().plus({ hours: 1 }),
-    })
-
-    const ctx = mockCtx({ headers: { authorization: `Bearer ${raw}` } })
-    const emitter = createFakeEmitter()
-    const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
-    const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
+    const { raw, manager } = await createTestAccessToken()
+    const { guard } = createTestGuard({ manager, bearerToken: raw })
 
     const user = await guard.authenticate()
 
@@ -72,58 +38,31 @@ test.group('OAuthGuard', (group) => {
   })
 
   test('throws on missing authorization header', async ({ assert }) => {
-    const manager = createManager()
-    const ctx = mockCtx()
-    const emitter = createFakeEmitter()
-    const provider = new FakeUserProvider([])
-    const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
+    const { guard } = createTestGuard({ users: [] })
 
     await assert.rejects(() => guard.authenticate(), 'Missing Bearer token')
   })
 
   test('throws on unknown token', async ({ assert }) => {
-    const manager = createManager()
-    const ctx = mockCtx({ headers: { authorization: 'Bearer some-random-token' } })
-    const emitter = createFakeEmitter()
-    const provider = new FakeUserProvider([])
-    const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
+    const { guard } = createTestGuard({ bearerToken: 'some-random-token', users: [] })
 
     await assert.rejects(() => guard.authenticate(), 'Invalid or expired token')
   })
 
   test('throws on revoked token', async ({ assert }) => {
-    const manager = createManager()
-    const tokenService = new TokenService(manager)
     await createTestClient()
-
-    const { raw, hash } = tokenService.createAccessToken()
-
-    await OAuthAccessToken.create({
-      id: crypto.randomUUID(),
-      tokenHash: hash,
-      clientId: 'test-client',
-      userId: 'user-1',
+    const { raw, manager } = await createTestAccessToken({
       scopes: ['read'],
-      expiresAt: DateTime.now().plus({ hours: 1 }),
       revokedAt: DateTime.now(),
     })
-
-    const ctx = mockCtx({ headers: { authorization: `Bearer ${raw}` } })
-    const emitter = createFakeEmitter()
-    const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
-    const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
+    const { guard } = createTestGuard({ manager, bearerToken: raw })
 
     await assert.rejects(() => guard.authenticate(), 'Invalid or expired token')
   })
 
   test('throws when the access token row is missing', async ({ assert }) => {
-    const manager = createManager()
     await createTestClient()
-
-    const ctx = mockCtx({ headers: { authorization: 'Bearer nonexistent-token' } })
-    const emitter = createFakeEmitter()
-    const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
-    const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
+    const { guard } = createTestGuard({ bearerToken: 'nonexistent-token' })
 
     try {
       await guard.authenticate()
@@ -134,59 +73,26 @@ test.group('OAuthGuard', (group) => {
   })
 
   test('throws on M2M token (no userId)', async ({ assert }) => {
-    const manager = createManager()
-    const tokenService = new TokenService(manager)
     await createTestClient()
-
-    const { raw, hash } = tokenService.createAccessToken()
-
-    await OAuthAccessToken.create({
-      id: crypto.randomUUID(),
-      tokenHash: hash,
-      clientId: 'test-client',
-      userId: null,
-      scopes: ['read'],
-      expiresAt: DateTime.now().plus({ hours: 1 }),
-    })
-
-    const ctx = mockCtx({ headers: { authorization: `Bearer ${raw}` } })
-    const emitter = createFakeEmitter()
-    const provider = new FakeUserProvider([])
-    const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
+    const { raw, manager } = await createTestAccessToken({ userId: null, scopes: ['read'] })
+    const { guard } = createTestGuard({ manager, bearerToken: raw, users: [] })
 
     await assert.rejects(() => guard.authenticate(), 'Invalid or expired token')
   })
 
   test('throws when user not found', async ({ assert }) => {
-    const manager = createManager()
-    const tokenService = new TokenService(manager)
     await createTestClient()
-
-    const { raw, hash } = tokenService.createAccessToken()
-
-    await OAuthAccessToken.create({
-      id: crypto.randomUUID(),
-      tokenHash: hash,
-      clientId: 'test-client',
+    const { raw, manager } = await createTestAccessToken({
       userId: 'nonexistent-user',
       scopes: ['read'],
-      expiresAt: DateTime.now().plus({ hours: 1 }),
     })
-
-    const ctx = mockCtx({ headers: { authorization: `Bearer ${raw}` } })
-    const emitter = createFakeEmitter()
-    const provider = new FakeUserProvider([])
-    const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
+    const { guard } = createTestGuard({ manager, bearerToken: raw, users: [] })
 
     await assert.rejects(() => guard.authenticate(), 'Invalid or expired token')
   })
 
   test('check() returns false instead of throwing', async ({ assert }) => {
-    const manager = createManager()
-    const ctx = mockCtx()
-    const emitter = createFakeEmitter()
-    const provider = new FakeUserProvider([])
-    const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
+    const { guard } = createTestGuard({ users: [] })
 
     const result = await guard.check()
     assert.isFalse(result)
@@ -194,25 +100,9 @@ test.group('OAuthGuard', (group) => {
   })
 
   test('check() returns true for valid token', async ({ assert }) => {
-    const manager = createManager()
-    const tokenService = new TokenService(manager)
     await createTestClient()
-
-    const { raw, hash } = tokenService.createAccessToken()
-
-    await OAuthAccessToken.create({
-      id: crypto.randomUUID(),
-      tokenHash: hash,
-      clientId: 'test-client',
-      userId: 'user-1',
-      scopes: ['read'],
-      expiresAt: DateTime.now().plus({ hours: 1 }),
-    })
-
-    const ctx = mockCtx({ headers: { authorization: `Bearer ${raw}` } })
-    const emitter = createFakeEmitter()
-    const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
-    const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
+    const { raw, manager } = await createTestAccessToken({ scopes: ['read'] })
+    const { guard } = createTestGuard({ manager, bearerToken: raw })
 
     const result = await guard.check()
     assert.isTrue(result)
@@ -220,25 +110,9 @@ test.group('OAuthGuard', (group) => {
   })
 
   test('authenticate() is idempotent', async ({ assert }) => {
-    const manager = createManager()
-    const tokenService = new TokenService(manager)
     await createTestClient()
-
-    const { raw, hash } = tokenService.createAccessToken()
-
-    await OAuthAccessToken.create({
-      id: crypto.randomUUID(),
-      tokenHash: hash,
-      clientId: 'test-client',
-      userId: 'user-1',
-      scopes: ['read'],
-      expiresAt: DateTime.now().plus({ hours: 1 }),
-    })
-
-    const ctx = mockCtx({ headers: { authorization: `Bearer ${raw}` } })
-    const emitter = createFakeEmitter()
-    const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
-    const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
+    const { raw, manager } = await createTestAccessToken({ scopes: ['read'] })
+    const { guard } = createTestGuard({ manager, bearerToken: raw })
 
     const user1 = await guard.authenticate()
     const user2 = await guard.authenticate()
@@ -246,25 +120,9 @@ test.group('OAuthGuard', (group) => {
   })
 
   test('hasScope checks all scopes', async ({ assert }) => {
-    const manager = createManager()
-    const tokenService = new TokenService(manager)
     await createTestClient()
-
-    const { raw, hash } = tokenService.createAccessToken()
-
-    await OAuthAccessToken.create({
-      id: crypto.randomUUID(),
-      tokenHash: hash,
-      clientId: 'test-client',
-      userId: 'user-1',
-      scopes: ['read', 'write'],
-      expiresAt: DateTime.now().plus({ hours: 1 }),
-    })
-
-    const ctx = mockCtx({ headers: { authorization: `Bearer ${raw}` } })
-    const emitter = createFakeEmitter()
-    const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
-    const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
+    const { raw, manager } = await createTestAccessToken()
+    const { guard } = createTestGuard({ manager, bearerToken: raw })
 
     await guard.authenticate()
 
@@ -275,25 +133,9 @@ test.group('OAuthGuard', (group) => {
   })
 
   test('hasAnyScope checks any scope', async ({ assert }) => {
-    const manager = createManager()
-    const tokenService = new TokenService(manager)
     await createTestClient()
-
-    const { raw, hash } = tokenService.createAccessToken()
-
-    await OAuthAccessToken.create({
-      id: crypto.randomUUID(),
-      tokenHash: hash,
-      clientId: 'test-client',
-      userId: 'user-1',
-      scopes: ['read', 'write'],
-      expiresAt: DateTime.now().plus({ hours: 1 }),
-    })
-
-    const ctx = mockCtx({ headers: { authorization: `Bearer ${raw}` } })
-    const emitter = createFakeEmitter()
-    const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
-    const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
+    const { raw, manager } = await createTestAccessToken()
+    const { guard } = createTestGuard({ manager, bearerToken: raw })
 
     await guard.authenticate()
 
@@ -303,11 +145,7 @@ test.group('OAuthGuard', (group) => {
   })
 
   test('sets WWW-Authenticate header on authentication failure', async ({ assert }) => {
-    const manager = createManager()
-    const ctx = mockCtx()
-    const emitter = createFakeEmitter()
-    const provider = new FakeUserProvider([])
-    const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
+    const { guard, ctx } = createTestGuard({ users: [] })
 
     await guard.check()
 
@@ -318,35 +156,15 @@ test.group('OAuthGuard', (group) => {
   })
 
   test('getUserOrFail throws when not authenticated', async ({ assert }) => {
-    const manager = createManager()
-    const ctx = mockCtx()
-    const emitter = createFakeEmitter()
-    const provider = new FakeUserProvider([])
-    const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
+    const { guard } = createTestGuard({ users: [] })
 
     assert.throws(() => guard.getUserOrFail(), 'Unauthorized access')
   })
 
   test('getUserOrFail returns user when authenticated', async ({ assert }) => {
-    const manager = createManager()
-    const tokenService = new TokenService(manager)
     await createTestClient()
-
-    const { raw, hash } = tokenService.createAccessToken()
-
-    await OAuthAccessToken.create({
-      id: crypto.randomUUID(),
-      tokenHash: hash,
-      clientId: 'test-client',
-      userId: 'user-1',
-      scopes: ['read'],
-      expiresAt: DateTime.now().plus({ hours: 1 }),
-    })
-
-    const ctx = mockCtx({ headers: { authorization: `Bearer ${raw}` } })
-    const emitter = createFakeEmitter()
-    const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
-    const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
+    const { raw, manager } = await createTestAccessToken({ scopes: ['read'] })
+    const { guard } = createTestGuard({ manager, bearerToken: raw })
 
     await guard.authenticate()
     const user = guard.getUserOrFail()
@@ -354,25 +172,9 @@ test.group('OAuthGuard', (group) => {
   })
 
   test('emits authentication events', async ({ assert }) => {
-    const manager = createManager()
-    const tokenService = new TokenService(manager)
     await createTestClient()
-
-    const { raw, hash } = tokenService.createAccessToken()
-
-    await OAuthAccessToken.create({
-      id: crypto.randomUUID(),
-      tokenHash: hash,
-      clientId: 'test-client',
-      userId: 'user-1',
-      scopes: ['read'],
-      expiresAt: DateTime.now().plus({ hours: 1 }),
-    })
-
-    const ctx = mockCtx({ headers: { authorization: `Bearer ${raw}` } })
-    const emitter = createFakeEmitter()
-    const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
-    const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
+    const { raw, manager } = await createTestAccessToken({ scopes: ['read'] })
+    const { guard, emitter } = createTestGuard({ manager, bearerToken: raw })
 
     await guard.authenticate()
 
@@ -383,11 +185,7 @@ test.group('OAuthGuard', (group) => {
   })
 
   test('emits authentication_failed event on failure', async ({ assert }) => {
-    const manager = createManager()
-    const ctx = mockCtx()
-    const emitter = createFakeEmitter()
-    const provider = new FakeUserProvider([])
-    const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
+    const { guard, emitter } = createTestGuard({ users: [] })
 
     await guard.check()
 
@@ -396,11 +194,7 @@ test.group('OAuthGuard', (group) => {
   })
 
   test('WWW-Authenticate omits error attributes when no token is sent', async ({ assert }) => {
-    const manager = createManager()
-    const ctx = mockCtx()
-    const emitter = createFakeEmitter()
-    const provider = new FakeUserProvider([])
-    const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
+    const { guard, ctx } = createTestGuard({ users: [] })
 
     await guard.check()
 
@@ -416,11 +210,7 @@ test.group('OAuthGuard', (group) => {
   test('WWW-Authenticate includes error attributes when token is present but invalid', async ({
     assert,
   }) => {
-    const manager = createManager()
-    const ctx = mockCtx({ headers: { authorization: 'Bearer some-invalid-token' } })
-    const emitter = createFakeEmitter()
-    const provider = new FakeUserProvider([])
-    const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
+    const { guard, ctx } = createTestGuard({ bearerToken: 'some-invalid-token', users: [] })
 
     await guard.check()
 
@@ -434,26 +224,12 @@ test.group('OAuthGuard', (group) => {
   })
 
   test('WWW-Authenticate includes error attributes when token is revoked', async ({ assert }) => {
-    const manager = createManager()
-    const tokenService = new TokenService(manager)
     await createTestClient()
-
-    const { raw, hash } = tokenService.createAccessToken()
-
-    await OAuthAccessToken.create({
-      id: crypto.randomUUID(),
-      tokenHash: hash,
-      clientId: 'test-client',
-      userId: 'user-1',
+    const { raw, manager } = await createTestAccessToken({
       scopes: ['read'],
-      expiresAt: DateTime.now().plus({ hours: 1 }),
       revokedAt: DateTime.now(),
     })
-
-    const ctx = mockCtx({ headers: { authorization: `Bearer ${raw}` } })
-    const emitter = createFakeEmitter()
-    const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
-    const guard = new OAuthGuard('oauth', ctx, emitter, provider, manager)
+    const { guard, ctx } = createTestGuard({ manager, bearerToken: raw })
 
     await guard.check()
 
