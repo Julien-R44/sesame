@@ -43,7 +43,17 @@
     "url": "https://github.com/Julien-R44/sesame/issues"
   },
   "homepage": "https://github.com/Julien-R44/sesame#readme",
-  "keywords": [],
+  "keywords": [
+    "adonisjs",
+    "adonis",
+    "oauth",
+    "oauth2.1",
+    "oidc",
+    "openid-connect",
+    "authorization-server",
+    "mcp",
+    "pkce"
+  ],
   "author": "Julien Ripouteau",
   "license": "MIT",
   "devDependencies": {
@@ -76,6 +86,9 @@
   },
   "peerDependenciesMeta": {
     "@adonisjs/assembler": {
+      "optional": true
+    },
+    "@adonisjs/auth": {
       "optional": true
     }
   },
