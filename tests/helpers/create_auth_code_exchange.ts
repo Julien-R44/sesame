@@ -1,19 +1,17 @@
 import { SesameManager } from '../../src/sesame_manager.ts'
+import { OAuthClient } from '../../src/models/oauth_client.ts'
 import { createManager } from './app.ts'
-import { mockCtx } from './mock_ctx.ts'
 import { createTestAuthCode } from './create_test_client.ts'
 import { createPkce } from './create_pkce.ts'
 
 /**
- * Creates an authorization code in DB and returns the mockCtx
- * ready to call `handleAuthorizationCodeGrant(ctx, manager)`.
- *
- * Handles PKCE generation, auth code persistence, and context setup in one call.
+ * Creates an authorization code in DB and returns the structured
+ * data needed to call `ExchangeAuthorizationCodeAction.execute()`.
  *
  * Does NOT create the OAuthClient — call `createTestClient()` first.
  *
  * Defaults: clientId='test-client', userId='user-1', scopes=['read','write'],
- * clientSecret='test-secret', redirectUri='https://app.example.com/callback'
+ * redirectUri='https://app.example.com/callback'
  */
 export async function createAuthCodeExchange(options?: {
   manager?: SesameManager
@@ -21,7 +19,6 @@ export async function createAuthCodeExchange(options?: {
   userId?: string
   scopes?: string[]
   rawCode?: string
-  clientSecret?: string
   codeVerifier?: string
   redirectUri?: string
 }) {
@@ -41,17 +38,7 @@ export async function createAuthCodeExchange(options?: {
     codeChallengeMethod: 'S256',
   })
 
-  const ctx = mockCtx({
-    manager,
-    body: {
-      grant_type: 'authorization_code',
-      code: rawCode,
-      redirect_uri: redirectUri,
-      client_id: clientId,
-      client_secret: options?.clientSecret ?? 'test-secret',
-      code_verifier: codeVerifier,
-    },
-  })
+  const client = await OAuthClient.query().where('clientId', clientId).firstOrFail()
 
-  return { ctx, rawCode, codeVerifier, codeChallenge, manager }
+  return { client, rawCode, codeVerifier, codeChallenge, redirectUri, manager }
 }

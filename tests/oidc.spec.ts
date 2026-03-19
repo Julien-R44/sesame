@@ -18,8 +18,8 @@ import { OAuthRefreshToken } from '../src/models/oauth_refresh_token.ts'
 import MetadataController from '../src/controllers/metadata_controller.ts'
 import JwksController from '../src/controllers/jwks_controller.ts'
 import UserinfoController from '../src/controllers/userinfo_controller.ts'
-import { handleAuthorizationCodeGrant } from '../src/grants/authorization_code_grant.ts'
-import { handleRefreshTokenGrant } from '../src/grants/refresh_token_grant.ts'
+import { ExchangeAuthorizationCodeAction } from '../src/actions/exchange_authorization_code.ts'
+import { ExchangeRefreshTokenAction } from '../src/actions/exchange_refresh_token.ts'
 import { OIDC_SCOPES, RESERVED_OIDC_CLAIMS } from '../src/types.ts'
 
 // --- KeyService ---
@@ -440,13 +440,18 @@ test.group('Authorization Code Grant — OIDC', (group) => {
       scopes: ['read', 'openid', 'offline_access'],
     })
 
-    const { ctx } = await createAuthCodeExchange({
+    const { rawCode, codeVerifier, redirectUri } = await createAuthCodeExchange({
       manager,
       clientId: client.clientId,
       scopes: ['openid', 'read'],
     })
 
-    const result = await handleAuthorizationCodeGrant(ctx, manager)
+    const result = await new ExchangeAuthorizationCodeAction().execute(manager, {
+      client,
+      code: rawCode,
+      redirectUri,
+      codeVerifier,
+    })
 
     assert.isString(result.access_token)
     assert.isString(result.id_token)
@@ -473,13 +478,18 @@ test.group('Authorization Code Grant — OIDC', (group) => {
       scopes: ['read', 'write'],
     })
 
-    const { ctx } = await createAuthCodeExchange({
+    const { rawCode, codeVerifier, redirectUri } = await createAuthCodeExchange({
       manager,
       clientId: client.clientId,
       scopes: ['read'],
     })
 
-    const result = await handleAuthorizationCodeGrant(ctx, manager)
+    const result = await new ExchangeAuthorizationCodeAction().execute(manager, {
+      client,
+      code: rawCode,
+      redirectUri,
+      codeVerifier,
+    })
 
     assert.isString(result.access_token)
     assert.notProperty(result, 'id_token')
@@ -494,13 +504,22 @@ test.group('Authorization Code Grant — OIDC', (group) => {
       scopes: ['read', 'openid', 'offline_access'],
     })
 
-    const { ctx } = await createAuthCodeExchange({
+    const { rawCode, codeVerifier, redirectUri } = await createAuthCodeExchange({
       manager,
       clientId: client.clientId,
       scopes: ['openid', 'read'],
     })
 
-    await assert.rejects(() => handleAuthorizationCodeGrant(ctx, manager), 'OIDC user not found')
+    await assert.rejects(
+      () =>
+        new ExchangeAuthorizationCodeAction().execute(manager, {
+          client,
+          code: rawCode,
+          redirectUri,
+          codeVerifier,
+        }),
+      'OIDC user not found'
+    )
   })
 
   test('does not consume the code or persist tokens when id_token generation fails', async ({
@@ -523,14 +542,23 @@ test.group('Authorization Code Grant — OIDC', (group) => {
       scopes: ['read', 'openid', 'offline_access'],
     })
 
-    const { ctx, rawCode } = await createAuthCodeExchange({
+    const { rawCode, codeVerifier, redirectUri } = await createAuthCodeExchange({
       manager,
       clientId: client.clientId,
       scopes: ['openid', 'offline_access', 'read'],
     })
     const hashedCode = new TokenService(manager).hashToken(rawCode)
 
-    await assert.rejects(() => handleAuthorizationCodeGrant(ctx, manager), 'OIDC claims exploded')
+    await assert.rejects(
+      () =>
+        new ExchangeAuthorizationCodeAction().execute(manager, {
+          client,
+          code: rawCode,
+          redirectUri,
+          codeVerifier,
+        }),
+      'OIDC claims exploded'
+    )
 
     const authCode = await OAuthAuthorizationCode.query()
       .where('code', hashedCode)
@@ -597,17 +625,14 @@ test.group('Refresh Token Grant — OIDC', (group) => {
       expiresAt: DateTime.now().plus({ days: 30 }),
     })
 
-    const ctx = mockCtx({
-      manager,
-      body: {
-        grant_type: 'refresh_token',
-        refresh_token: refreshTokenRaw,
-        client_id: client.clientId,
-        client_secret: 'test-secret',
-      },
-    })
-
-    await assert.rejects(() => handleRefreshTokenGrant(ctx, manager), 'OIDC user not found')
+    await assert.rejects(
+      () =>
+        new ExchangeRefreshTokenAction().execute(manager, {
+          client,
+          refreshToken: refreshTokenRaw,
+        }),
+      'OIDC user not found'
+    )
   })
 
   test('does not rotate tokens when id_token generation fails', async ({ assert }) => {
@@ -652,17 +677,14 @@ test.group('Refresh Token Grant — OIDC', (group) => {
       expiresAt: DateTime.now().plus({ days: 30 }),
     })
 
-    const ctx = mockCtx({
-      manager,
-      body: {
-        grant_type: 'refresh_token',
-        refresh_token: refreshTokenRaw,
-        client_id: client.clientId,
-        client_secret: 'test-secret',
-      },
-    })
-
-    await assert.rejects(() => handleRefreshTokenGrant(ctx, manager), 'OIDC claims exploded')
+    await assert.rejects(
+      () =>
+        new ExchangeRefreshTokenAction().execute(manager, {
+          client,
+          refreshToken: refreshTokenRaw,
+        }),
+      'OIDC claims exploded'
+    )
 
     const accessTokens = await OAuthAccessToken.query().where('clientId', client.clientId)
     const refreshTokens = await OAuthRefreshToken.query().where('clientId', client.clientId)

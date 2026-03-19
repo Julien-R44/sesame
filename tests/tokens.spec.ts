@@ -11,7 +11,7 @@ import { assertOAuthError } from './helpers/assert_oauth_error.ts'
 import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
 import { OAuthRefreshToken } from '../src/models/oauth_refresh_token.ts'
 import { TokenService } from '../src/services/token_service.ts'
-import { handleRefreshTokenGrant } from '../src/grants/refresh_token_grant.ts'
+import { ExchangeRefreshTokenAction } from '../src/actions/exchange_refresh_token.ts'
 import TokenController from '../src/controllers/token_controller.ts'
 import IntrospectController from '../src/controllers/introspect_controller.ts'
 import RevokeController from '../src/controllers/revoke_controller.ts'
@@ -33,20 +33,13 @@ test.group('Integration | Refresh Token Grant', (group) => {
   group.each.setup(cleanModels())
 
   test('exchanges refresh token for new tokens', async ({ assert }) => {
-    await createTestClient()
+    const client = await createTestClient()
     const { rawRefreshToken, manager } = await createTestRefreshToken()
 
-    const ctx = mockCtx({
-      manager,
-      body: {
-        grant_type: 'refresh_token',
-        refresh_token: rawRefreshToken,
-        client_id: 'test-client',
-        client_secret: 'test-secret',
-      },
+    const result = await new ExchangeRefreshTokenAction().execute(manager, {
+      client,
+      refreshToken: rawRefreshToken,
     })
-
-    const result = await handleRefreshTokenGrant(ctx, manager)
 
     assert.isDefined(result.access_token)
     assert.isDefined(result.refresh_token)
@@ -55,20 +48,13 @@ test.group('Integration | Refresh Token Grant', (group) => {
   })
 
   test('revokes old access token during rotation', async ({ assert }) => {
-    await createTestClient()
+    const client = await createTestClient()
     const { rawRefreshToken, accessTokenHash, manager } = await createTestRefreshToken()
 
-    const ctx = mockCtx({
-      manager,
-      body: {
-        grant_type: 'refresh_token',
-        refresh_token: rawRefreshToken,
-        client_id: 'test-client',
-        client_secret: 'test-secret',
-      },
+    const result = await new ExchangeRefreshTokenAction().execute(manager, {
+      client,
+      refreshToken: rawRefreshToken,
     })
-
-    const result = await handleRefreshTokenGrant(ctx, manager)
 
     assert.isDefined(result.access_token)
     assert.isDefined(result.refresh_token)
@@ -82,86 +68,72 @@ test.group('Integration | Refresh Token Grant', (group) => {
   test('rejects refresh token grant when the client is not allowed to use it', async ({
     assert,
   }) => {
-    await createTestClient({ grantTypes: ['authorization_code'] })
+    const client = await createTestClient({ grantTypes: ['authorization_code'] })
     const { rawRefreshToken, manager } = await createTestRefreshToken({ scopes: ['read'] })
 
-    const ctx = mockCtx({
-      manager,
-      body: {
-        grant_type: 'refresh_token',
-        refresh_token: rawRefreshToken,
-        client_id: 'test-client',
-        client_secret: 'test-secret',
-      },
-    })
-
-    await assertOAuthError(assert, () => handleRefreshTokenGrant(ctx, manager), 'invalid_client')
+    await assertOAuthError(
+      assert,
+      () =>
+        new ExchangeRefreshTokenAction().execute(manager, {
+          client,
+          refreshToken: rawRefreshToken,
+        }),
+      'invalid_client'
+    )
   })
 
   test('supports scope downgrading', async ({ assert }) => {
-    await createTestClient()
+    const client = await createTestClient()
     const { rawRefreshToken, manager } = await createTestRefreshToken()
 
-    const ctx = mockCtx({
-      manager,
-      body: {
-        grant_type: 'refresh_token',
-        refresh_token: rawRefreshToken,
-        client_id: 'test-client',
-        client_secret: 'test-secret',
-        scope: 'read',
-      },
+    const result = await new ExchangeRefreshTokenAction().execute(manager, {
+      client,
+      refreshToken: rawRefreshToken,
+      scope: 'read',
     })
 
-    const result = await handleRefreshTokenGrant(ctx, manager)
     assert.equal(result.scope, 'read')
   })
 
   test('rejects narrowing OIDC scopes to profile/email without openid', async ({ assert }) => {
-    await createTestClient({
+    const client = await createTestClient({
       scopes: ['read', 'openid', 'profile', 'email', 'offline_access'],
     })
     const { rawRefreshToken, manager } = await createTestRefreshToken({
       scopes: ['openid', 'profile', 'email'],
     })
 
-    const ctx = mockCtx({
-      manager,
-      body: {
-        grant_type: 'refresh_token',
-        refresh_token: rawRefreshToken,
-        client_id: 'test-client',
-        client_secret: 'test-secret',
-        scope: 'profile email',
-      },
-    })
-
-    await assertOAuthError(assert, () => handleRefreshTokenGrant(ctx, manager), 'invalid_scope', [
-      'profile',
-      'email',
-    ])
+    await assertOAuthError(
+      assert,
+      () =>
+        new ExchangeRefreshTokenAction().execute(manager, {
+          client,
+          refreshToken: rawRefreshToken,
+          scope: 'profile email',
+        }),
+      'invalid_scope',
+      ['profile', 'email']
+    )
   })
 
   test('rejects scope escalation', async ({ assert }) => {
-    await createTestClient()
+    const client = await createTestClient()
     const { rawRefreshToken, manager } = await createTestRefreshToken({ scopes: ['read'] })
 
-    const ctx = mockCtx({
-      manager,
-      body: {
-        grant_type: 'refresh_token',
-        refresh_token: rawRefreshToken,
-        client_id: 'test-client',
-        client_secret: 'test-secret',
-        scope: 'read write',
-      },
-    })
-
-    await assertOAuthError(assert, () => handleRefreshTokenGrant(ctx, manager), 'invalid_scope')
+    await assertOAuthError(
+      assert,
+      () =>
+        new ExchangeRefreshTokenAction().execute(manager, {
+          client,
+          refreshToken: rawRefreshToken,
+          scope: 'read write',
+        }),
+      'invalid_scope'
+    )
   })
 
   test('replay detection revokes all tokens', async ({ assert }) => {
-    await createTestClient()
+    const client = await createTestClient()
     const manager = createManager()
     const tokenService = new TokenService(manager)
 
@@ -189,17 +161,15 @@ test.group('Integration | Refresh Token Grant', (group) => {
       expiresAt: DateTime.now().plus({ days: 30 }),
     })
 
-    const ctx = mockCtx({
-      manager,
-      body: {
-        grant_type: 'refresh_token',
-        refresh_token: rawRefreshToken,
-        client_id: 'test-client',
-        client_secret: 'test-secret',
-      },
-    })
-
-    await assertOAuthError(assert, () => handleRefreshTokenGrant(ctx, manager), 'invalid_grant')
+    await assertOAuthError(
+      assert,
+      () =>
+        new ExchangeRefreshTokenAction().execute(manager, {
+          client,
+          refreshToken: rawRefreshToken,
+        }),
+      'invalid_grant'
+    )
 
     const remaining = await OAuthRefreshToken.query()
       .where('clientId', 'test-client')
@@ -208,23 +178,13 @@ test.group('Integration | Refresh Token Grant', (group) => {
   })
 
   test('rejects concurrent rotation of the same refresh token', async ({ assert }) => {
-    await createTestClient()
+    const client = await createTestClient()
     const { rawRefreshToken, manager } = await createTestRefreshToken({ scopes: ['read'] })
 
-    const makeCtx = () =>
-      mockCtx({
-        manager,
-        body: {
-          grant_type: 'refresh_token',
-          refresh_token: rawRefreshToken,
-          client_id: 'test-client',
-          client_secret: 'test-secret',
-        },
-      })
-
+    const action = new ExchangeRefreshTokenAction()
     const results = await Promise.allSettled([
-      handleRefreshTokenGrant(makeCtx(), manager),
-      handleRefreshTokenGrant(makeCtx(), manager),
+      action.execute(manager, { client, refreshToken: rawRefreshToken }),
+      action.execute(manager, { client, refreshToken: rawRefreshToken }),
     ])
 
     assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1)
@@ -232,23 +192,20 @@ test.group('Integration | Refresh Token Grant', (group) => {
   })
 
   test('rejects expired refresh token', async ({ assert }) => {
-    await createTestClient()
+    const client = await createTestClient()
     const { rawRefreshToken, manager } = await createTestRefreshToken({
       scopes: ['read'],
       expiresAt: DateTime.now().minus({ days: 1 }),
     })
 
-    const ctx = mockCtx({
-      manager,
-      body: {
-        grant_type: 'refresh_token',
-        refresh_token: rawRefreshToken,
-        client_id: 'test-client',
-        client_secret: 'test-secret',
-      },
-    })
-
-    await assert.rejects(() => handleRefreshTokenGrant(ctx, manager), 'Refresh token has expired')
+    await assert.rejects(
+      () =>
+        new ExchangeRefreshTokenAction().execute(manager, {
+          client,
+          refreshToken: rawRefreshToken,
+        }),
+      'Refresh token has expired'
+    )
   })
 })
 
