@@ -7,7 +7,7 @@ export default class extends BaseSchema {
     this.schema.createTable(this.tableName, (table) => {
       table.uuid('id').primary()
       table.string('token').notNullable().index()
-      table.string('access_token_id').notNullable()
+      table.uuid('access_token_id').notNullable()
       table
         .string('client_id')
         .notNullable()

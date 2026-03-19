@@ -170,7 +170,7 @@ test.group('Integration | Refresh Token Grant', (group) => {
     await OAuthRefreshToken.create({
       id: crypto.randomUUID(),
       token: tokenService.hashToken(rawRefreshToken),
-      accessTokenId: 'old-token-hash-4',
+      accessTokenId: crypto.randomUUID(),
       clientId: 'test-client',
       userId: 'user-1',
       scopes: ['read'],
@@ -182,7 +182,7 @@ test.group('Integration | Refresh Token Grant', (group) => {
     await OAuthRefreshToken.create({
       id: crypto.randomUUID(),
       token: tokenService.hashToken('other-valid-token'),
-      accessTokenId: 'other-token-hash',
+      accessTokenId: crypto.randomUUID(),
       clientId: 'test-client',
       userId: 'user-1',
       scopes: ['read'],
@@ -495,8 +495,9 @@ test.group('Integration | Revocation', (group) => {
     const tokenService = new TokenService(manager)
     const rawRefreshToken = 'revoke-me-refresh'
 
+    const linkedAccessTokenId = crypto.randomUUID()
     await OAuthAccessToken.create({
-      id: crypto.randomUUID(),
+      id: linkedAccessTokenId,
       tokenHash: 'linked-token-hash',
       clientId: 'test-client',
       userId: 'user-1',
@@ -507,7 +508,7 @@ test.group('Integration | Revocation', (group) => {
     await OAuthRefreshToken.create({
       id: crypto.randomUUID(),
       token: tokenService.hashToken(rawRefreshToken),
-      accessTokenId: 'linked-token-hash',
+      accessTokenId: linkedAccessTokenId,
       clientId: 'test-client',
       userId: 'user-1',
       scopes: ['read'],

@@ -214,13 +214,15 @@ export class ExchangeRefreshTokenAction {
 
       await OAuthAccessToken.query()
         .useTransaction(trx)
-        .where('tokenHash', oldRefreshToken.accessTokenId)
+        .where('id', oldRefreshToken.accessTokenId)
         .whereNull('revokedAt')
         .update({ revokedAt: revokedAt.toSQL() })
 
+      const accessTokenId = crypto.randomUUID()
+
       await OAuthAccessToken.create(
         {
-          id: crypto.randomUUID(),
+          id: accessTokenId,
           tokenHash: accessToken.hash,
           clientId: input.client.clientId,
           userId: oldRefreshToken.userId,
@@ -234,7 +236,7 @@ export class ExchangeRefreshTokenAction {
         {
           id: crypto.randomUUID(),
           token: newRefreshToken.hash,
-          accessTokenId: accessToken.hash,
+          accessTokenId,
           clientId: input.client.clientId,
           userId: oldRefreshToken.userId,
           scopes,

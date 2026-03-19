@@ -203,9 +203,11 @@ export class ExchangeAuthorizationCodeAction {
         throw new E_INVALID_GRANT('Authorization code has already been consumed')
       }
 
+      const accessTokenId = crypto.randomUUID()
+
       await OAuthAccessToken.create(
         {
-          id: crypto.randomUUID(),
+          id: accessTokenId,
           tokenHash: accessToken.hash,
           clientId: input.client.clientId,
           userId: authCode.userId,
@@ -220,7 +222,7 @@ export class ExchangeAuthorizationCodeAction {
           {
             id: crypto.randomUUID(),
             token: refreshToken.hash,
-            accessTokenId: accessToken.hash,
+            accessTokenId,
             clientId: input.client.clientId,
             userId: authCode.userId,
             scopes: authCode.scopes,

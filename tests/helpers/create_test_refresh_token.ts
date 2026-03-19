@@ -13,7 +13,7 @@ import { createManager } from './app.ts'
  * Defaults: clientId='test-client', userId='user-1',
  * scopes=['read','write','offline_access'], expiresAt=+30d
  *
- * Returns `{ rawRefreshToken, accessTokenHash, manager }`.
+ * Returns `{ rawRefreshToken, accessTokenId, accessTokenHash, manager }`.
  */
 export async function createTestRefreshToken(options?: {
   manager?: SesameManager
@@ -25,10 +25,11 @@ export async function createTestRefreshToken(options?: {
 }) {
   const manager = options?.manager ?? createManager()
   const tokenService = new TokenService(manager)
+  const accessTokenId = crypto.randomUUID()
   const accessTokenHash = `access-${crypto.randomUUID()}`
 
   await OAuthAccessToken.create({
-    id: crypto.randomUUID(),
+    id: accessTokenId,
     tokenHash: accessTokenHash,
     clientId: options?.clientId ?? 'test-client',
     userId: options?.userId ?? 'user-1',
@@ -40,7 +41,7 @@ export async function createTestRefreshToken(options?: {
   await OAuthRefreshToken.create({
     id: crypto.randomUUID(),
     token: tokenService.hashToken(rawRefreshToken),
-    accessTokenId: accessTokenHash,
+    accessTokenId,
     clientId: options?.clientId ?? 'test-client',
     userId: options?.userId ?? 'user-1',
     scopes: options?.scopes ?? ['read', 'write', 'offline_access'],
@@ -48,5 +49,5 @@ export async function createTestRefreshToken(options?: {
     revokedAt: options?.revokedAt ?? null,
   })
 
-  return { rawRefreshToken, accessTokenHash, manager }
+  return { rawRefreshToken, accessTokenId, accessTokenHash, manager }
 }

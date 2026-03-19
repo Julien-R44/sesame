@@ -67,7 +67,7 @@ export default class RevokeController {
 
         // Also revoke the associated access token (RFC 7009 §2.1)
         await OAuthAccessToken.query()
-          .where('tokenHash', refreshToken.accessTokenId)
+          .where('id', refreshToken.accessTokenId)
           .whereNull('revokedAt')
           .update({ revokedAt: DateTime.now().toSQL() })
       }

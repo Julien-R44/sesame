@@ -262,8 +262,9 @@ test.group('Integration | revokeAllForUser', (group) => {
     const { codeChallenge } = createPkce('revoke-all-verifier')
 
     // Create access token
+    const accessTokenId = crypto.randomUUID()
     await OAuthAccessToken.create({
-      id: crypto.randomUUID(),
+      id: accessTokenId,
       tokenHash: 'at-1',
       clientId: client.clientId,
       userId: 'user-1',
@@ -275,7 +276,7 @@ test.group('Integration | revokeAllForUser', (group) => {
     await OAuthRefreshToken.create({
       id: crypto.randomUUID(),
       token: tokenService.hashToken('rt-1'),
-      accessTokenId: 'at-1',
+      accessTokenId,
       clientId: client.clientId,
       userId: 'user-1',
       scopes: ['read'],
@@ -309,7 +310,7 @@ test.group('Integration | revokeAllForUser', (group) => {
     assert.isNotNull(accessToken.revokedAt)
 
     const refreshToken = await OAuthRefreshToken.query()
-      .where('accessTokenId', 'at-1')
+      .where('accessTokenId', accessTokenId)
       .firstOrFail()
     assert.isNotNull(refreshToken.revokedAt)
 

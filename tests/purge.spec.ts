@@ -99,7 +99,7 @@ test.group('SesameManager | purgeTokens', (group) => {
     await OAuthRefreshToken.create({
       id: crypto.randomUUID(),
       token: tokenService.hashToken('revoked-rt'),
-      accessTokenId: 'x',
+      accessTokenId: crypto.randomUUID(),
       clientId: client.clientId,
       userId: 'user-1',
       scopes: ['read'],
@@ -110,7 +110,7 @@ test.group('SesameManager | purgeTokens', (group) => {
     await OAuthRefreshToken.create({
       id: crypto.randomUUID(),
       token: tokenService.hashToken('active-rt'),
-      accessTokenId: 'y',
+      accessTokenId: crypto.randomUUID(),
       clientId: client.clientId,
       userId: 'user-1',
       scopes: ['read'],

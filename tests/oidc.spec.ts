@@ -577,8 +577,9 @@ test.group('Refresh Token Grant — OIDC', (group) => {
     const { hash: oldAccessTokenHash, expiresAt } = tokenService.createAccessToken()
     const { raw: refreshTokenRaw, hash: refreshTokenHash } = tokenService.createRefreshToken()
 
+    const oldAccessTokenId = crypto.randomUUID()
     await OAuthAccessToken.create({
-      id: crypto.randomUUID(),
+      id: oldAccessTokenId,
       tokenHash: oldAccessTokenHash,
       clientId: client.clientId,
       userId: 'user-1',
@@ -589,7 +590,7 @@ test.group('Refresh Token Grant — OIDC', (group) => {
     await OAuthRefreshToken.create({
       id: crypto.randomUUID(),
       token: refreshTokenHash,
-      accessTokenId: oldAccessTokenHash,
+      accessTokenId: oldAccessTokenId,
       clientId: client.clientId,
       userId: 'user-1',
       scopes: ['openid', 'read'],
@@ -631,8 +632,9 @@ test.group('Refresh Token Grant — OIDC', (group) => {
     const { hash: oldAccessTokenHash, expiresAt } = tokenService.createAccessToken()
     const { raw: refreshTokenRaw, hash: refreshTokenHash } = tokenService.createRefreshToken()
 
+    const oldAccessTokenId2 = crypto.randomUUID()
     await OAuthAccessToken.create({
-      id: crypto.randomUUID(),
+      id: oldAccessTokenId2,
       tokenHash: oldAccessTokenHash,
       clientId: client.clientId,
       userId: 'user-1',
@@ -643,7 +645,7 @@ test.group('Refresh Token Grant — OIDC', (group) => {
     await OAuthRefreshToken.create({
       id: crypto.randomUUID(),
       token: refreshTokenHash,
-      accessTokenId: oldAccessTokenHash,
+      accessTokenId: oldAccessTokenId2,
       clientId: client.clientId,
       userId: 'user-1',
       scopes: ['openid', 'read'],
