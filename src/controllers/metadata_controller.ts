@@ -147,11 +147,15 @@ export default class MetadataController {
       jwks_uri: router.makeUrl('sesame.jwks', {}, { prefixUrl }),
       subject_types_supported: ['public'],
       id_token_signing_alg_values_supported: ['RS256'],
-      scopes_supported: [...new Set([
-        'openid', 'profile', 'email',
-        ...Object.keys(manager.config.scopes),
-        ...BUILTIN_SCOPES,
-      ])],
+      scopes_supported: [
+        ...new Set([
+          'openid',
+          'profile',
+          'email',
+          ...Object.keys(manager.config.scopes),
+          ...BUILTIN_SCOPES,
+        ]),
+      ],
       claims_supported: ['sub', 'iss', 'aud', 'exp', 'iat', 'nonce', 'at_hash'],
       response_types_supported: ['code'],
     }

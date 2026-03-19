@@ -77,7 +77,12 @@ export class AuthorizeAction {
 
     if (!input.userId) return { type: 'login_required' }
 
-    return this.#resolveConsent(manager, { ...input, userId: input.userId }, client, requestedScopes)
+    return this.#resolveConsent(
+      manager,
+      { ...input, userId: input.userId },
+      client,
+      requestedScopes
+    )
   }
 
   /**
@@ -109,7 +114,8 @@ export class AuthorizeAction {
       return {
         type: 'redirect_error',
         error: 'invalid_scope',
-        description: 'OIDC scopes require OIDC to be configured (set jwk and oidcProvider in config)',
+        description:
+          'OIDC scopes require OIDC to be configured (set jwk and oidcProvider in config)',
       }
     }
 

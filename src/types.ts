@@ -65,8 +65,19 @@ export const OIDC_SCOPES = new Set(['openid', 'profile', 'email'])
  * Protocol-managed claims that must never be overridden by `getOidcClaims()`.
  */
 export const RESERVED_OIDC_CLAIMS = new Set([
-  'sub', 'iss', 'aud', 'exp', 'iat', 'nbf', 'jti',
-  'nonce', 'at_hash', 'auth_time', 'acr', 'azp', 'sid',
+  'sub',
+  'iss',
+  'aud',
+  'exp',
+  'iat',
+  'nbf',
+  'jti',
+  'nonce',
+  'at_hash',
+  'auth_time',
+  'acr',
+  'azp',
+  'sid',
 ])
 
 /**

@@ -111,7 +111,9 @@ export class SesameManager {
     }
 
     scopes
-      .filter((scope) => !BUILTIN_SCOPES.has(scope) && !OIDC_SCOPES.has(scope) && !this.hasScope(scope))
+      .filter(
+        (scope) => !BUILTIN_SCOPES.has(scope) && !OIDC_SCOPES.has(scope) && !this.hasScope(scope)
+      )
       .forEach((scope) => invalidScopes.add(scope))
 
     return [...invalidScopes]

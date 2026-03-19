@@ -30,7 +30,8 @@ export default class UserinfoController {
     const token = await OAuthAccessToken.query().where('tokenHash', hashed).first()
     if (!token) throw new E_INVALID_TOKEN('Invalid access token')
     if (token.revokedAt) throw new E_INVALID_TOKEN('Access token has been revoked')
-    if (token.expiresAt.toJSDate() < new Date()) throw new E_INVALID_TOKEN('Access token has expired')
+    if (token.expiresAt.toJSDate() < new Date())
+      throw new E_INVALID_TOKEN('Access token has expired')
     if (!token.scopes.includes('openid')) {
       throw new E_INSUFFICIENT_SCOPE(['openid'], 'Token does not have openid scope')
     }
@@ -38,9 +39,10 @@ export default class UserinfoController {
     const user = await manager.findUserById(token.userId!)
     if (!user) throw new E_INVALID_TOKEN('Invalid access token')
 
-    const rawClaims = typeof (user as any)?.getOidcClaims === 'function'
-      ? await (user as any).getOidcClaims(token.scopes)
-      : {}
+    const rawClaims =
+      typeof (user as any)?.getOidcClaims === 'function'
+        ? await (user as any).getOidcClaims(token.scopes)
+        : {}
 
     const userClaims = IdTokenService.filterReservedClaims(rawClaims)
 

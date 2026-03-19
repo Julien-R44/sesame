@@ -43,7 +43,8 @@ export class ExchangeRefreshTokenAction {
     const tokenService = new TokenService(manager)
     const clientService = new ClientService()
 
-    if (!input.refreshToken) throw new E_INVALID_REQUEST('Missing required parameter: refresh_token')
+    if (!input.refreshToken)
+      throw new E_INVALID_REQUEST('Missing required parameter: refresh_token')
 
     if (!input.client.grantTypes.includes('refresh_token')) {
       throw new E_INVALID_CLIENT('Client is not allowed to use the refresh_token grant')
@@ -70,7 +71,13 @@ export class ExchangeRefreshTokenAction {
 
     const accessToken = tokenService.createAccessToken()
     const newRefreshToken = this.#prepareRefreshToken(manager, tokenService)
-    const idToken = await this.#prepareIdToken(manager, scopes, refreshToken, input.client, accessToken.raw)
+    const idToken = await this.#prepareIdToken(
+      manager,
+      scopes,
+      refreshToken,
+      input.client,
+      accessToken.raw
+    )
 
     await this.#atomicRotation(input, refreshToken, accessToken, newRefreshToken, scopes)
 
@@ -91,10 +98,7 @@ export class ExchangeRefreshTokenAction {
    * pair when a revoked token is reused.
    */
   async #nukeTokensForReplay(clientId: string, userId: string) {
-    await OAuthRefreshToken.query()
-      .where('clientId', clientId)
-      .where('userId', userId)
-      .delete()
+    await OAuthRefreshToken.query().where('clientId', clientId).where('userId', userId).delete()
 
     await OAuthAccessToken.query()
       .where('clientId', clientId)

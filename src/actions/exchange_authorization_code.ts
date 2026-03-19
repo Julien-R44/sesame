@@ -84,7 +84,10 @@ export class ExchangeAuthorizationCodeAction {
    * Lookup the authorization code by hash and validate
    * it has not expired and matches the redirect_uri.
    */
-  async #validateAuthorizationCode(tokenService: TokenService, input: ExchangeAuthorizationCodeInput) {
+  async #validateAuthorizationCode(
+    tokenService: TokenService,
+    input: ExchangeAuthorizationCodeInput
+  ) {
     if (!input.code) throw new E_INVALID_REQUEST('Missing required parameter: code')
     if (!input.redirectUri) throw new E_INVALID_REQUEST('Missing required parameter: redirect_uri')
 
