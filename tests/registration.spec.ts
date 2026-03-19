@@ -4,10 +4,10 @@ import { createApp, setupDatabase, teardownDatabase, createManager } from './hel
 import { mockCtx } from './helpers/mock_ctx.ts'
 import { createTestClient } from './helpers/create_test_client.ts'
 import { cleanModels } from './helpers/clean_models.ts'
+import { assertOAuthError } from './helpers/assert_oauth_error.ts'
 import { OAuthClient } from '../src/models/oauth_client.ts'
 import RegisterController from '../src/controllers/register_controller.ts'
 import ClientInfoController from '../src/controllers/client_info_controller.ts'
-import { OAuthError } from '../src/oauth_error.ts'
 
 let app: ApplicationService
 
@@ -116,15 +116,7 @@ test.group('Integration | Dynamic Registration', (group) => {
       },
     })
 
-    const controller = new RegisterController()
-
-    try {
-      await controller.handle(ctx)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.instanceOf(error, OAuthError)
-      assert.equal(error.oauthCode, 'access_denied')
-    }
+    await assertOAuthError(assert, () => new RegisterController().handle(ctx), 'access_denied')
   })
 
   test('rejects invalid redirect URIs', async ({ assert }) => {
@@ -138,15 +130,11 @@ test.group('Integration | Dynamic Registration', (group) => {
       },
     })
 
-    const controller = new RegisterController()
-
-    try {
-      await controller.handle(ctx)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.instanceOf(error, OAuthError)
-      assert.equal(error.oauthCode, 'invalid_client_metadata')
-    }
+    await assertOAuthError(
+      assert,
+      () => new RegisterController().handle(ctx),
+      'invalid_client_metadata'
+    )
   })
 
   test('rejects missing redirect URIs', async ({ assert }) => {
@@ -157,15 +145,11 @@ test.group('Integration | Dynamic Registration', (group) => {
       body: { client_name: 'Test' },
     })
 
-    const controller = new RegisterController()
-
-    try {
-      await controller.handle(ctx)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.instanceOf(error, OAuthError)
-      assert.equal(error.oauthCode, 'invalid_client_metadata')
-    }
+    await assertOAuthError(
+      assert,
+      () => new RegisterController().handle(ctx),
+      'invalid_client_metadata'
+    )
   })
 
   test('rejects javascript: scheme', async ({ assert }) => {
@@ -179,15 +163,11 @@ test.group('Integration | Dynamic Registration', (group) => {
       },
     })
 
-    const controller = new RegisterController()
-
-    try {
-      await controller.handle(ctx)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.instanceOf(error, OAuthError)
-      assert.equal(error.oauthCode, 'invalid_client_metadata')
-    }
+    await assertOAuthError(
+      assert,
+      () => new RegisterController().handle(ctx),
+      'invalid_client_metadata'
+    )
   })
 
   test('rejects data: scheme', async ({ assert }) => {
@@ -201,15 +181,11 @@ test.group('Integration | Dynamic Registration', (group) => {
       },
     })
 
-    const controller = new RegisterController()
-
-    try {
-      await controller.handle(ctx)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.instanceOf(error, OAuthError)
-      assert.equal(error.oauthCode, 'invalid_client_metadata')
-    }
+    await assertOAuthError(
+      assert,
+      () => new RegisterController().handle(ctx),
+      'invalid_client_metadata'
+    )
   })
 
   test('rejects HTTP for non-localhost hosts', async ({ assert }) => {
@@ -223,15 +199,11 @@ test.group('Integration | Dynamic Registration', (group) => {
       },
     })
 
-    const controller = new RegisterController()
-
-    try {
-      await controller.handle(ctx)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.instanceOf(error, OAuthError)
-      assert.equal(error.oauthCode, 'invalid_client_metadata')
-    }
+    await assertOAuthError(
+      assert,
+      () => new RegisterController().handle(ctx),
+      'invalid_client_metadata'
+    )
   })
 
   test('rejects fragments in redirect URI', async ({ assert }) => {
@@ -245,15 +217,11 @@ test.group('Integration | Dynamic Registration', (group) => {
       },
     })
 
-    const controller = new RegisterController()
-
-    try {
-      await controller.handle(ctx)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.instanceOf(error, OAuthError)
-      assert.equal(error.oauthCode, 'invalid_client_metadata')
-    }
+    await assertOAuthError(
+      assert,
+      () => new RegisterController().handle(ctx),
+      'invalid_client_metadata'
+    )
   })
 
   test('accepts HTTP localhost', async ({ assert }) => {
@@ -325,15 +293,11 @@ test.group('Integration | Dynamic Registration', (group) => {
       },
     })
 
-    const controller = new RegisterController()
-
-    try {
-      await controller.handle(ctx)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.instanceOf(error, OAuthError)
-      assert.equal(error.oauthCode, 'invalid_client_metadata')
-    }
+    await assertOAuthError(
+      assert,
+      () => new RegisterController().handle(ctx),
+      'invalid_client_metadata'
+    )
   })
 
   test('rejects data: scheme in logo_uri', async ({ assert }) => {
@@ -348,15 +312,11 @@ test.group('Integration | Dynamic Registration', (group) => {
       },
     })
 
-    const controller = new RegisterController()
-
-    try {
-      await controller.handle(ctx)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.instanceOf(error, OAuthError)
-      assert.equal(error.oauthCode, 'invalid_client_metadata')
-    }
+    await assertOAuthError(
+      assert,
+      () => new RegisterController().handle(ctx),
+      'invalid_client_metadata'
+    )
   })
 
   test('accepts client_uri with different host than redirect_uris', async ({ assert }) => {
@@ -412,15 +372,11 @@ test.group('Integration | Dynamic Registration', (group) => {
       },
     })
 
-    const controller = new RegisterController()
-
-    try {
-      await controller.handle(ctx)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.instanceOf(error, OAuthError)
-      assert.equal(error.oauthCode, 'invalid_client_metadata')
-    }
+    await assertOAuthError(
+      assert,
+      () => new RegisterController().handle(ctx),
+      'invalid_client_metadata'
+    )
   })
 
   test('accepts valid contacts', async ({ assert }) => {
@@ -489,15 +445,7 @@ test.group('Integration | Dynamic Registration', (group) => {
       },
     })
 
-    const controller = new RegisterController()
-
-    try {
-      await controller.handle(ctx)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.instanceOf(error, OAuthError)
-      assert.equal(error.oauthCode, 'invalid_scope')
-    }
+    await assertOAuthError(assert, () => new RegisterController().handle(ctx), 'invalid_scope')
   })
 
   test('accepts registration with valid scopes', async ({ assert }) => {
@@ -535,17 +483,10 @@ test.group('Integration | Dynamic Registration', (group) => {
       },
     })
 
-    const controller = new RegisterController()
-
-    try {
-      await controller.handle(ctx)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.instanceOf(error, OAuthError)
-      assert.equal(error.oauthCode, 'invalid_scope')
-      assert.include(error.message, 'profile')
-      assert.include(error.message, 'email')
-    }
+    await assertOAuthError(assert, () => new RegisterController().handle(ctx), 'invalid_scope', [
+      'profile',
+      'email',
+    ])
   })
 
   test('rejects unknown scopes when config.scopes is empty', async ({ assert }) => {

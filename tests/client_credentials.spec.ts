@@ -5,10 +5,10 @@ import { mockCtx } from './helpers/mock_ctx.ts'
 import { createTestClient } from './helpers/create_test_client.ts'
 import { createTestGuard } from './helpers/create_test_guard.ts'
 import { cleanModels } from './helpers/clean_models.ts'
+import { assertOAuthError } from './helpers/assert_oauth_error.ts'
 import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
 import { OAuthRefreshToken } from '../src/models/oauth_refresh_token.ts'
 import { handleClientCredentialsGrant } from '../src/grants/client_credentials_grant.ts'
-import { OAuthError } from '../src/oauth_error.ts'
 
 let app: ApplicationService
 
@@ -157,13 +157,11 @@ test.group('Integration | Client Credentials Grant', (group) => {
       },
     })
 
-    try {
-      await handleClientCredentialsGrant(ctx, manager)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.instanceOf(error, OAuthError)
-      assert.equal(error.oauthCode, 'invalid_client')
-    }
+    await assertOAuthError(
+      assert,
+      () => handleClientCredentialsGrant(ctx, manager),
+      'invalid_client'
+    )
   })
 
   test('rejects public clients', async ({ assert }) => {
@@ -183,13 +181,11 @@ test.group('Integration | Client Credentials Grant', (group) => {
       },
     })
 
-    try {
-      await handleClientCredentialsGrant(ctx, manager)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.instanceOf(error, OAuthError)
-      assert.equal(error.oauthCode, 'invalid_client')
-    }
+    await assertOAuthError(
+      assert,
+      () => handleClientCredentialsGrant(ctx, manager),
+      'invalid_client'
+    )
   })
 
   test('rejects client not allowed to use client_credentials grant', async ({ assert }) => {
@@ -206,13 +202,11 @@ test.group('Integration | Client Credentials Grant', (group) => {
       },
     })
 
-    try {
-      await handleClientCredentialsGrant(ctx, manager)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.instanceOf(error, OAuthError)
-      assert.equal(error.oauthCode, 'invalid_client')
-    }
+    await assertOAuthError(
+      assert,
+      () => handleClientCredentialsGrant(ctx, manager),
+      'invalid_client'
+    )
   })
 
   test('rejects invalid client secret', async ({ assert }) => {
@@ -229,13 +223,11 @@ test.group('Integration | Client Credentials Grant', (group) => {
       },
     })
 
-    try {
-      await handleClientCredentialsGrant(ctx, manager)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.instanceOf(error, OAuthError)
-      assert.equal(error.oauthCode, 'invalid_client')
-    }
+    await assertOAuthError(
+      assert,
+      () => handleClientCredentialsGrant(ctx, manager),
+      'invalid_client'
+    )
   })
 
   test('rejects offline_access scope (OIDC scopes are meaningless in M2M)', async ({ assert }) => {
@@ -252,14 +244,12 @@ test.group('Integration | Client Credentials Grant', (group) => {
       },
     })
 
-    try {
-      await handleClientCredentialsGrant(ctx, manager)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.instanceOf(error, OAuthError)
-      assert.equal(error.oauthCode, 'invalid_scope')
-      assert.include(error.message, 'offline_access')
-    }
+    await assertOAuthError(
+      assert,
+      () => handleClientCredentialsGrant(ctx, manager),
+      'invalid_scope',
+      'offline_access'
+    )
   })
 
   test('rejects openid/profile/email scopes (OIDC user scopes are meaningless in M2M)', async ({
@@ -282,16 +272,12 @@ test.group('Integration | Client Credentials Grant', (group) => {
       },
     })
 
-    try {
-      await handleClientCredentialsGrant(ctx, manager)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.instanceOf(error, OAuthError)
-      assert.equal(error.oauthCode, 'invalid_scope')
-      assert.include(error.message, 'openid')
-      assert.include(error.message, 'profile')
-      assert.include(error.message, 'email')
-    }
+    await assertOAuthError(
+      assert,
+      () => handleClientCredentialsGrant(ctx, manager),
+      'invalid_scope',
+      ['openid', 'profile', 'email']
+    )
   })
 
   test('rejects scopes not allowed for the client', async ({ assert }) => {
@@ -308,13 +294,11 @@ test.group('Integration | Client Credentials Grant', (group) => {
       },
     })
 
-    try {
-      await handleClientCredentialsGrant(ctx, manager)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.instanceOf(error, OAuthError)
-      assert.equal(error.oauthCode, 'invalid_scope')
-    }
+    await assertOAuthError(
+      assert,
+      () => handleClientCredentialsGrant(ctx, manager),
+      'invalid_scope'
+    )
   })
 
   test('rejects unknown scopes', async ({ assert }) => {
@@ -331,13 +315,11 @@ test.group('Integration | Client Credentials Grant', (group) => {
       },
     })
 
-    try {
-      await handleClientCredentialsGrant(ctx, manager)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.instanceOf(error, OAuthError)
-      assert.equal(error.oauthCode, 'invalid_scope')
-    }
+    await assertOAuthError(
+      assert,
+      () => handleClientCredentialsGrant(ctx, manager),
+      'invalid_scope'
+    )
   })
 
   test('does not inherit OIDC scopes from client defaults when no scope is requested', async ({

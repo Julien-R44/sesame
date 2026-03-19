@@ -6,9 +6,9 @@ import type { ApplicationService } from '@adonisjs/core/types'
 import { createApp, setupDatabase, teardownDatabase, createManager } from './helpers/app.ts'
 import { mockCtx } from './helpers/mock_ctx.ts'
 import { getTestJwk, FakeUserProvider, type FakeUser } from './helpers/fakes.ts'
-import { createTestClient, createTestAuthCode } from './helpers/create_test_client.ts'
+import { createTestClient } from './helpers/create_test_client.ts'
 import { createTestAccessToken } from './helpers/create_test_access_token.ts'
-import { createPkce } from './helpers/create_pkce.ts'
+import { createAuthCodeExchange } from './helpers/create_auth_code_exchange.ts'
 import { KeyService } from '../src/services/key_service.ts'
 import { IdTokenService } from '../src/services/id_token_service.ts'
 import { TokenService } from '../src/services/token_service.ts'
@@ -299,7 +299,7 @@ test.group('SesameManager OIDC', () => {
     const oidcProvider = new FakeUserProvider([{ id: 'user-1', name: 'OIDC User' }])
     const manager = createManager({ oidcProvider })
 
-    const user = await manager.findUserById('user-1') as FakeUser | null
+    const user = (await manager.findUserById('user-1')) as FakeUser | null
 
     assert.deepEqual(user, { id: 'user-1', name: 'OIDC User' })
   })
@@ -337,7 +337,7 @@ test.group('OIDC Metadata', () => {
     const ctx = mockCtx({ manager })
 
     const controller = new MetadataController()
-    const result = await controller.oidc(ctx) as any
+    const result = (await controller.oidc(ctx)) as any
 
     assert.equal(result.issuer, 'https://auth.example.com')
     assert.deepEqual(result.subject_types_supported, ['public'])
@@ -416,9 +416,7 @@ test.group('JWKS Endpoint', () => {
 
 test.group('Authorization Code Grant — OIDC', (group) => {
   let app: ApplicationService
-  const users: FakeUser[] = [
-    { id: 'user-1', name: 'Test User' },
-  ]
+  const users: FakeUser[] = [{ id: 'user-1', name: 'Test User' }]
 
   group.setup(async () => {
     app = await createApp()
@@ -442,28 +440,10 @@ test.group('Authorization Code Grant — OIDC', (group) => {
       scopes: ['read', 'openid', 'offline_access'],
     })
 
-    const { codeVerifier, codeChallenge } = createPkce()
-
-    await createTestAuthCode({
-      clientId: client.clientId,
-      userId: 'user-1',
-      scopes: ['openid', 'read'],
-      redirectUri: 'https://app.example.com/callback',
-      rawCode: 'test-code-oidc',
-      codeChallenge,
-      codeChallengeMethod: 'S256',
-    })
-
-    const ctx = mockCtx({
+    const { ctx } = await createAuthCodeExchange({
       manager,
-      body: {
-        grant_type: 'authorization_code',
-        code: 'test-code-oidc',
-        redirect_uri: 'https://app.example.com/callback',
-        client_id: client.clientId,
-        client_secret: 'test-secret',
-        code_verifier: codeVerifier,
-      },
+      clientId: client.clientId,
+      scopes: ['openid', 'read'],
     })
 
     const result = await handleAuthorizationCodeGrant(ctx, manager)
@@ -493,28 +473,10 @@ test.group('Authorization Code Grant — OIDC', (group) => {
       scopes: ['read', 'write'],
     })
 
-    const { codeVerifier, codeChallenge } = createPkce()
-
-    await createTestAuthCode({
-      clientId: client.clientId,
-      userId: 'user-1',
-      scopes: ['read'],
-      redirectUri: 'https://app.example.com/callback',
-      rawCode: 'test-code-no-oidc',
-      codeChallenge,
-      codeChallengeMethod: 'S256',
-    })
-
-    const ctx = mockCtx({
+    const { ctx } = await createAuthCodeExchange({
       manager,
-      body: {
-        grant_type: 'authorization_code',
-        code: 'test-code-no-oidc',
-        redirect_uri: 'https://app.example.com/callback',
-        client_id: client.clientId,
-        client_secret: 'test-secret',
-        code_verifier: codeVerifier,
-      },
+      clientId: client.clientId,
+      scopes: ['read'],
     })
 
     const result = await handleAuthorizationCodeGrant(ctx, manager)
@@ -532,34 +494,13 @@ test.group('Authorization Code Grant — OIDC', (group) => {
       scopes: ['read', 'openid', 'offline_access'],
     })
 
-    const { codeVerifier, codeChallenge } = createPkce()
-
-    await createTestAuthCode({
-      clientId: client.clientId,
-      userId: 'user-1',
-      scopes: ['openid', 'read'],
-      redirectUri: 'https://app.example.com/callback',
-      rawCode: 'test-code-missing-user',
-      codeChallenge,
-      codeChallengeMethod: 'S256',
-    })
-
-    const ctx = mockCtx({
+    const { ctx } = await createAuthCodeExchange({
       manager,
-      body: {
-        grant_type: 'authorization_code',
-        code: 'test-code-missing-user',
-        redirect_uri: 'https://app.example.com/callback',
-        client_id: client.clientId,
-        client_secret: 'test-secret',
-        code_verifier: codeVerifier,
-      },
+      clientId: client.clientId,
+      scopes: ['openid', 'read'],
     })
 
-    await assert.rejects(
-      () => handleAuthorizationCodeGrant(ctx, manager),
-      'OIDC user not found'
-    )
+    await assert.rejects(() => handleAuthorizationCodeGrant(ctx, manager), 'OIDC user not found')
   })
 
   test('does not consume the code or persist tokens when id_token generation fails', async ({
@@ -582,36 +523,14 @@ test.group('Authorization Code Grant — OIDC', (group) => {
       scopes: ['read', 'openid', 'offline_access'],
     })
 
-    const { codeVerifier, codeChallenge } = createPkce()
-    const rawCode = 'test-code-signing-failure'
+    const { ctx, rawCode } = await createAuthCodeExchange({
+      manager,
+      clientId: client.clientId,
+      scopes: ['openid', 'offline_access', 'read'],
+    })
     const hashedCode = new TokenService(manager).hashToken(rawCode)
 
-    await createTestAuthCode({
-      clientId: client.clientId,
-      userId: 'user-1',
-      scopes: ['openid', 'offline_access', 'read'],
-      redirectUri: 'https://app.example.com/callback',
-      rawCode,
-      codeChallenge,
-      codeChallengeMethod: 'S256',
-    })
-
-    const ctx = mockCtx({
-      manager,
-      body: {
-        grant_type: 'authorization_code',
-        code: rawCode,
-        redirect_uri: 'https://app.example.com/callback',
-        client_id: client.clientId,
-        client_secret: 'test-secret',
-        code_verifier: codeVerifier,
-      },
-    })
-
-    await assert.rejects(
-      () => handleAuthorizationCodeGrant(ctx, manager),
-      'OIDC claims exploded'
-    )
+    await assert.rejects(() => handleAuthorizationCodeGrant(ctx, manager), 'OIDC claims exploded')
 
     const authCode = await OAuthAuthorizationCode.query()
       .where('code', hashedCode)
@@ -687,10 +606,7 @@ test.group('Refresh Token Grant — OIDC', (group) => {
       },
     })
 
-    await assert.rejects(
-      () => handleRefreshTokenGrant(ctx, manager),
-      'OIDC user not found'
-    )
+    await assert.rejects(() => handleRefreshTokenGrant(ctx, manager), 'OIDC user not found')
   })
 
   test('does not rotate tokens when id_token generation fails', async ({ assert }) => {
@@ -744,10 +660,7 @@ test.group('Refresh Token Grant — OIDC', (group) => {
       },
     })
 
-    await assert.rejects(
-      () => handleRefreshTokenGrant(ctx, manager),
-      'OIDC claims exploded'
-    )
+    await assert.rejects(() => handleRefreshTokenGrant(ctx, manager), 'OIDC claims exploded')
 
     const accessTokens = await OAuthAccessToken.query().where('clientId', client.clientId)
     const refreshTokens = await OAuthRefreshToken.query().where('clientId', client.clientId)
@@ -767,9 +680,7 @@ test.group('Refresh Token Grant — OIDC', (group) => {
 
 test.group('UserInfo Endpoint', (group) => {
   let app: ApplicationService
-  const users: FakeUser[] = [
-    { id: 'user-1', name: 'Test User' },
-  ]
+  const users: FakeUser[] = [{ id: 'user-1', name: 'Test User' }]
 
   group.setup(async () => {
     app = await createApp()

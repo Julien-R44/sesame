@@ -6,6 +6,8 @@ import { mockCtx } from './helpers/mock_ctx.ts'
 import { createTestClient, createTestAuthCode } from './helpers/create_test_client.ts'
 import { createPkce } from './helpers/create_pkce.ts'
 import { cleanModels } from './helpers/clean_models.ts'
+import { assertOAuthError } from './helpers/assert_oauth_error.ts'
+import { createAuthCodeExchange } from './helpers/create_auth_code_exchange.ts'
 import { OAuthAuthorizationCode } from '../src/models/oauth_authorization_code.ts'
 import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
 import { OAuthConsent } from '../src/models/oauth_consent.ts'
@@ -14,7 +16,6 @@ import { TokenService } from '../src/services/token_service.ts'
 import { handleAuthorizationCodeGrant } from '../src/grants/authorization_code_grant.ts'
 import AuthorizeController from '../src/controllers/authorize_controller.ts'
 import ConsentController from '../src/controllers/consent_controller.ts'
-import { OAuthError } from '../src/oauth_error.ts'
 import { DateTime } from 'luxon'
 
 let app: ApplicationService
@@ -39,7 +40,7 @@ test.group('Integration | Authorization Flow', (group) => {
     await createTestClient()
     const authorizeController = new AuthorizeController()
     const consentController = new ConsentController()
-    const { codeVerifier, codeChallenge } = createPkce('consent-verifier')
+    const { codeChallenge } = createPkce('consent-verifier')
 
     const authorizeCtx = mockCtx({
       manager,
@@ -503,32 +504,8 @@ test.group('Integration | Authorization Code Grant', (group) => {
   group.each.setup(cleanModels())
 
   test('exchanges authorization code for tokens', async ({ assert }) => {
-    const manager = createManager()
-    const client = await createTestClient()
-    const rawCode = 'test-auth-code-123'
-    const { codeVerifier, codeChallenge } = createPkce('dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk')
-
-    await createTestAuthCode({
-      clientId: client.clientId,
-      userId: 'user-1',
-      scopes: ['read', 'write'],
-      redirectUri: 'https://app.example.com/callback',
-      rawCode,
-      codeChallenge,
-      codeChallengeMethod: 'S256',
-    })
-
-    const ctx = mockCtx({
-      manager,
-      body: {
-        grant_type: 'authorization_code',
-        code: rawCode,
-        redirect_uri: 'https://app.example.com/callback',
-        client_id: 'test-client',
-        client_secret: 'test-secret',
-        code_verifier: codeVerifier,
-      },
-    })
+    await createTestClient()
+    const { ctx, manager } = await createAuthCodeExchange({ scopes: ['read', 'write'] })
 
     const result = await handleAuthorizationCodeGrant(ctx, manager)
 
@@ -540,32 +517,8 @@ test.group('Integration | Authorization Code Grant', (group) => {
   })
 
   test('issues refresh token with offline_access scope', async ({ assert }) => {
-    const manager = createManager()
-    const client = await createTestClient()
-    const rawCode = 'test-code-with-refresh'
-    const { codeVerifier, codeChallenge } = createPkce()
-
-    await createTestAuthCode({
-      clientId: client.clientId,
-      userId: 'user-1',
-      scopes: ['read', 'offline_access'],
-      redirectUri: 'https://app.example.com/callback',
-      rawCode,
-      codeChallenge,
-      codeChallengeMethod: 'S256',
-    })
-
-    const ctx = mockCtx({
-      manager,
-      body: {
-        grant_type: 'authorization_code',
-        code: rawCode,
-        redirect_uri: 'https://app.example.com/callback',
-        client_id: 'test-client',
-        client_secret: 'test-secret',
-        code_verifier: codeVerifier,
-      },
-    })
+    await createTestClient()
+    const { ctx, manager } = await createAuthCodeExchange({ scopes: ['read', 'offline_access'] })
 
     const result = await handleAuthorizationCodeGrant(ctx, manager)
 
@@ -578,31 +531,8 @@ test.group('Integration | Authorization Code Grant', (group) => {
     assert,
   }) => {
     const manager = createManager({ scopes: { read: 'Read access' } })
-    const client = await createTestClient({ scopes: ['read'] })
-    const rawCode = 'offline-builtin-code'
-    const { codeVerifier, codeChallenge } = createPkce()
-
-    await createTestAuthCode({
-      clientId: client.clientId,
-      userId: 'user-1',
-      scopes: ['read', 'offline_access'],
-      redirectUri: 'https://app.example.com/callback',
-      rawCode,
-      codeChallenge,
-      codeChallengeMethod: 'S256',
-    })
-
-    const ctx = mockCtx({
-      manager,
-      body: {
-        grant_type: 'authorization_code',
-        code: rawCode,
-        redirect_uri: 'https://app.example.com/callback',
-        client_id: client.clientId,
-        client_secret: 'test-secret',
-        code_verifier: codeVerifier,
-      },
-    })
+    await createTestClient({ scopes: ['read'] })
+    const { ctx } = await createAuthCodeExchange({ manager, scopes: ['read', 'offline_access'] })
 
     const result = await handleAuthorizationCodeGrant(ctx, manager)
 
@@ -615,31 +545,8 @@ test.group('Integration | Authorization Code Grant', (group) => {
     assert,
   }) => {
     const manager = createManager({ scopes: { read: 'Read access' } })
-    const client = await createTestClient({ scopes: ['read'] })
-    const rawCode = 'no-offline-access-code'
-    const { codeVerifier, codeChallenge } = createPkce()
-
-    await createTestAuthCode({
-      clientId: client.clientId,
-      userId: 'user-1',
-      scopes: ['read'],
-      redirectUri: 'https://app.example.com/callback',
-      rawCode,
-      codeChallenge,
-      codeChallengeMethod: 'S256',
-    })
-
-    const ctx = mockCtx({
-      manager,
-      body: {
-        grant_type: 'authorization_code',
-        code: rawCode,
-        redirect_uri: 'https://app.example.com/callback',
-        client_id: client.clientId,
-        client_secret: 'test-secret',
-        code_verifier: codeVerifier,
-      },
-    })
+    await createTestClient({ scopes: ['read'] })
+    const { ctx } = await createAuthCodeExchange({ manager, scopes: ['read'] })
 
     const result = await handleAuthorizationCodeGrant(ctx, manager)
 
@@ -647,41 +554,13 @@ test.group('Integration | Authorization Code Grant', (group) => {
     assert.isDefined(result.refresh_token)
   })
 
-  test('does not issue refresh token when refresh_token grant is disabled', async ({
-    assert,
-  }) => {
+  test('does not issue refresh token when refresh_token grant is disabled', async ({ assert }) => {
     const manager = createManager({
       scopes: { read: 'Read access' },
       grantTypes: ['authorization_code'],
     })
-    const client = await createTestClient({
-      scopes: ['read'],
-      grantTypes: ['authorization_code'],
-    })
-    const rawCode = 'no-refresh-grant-code'
-    const { codeVerifier, codeChallenge } = createPkce()
-
-    await createTestAuthCode({
-      clientId: client.clientId,
-      userId: 'user-1',
-      scopes: ['read'],
-      redirectUri: 'https://app.example.com/callback',
-      rawCode,
-      codeChallenge,
-      codeChallengeMethod: 'S256',
-    })
-
-    const ctx = mockCtx({
-      manager,
-      body: {
-        grant_type: 'authorization_code',
-        code: rawCode,
-        redirect_uri: 'https://app.example.com/callback',
-        client_id: client.clientId,
-        client_secret: 'test-secret',
-        code_verifier: codeVerifier,
-      },
-    })
+    await createTestClient({ scopes: ['read'], grantTypes: ['authorization_code'] })
+    const { ctx } = await createAuthCodeExchange({ manager, scopes: ['read'] })
 
     const result = await handleAuthorizationCodeGrant(ctx, manager)
 
@@ -844,95 +723,46 @@ test.group('Integration | Authorization Code Grant', (group) => {
   test('rejects authorization code exchange when granted scopes exceed client scopes', async ({
     assert,
   }) => {
-    const manager = createManager()
-    const client = await createTestClient({ scopes: ['read'] })
-    const rawCode = 'client-scope-bypass'
-    const { codeVerifier, codeChallenge } = createPkce()
+    await createTestClient({ scopes: ['read'] })
+    const { ctx, manager } = await createAuthCodeExchange({ scopes: ['write'] })
 
-    await createTestAuthCode({
-      clientId: client.clientId,
-      userId: 'user-1',
-      scopes: ['write'],
-      redirectUri: 'https://app.example.com/callback',
-      rawCode,
-      codeChallenge,
-      codeChallengeMethod: 'S256',
+    await assertOAuthError(
+      assert,
+      () => handleAuthorizationCodeGrant(ctx, manager),
+      'invalid_scope'
+    )
+  })
+
+  test('authorization code is single-use', async ({ assert }) => {
+    await createTestClient()
+    const { ctx, rawCode, codeVerifier, manager } = await createAuthCodeExchange({
+      scopes: ['read'],
     })
 
-    const ctx = mockCtx({
+    const result = await handleAuthorizationCodeGrant(ctx, manager)
+    assert.isDefined(result.access_token)
+
+    const ctx2 = mockCtx({
       manager,
       body: {
         grant_type: 'authorization_code',
         code: rawCode,
         redirect_uri: 'https://app.example.com/callback',
-        client_id: client.clientId,
+        client_id: 'test-client',
         client_secret: 'test-secret',
         code_verifier: codeVerifier,
       },
     })
 
-    try {
-      await handleAuthorizationCodeGrant(ctx, manager)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.instanceOf(error, OAuthError)
-      assert.equal(error.oauthCode, 'invalid_scope')
-    }
-  })
-
-  test('authorization code is single-use', async ({ assert }) => {
-    const manager = createManager()
-    await createTestClient()
-    const rawCode = 'single-use-code'
-    const { codeVerifier, codeChallenge } = createPkce()
-
-    await createTestAuthCode({
-      clientId: 'test-client',
-      userId: 'user-1',
-      scopes: ['read'],
-      redirectUri: 'https://app.example.com/callback',
-      rawCode,
-      codeChallenge,
-      codeChallengeMethod: 'S256',
-    })
-
-    const makeCtx = () =>
-      mockCtx({
-        manager,
-        body: {
-          grant_type: 'authorization_code',
-          code: rawCode,
-          redirect_uri: 'https://app.example.com/callback',
-          client_id: 'test-client',
-          client_secret: 'test-secret',
-          code_verifier: codeVerifier,
-        },
-      })
-
-    const result = await handleAuthorizationCodeGrant(makeCtx(), manager)
-    assert.isDefined(result.access_token)
-
     await assert.rejects(
-      () => handleAuthorizationCodeGrant(makeCtx(), manager),
+      () => handleAuthorizationCodeGrant(ctx2, manager),
       'Authorization code not found'
     )
   })
 
   test('rejects concurrent reuse of the same authorization code', async ({ assert }) => {
-    const manager = createManager()
     await createTestClient()
-    const rawCode = 'racy-auth-code'
-    const { codeVerifier, codeChallenge } = createPkce()
-
-    await createTestAuthCode({
-      clientId: 'test-client',
-      userId: 'user-1',
-      scopes: ['read'],
-      redirectUri: 'https://app.example.com/callback',
-      rawCode,
-      codeChallenge,
-      codeChallengeMethod: 'S256',
-    })
+    const { rawCode, codeVerifier, manager } = await createAuthCodeExchange({ scopes: ['read'] })
 
     const makeCtx = () =>
       mockCtx({
@@ -957,32 +787,8 @@ test.group('Integration | Authorization Code Grant', (group) => {
   })
 
   test('creates access token record in database', async ({ assert }) => {
-    const manager = createManager()
     await createTestClient()
-    const rawCode = 'db-token-code'
-    const { codeVerifier, codeChallenge } = createPkce()
-
-    await createTestAuthCode({
-      clientId: 'test-client',
-      userId: 'user-1',
-      scopes: ['read'],
-      redirectUri: 'https://app.example.com/callback',
-      rawCode,
-      codeChallenge,
-      codeChallengeMethod: 'S256',
-    })
-
-    const ctx = mockCtx({
-      manager,
-      body: {
-        grant_type: 'authorization_code',
-        code: rawCode,
-        redirect_uri: 'https://app.example.com/callback',
-        client_id: 'test-client',
-        client_secret: 'test-secret',
-        code_verifier: codeVerifier,
-      },
-    })
+    const { ctx, manager } = await createAuthCodeExchange({ scopes: ['read'] })
 
     await handleAuthorizationCodeGrant(ctx, manager)
 

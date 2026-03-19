@@ -7,6 +7,7 @@ import { createTestClient } from './helpers/create_test_client.ts'
 import { createTestAccessToken } from './helpers/create_test_access_token.ts'
 import { createTestRefreshToken } from './helpers/create_test_refresh_token.ts'
 import { cleanModels } from './helpers/clean_models.ts'
+import { assertOAuthError } from './helpers/assert_oauth_error.ts'
 import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
 import { OAuthRefreshToken } from '../src/models/oauth_refresh_token.ts'
 import { TokenService } from '../src/services/token_service.ts'
@@ -14,7 +15,7 @@ import { handleRefreshTokenGrant } from '../src/grants/refresh_token_grant.ts'
 import TokenController from '../src/controllers/token_controller.ts'
 import IntrospectController from '../src/controllers/introspect_controller.ts'
 import RevokeController from '../src/controllers/revoke_controller.ts'
-import { OAuthError, E_INVALID_CLIENT } from '../src/oauth_error.ts'
+import { E_INVALID_CLIENT } from '../src/oauth_error.ts'
 
 let app: ApplicationService
 
@@ -94,17 +95,7 @@ test.group('Integration | Refresh Token Grant', (group) => {
       },
     })
 
-    try {
-      await handleRefreshTokenGrant(ctx, manager)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.instanceOf(error, OAuthError)
-      assert.isTrue(
-        ['invalid_client', 'unauthorized_client', 'unsupported_grant_type'].includes(
-          error.oauthCode
-        )
-      )
-    }
+    await assertOAuthError(assert, () => handleRefreshTokenGrant(ctx, manager), 'invalid_client')
   })
 
   test('supports scope downgrading', async ({ assert }) => {
@@ -145,15 +136,10 @@ test.group('Integration | Refresh Token Grant', (group) => {
       },
     })
 
-    try {
-      await handleRefreshTokenGrant(ctx, manager)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.instanceOf(error, OAuthError)
-      assert.equal(error.oauthCode, 'invalid_scope')
-      assert.include(error.message, 'profile')
-      assert.include(error.message, 'email')
-    }
+    await assertOAuthError(assert, () => handleRefreshTokenGrant(ctx, manager), 'invalid_scope', [
+      'profile',
+      'email',
+    ])
   })
 
   test('rejects scope escalation', async ({ assert }) => {
@@ -171,13 +157,7 @@ test.group('Integration | Refresh Token Grant', (group) => {
       },
     })
 
-    try {
-      await handleRefreshTokenGrant(ctx, manager)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.instanceOf(error, OAuthError)
-      assert.equal(error.oauthCode, 'invalid_scope')
-    }
+    await assertOAuthError(assert, () => handleRefreshTokenGrant(ctx, manager), 'invalid_scope')
   })
 
   test('replay detection revokes all tokens', async ({ assert }) => {
@@ -219,13 +199,7 @@ test.group('Integration | Refresh Token Grant', (group) => {
       },
     })
 
-    try {
-      await handleRefreshTokenGrant(ctx, manager)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.instanceOf(error, OAuthError)
-      assert.equal(error.oauthCode, 'invalid_grant')
-    }
+    await assertOAuthError(assert, () => handleRefreshTokenGrant(ctx, manager), 'invalid_grant')
 
     const remaining = await OAuthRefreshToken.query()
       .where('clientId', 'test-client')
@@ -294,13 +268,7 @@ test.group('Integration | Token Endpoint Dispatch', (group) => {
     const controller = new TokenController()
     const ctx = mockCtx({ manager, body: { grant_type: 'password' } })
 
-    try {
-      await controller.handle(ctx)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.instanceOf(error, OAuthError)
-      assert.equal(error.oauthCode, 'unsupported_grant_type')
-    }
+    await assertOAuthError(assert, () => controller.handle(ctx), 'unsupported_grant_type')
   })
 
   test('rejects missing grant type', async ({ assert }) => {
@@ -361,13 +329,7 @@ test.group('Integration | Introspection', (group) => {
 
     const controller = new IntrospectController()
 
-    try {
-      await controller.handle(ctx)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.instanceOf(error, OAuthError)
-      assert.equal(error.oauthCode, 'invalid_client')
-    }
+    await assertOAuthError(assert, () => controller.handle(ctx), 'invalid_client')
   })
 
   test('returns inactive for revoked token', async ({ assert }) => {
@@ -524,15 +486,7 @@ test.group('Integration | Revocation', (group) => {
       },
     })
 
-    const controller = new RevokeController()
-
-    try {
-      await controller.handle(ctx)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.instanceOf(error, OAuthError)
-      assert.equal(error.oauthCode, 'invalid_client')
-    }
+    await assertOAuthError(assert, () => new RevokeController().handle(ctx), 'invalid_client')
   })
 
   test('revokes a refresh token and associated access token', async ({ assert }) => {

@@ -77,7 +77,7 @@ test.group('Integration | Metadata Endpoints', () => {
     const ctx = mockCtx({ manager })
 
     const controller = new MetadataController()
-    const result = await controller.oidc(ctx) as any
+    const result = (await controller.oidc(ctx)) as any
 
     assert.equal(result.issuer, 'https://auth.example.com')
     assert.deepEqual(result.subject_types_supported, ['public'])
