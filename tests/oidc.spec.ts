@@ -406,11 +406,13 @@ test.group('JWKS Endpoint', () => {
 
     const controller = new JwksController()
     const result = await controller.handle(ctx)
+    assert.notProperty(result, 'error')
 
-    assert.isArray(result.keys)
-    assert.equal(result.keys.length, 1)
-    assert.equal(result.keys[0].alg, 'RS256')
-    assert.notProperty(result.keys[0], 'd')
+    const jwks = result as { keys: import('jose').JWK[] }
+    assert.isArray(jwks.keys)
+    assert.equal(jwks.keys.length, 1)
+    assert.equal(jwks.keys[0].alg, 'RS256')
+    assert.notProperty(jwks.keys[0], 'd')
     assert.equal(ctx.__responseHeaders['Content-Type'], 'application/jwk-set+json')
     assert.include(ctx.__responseHeaders['Cache-Control'], 'public')
   })
