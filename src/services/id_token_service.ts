@@ -35,6 +35,22 @@ export class IdTokenService {
     return filtered
   }
 
+  /**
+   * Resolve user OIDC claims by calling `getOidcClaims` if present,
+   * then filtering out reserved protocol claims.
+   */
+  static async resolveUserClaims(
+    user: unknown,
+    scopes: string[]
+  ): Promise<Record<string, unknown>> {
+    const rawClaims =
+      typeof (user as any)?.getOidcClaims === 'function'
+        ? await (user as any).getOidcClaims(scopes)
+        : {}
+
+    return IdTokenService.filterReservedClaims(rawClaims)
+  }
+
   async sign(options: {
     sub: string
     clientId: string
@@ -46,11 +62,7 @@ export class IdTokenService {
     const now = Math.floor(Date.now() / 1000)
     const ttlSeconds = string.seconds.parse(this.#manager.config.idTokenTtl)
 
-    const rawUserClaims = typeof (options.user as any)?.getOidcClaims === 'function'
-      ? await (options.user as any).getOidcClaims(options.scopes)
-      : {}
-
-    const userClaims = IdTokenService.filterReservedClaims(rawUserClaims)
+    const userClaims = await IdTokenService.resolveUserClaims(options.user, options.scopes)
 
     const payload: Record<string, unknown> = {
       ...userClaims,

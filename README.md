@@ -274,10 +274,14 @@ Both `jwk` and `oidcProvider` must be set for OIDC to be active. If either is mi
 
 When the `openid` scope is granted, Sésame calls `getOidcClaims()` on your User model to populate the `id_token` and `/userinfo` response with user-specific claims. If the method is not implemented, only protocol-level claims (`sub`, `iss`, `aud`, `exp`, `iat`) are included.
 
+Implement the `OidcSubject` interface and use the `collectOidcClaims` helper for a type-safe, declarative mapping of scopes to claims:
+
 ```ts title="app/models/user.ts"
 import { BaseModel, column } from '@adonisjs/lucid/orm'
+import { collectOidcClaims } from '@julr/sesame/types'
+import type { OidcSubject, Scope } from '@julr/sesame/types'
 
-export default class User extends BaseModel {
+export default class User extends BaseModel implements OidcSubject {
   @column({ isPrimary: true })
   declare id: number
 
@@ -292,18 +296,11 @@ export default class User extends BaseModel {
    * Protocol-managed claims (sub, iss, aud, exp, iat, nonce, at_hash)
    * are filtered out automatically so you cannot accidentally override them.
    */
-  getOidcClaims(scopes: string[]) {
-    const claims: Record<string, unknown> = {}
-
-    if (scopes.includes('profile')) {
-      claims.name = this.fullName
-    }
-
-    if (scopes.includes('email')) {
-      claims.email = this.email
-    }
-
-    return claims
+  getOidcClaims(scopes: Scope[]) {
+    return collectOidcClaims(scopes, {
+      profile: { name: this.fullName },
+      email: { email: this.email },
+    })
   }
 }
 ```

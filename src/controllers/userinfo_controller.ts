@@ -39,12 +39,7 @@ export default class UserinfoController {
     const user = await manager.findUserById(token.userId!)
     if (!user) throw new E_INVALID_TOKEN('Invalid access token')
 
-    const rawClaims =
-      typeof (user as any)?.getOidcClaims === 'function'
-        ? await (user as any).getOidcClaims(token.scopes)
-        : {}
-
-    const userClaims = IdTokenService.filterReservedClaims(rawClaims)
+    const userClaims = await IdTokenService.resolveUserClaims(user, token.scopes)
 
     ctx.response.header('Content-Type', 'application/json')
 

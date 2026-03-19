@@ -88,8 +88,36 @@ export const RESERVED_OIDC_CLAIMS = new Set([
  * If not implemented, only protocol-level claims (sub, iss, aud, exp, iat)
  * are included.
  */
-export interface OidcClaimable {
+export interface OidcSubject {
   getOidcClaims(scopes: Scope[]): Record<string, unknown> | Promise<Record<string, unknown>>
+}
+
+/**
+ * Collect OIDC claims based on the granted scopes.
+ *
+ * Maps each scope to its corresponding claims object and merges
+ * only the claims for scopes present in the granted set.
+ *
+ * @example
+ * ```ts
+ * getOidcClaims(scopes: Scope[]) {
+ *   return collectOidcClaims(scopes, {
+ *     profile: { name: this.fullName },
+ *     email: { email: this.email },
+ *   })
+ * }
+ * ```
+ */
+export function collectOidcClaims(
+  scopes: Scope[],
+  claimsMap: Partial<Record<Scope, Record<string, unknown>>>
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {}
+  for (const [scope, claims] of Object.entries(claimsMap)) {
+    if (scopes.includes(scope as Scope) && claims) Object.assign(result, claims)
+  }
+
+  return result
 }
 
 /**

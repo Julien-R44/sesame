@@ -162,7 +162,7 @@ test.group('IdTokenService', () => {
     assert.notProperty(payload, 'nonce')
   })
 
-  test('includes user claims from OidcClaimable', async ({ assert }) => {
+  test('includes user claims from OidcSubject', async ({ assert }) => {
     const jwk = await getTestJwk()
     const manager = createManager({ jwk })
     const service = new IdTokenService(manager)
