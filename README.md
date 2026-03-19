@@ -6,11 +6,11 @@ Sésame turns your AdonisJS application into a full-featured OAuth 2.1 authoriza
 
 - Installing and configuring the package
 - Registering OAuth and discovery routes
-- Protecting your API with the OAuth guard and scope middleware
+- Protecting your API with the OAuth guard and scope checking
+- Managing tokens (refresh, revoke, introspect)
 - Enabling OpenID Connect (OIDC) for `id_token` emission, `/userinfo`, and JWKS
-- Exposing MCP-compatible protected resource metadata
 - Using the Client Credentials grant for machine-to-machine authentication
-- Cleaning up expired and revoked tokens
+- Dynamic client registration and MCP support
 
 ## Overview
 
@@ -91,26 +91,36 @@ sesame.registerDiscoveryRoutes()
 
 This registers the following endpoints:
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/oauth/token` | Token endpoint (RFC 6749 §3.2) |
-| `GET` | `/oauth/authorize` | Authorization endpoint (RFC 6749 §3.1) |
-| `POST` | `/oauth/consent` | Consent submission |
-| `POST` | `/oauth/introspect` | Token introspection (RFC 7662) |
-| `POST` | `/oauth/revoke` | Token revocation (RFC 7009) |
-| `POST` | `/oauth/register` | Dynamic client registration (RFC 7591) |
-| `GET` | `/oauth/client-info` | Public client information |
-| `GET/POST` | `/oauth/userinfo` | OpenID Connect UserInfo (OIDC Core §5.3) |
-| `GET` | `/.well-known/oauth-authorization-server` | Server metadata (RFC 8414) |
-| `GET` | `/.well-known/openid-configuration` | OIDC discovery |
-| `GET` | `/.well-known/oauth-protected-resource` | Protected resource metadata (RFC 9728) |
-| `GET` | `/jwks` | JSON Web Key Set (RFC 7517) |
+| Method     | Path                                      | Description                              |
+| ---------- | ----------------------------------------- | ---------------------------------------- |
+| `POST`     | `/oauth/token`                            | Token endpoint (RFC 6749 §3.2)           |
+| `GET`      | `/oauth/authorize`                        | Authorization endpoint (RFC 6749 §3.1)   |
+| `POST`     | `/oauth/consent`                          | Consent submission                       |
+| `POST`     | `/oauth/introspect`                       | Token introspection (RFC 7662)           |
+| `POST`     | `/oauth/revoke`                           | Token revocation (RFC 7009)              |
+| `POST`     | `/oauth/register`                         | Dynamic client registration (RFC 7591)   |
+| `GET`      | `/oauth/client-info`                      | Public client information                |
+| `GET/POST` | `/oauth/userinfo`                         | OpenID Connect UserInfo (OIDC Core §5.3) |
+| `GET`      | `/.well-known/oauth-authorization-server` | Server metadata (RFC 8414)               |
+| `GET`      | `/.well-known/openid-configuration`       | OIDC discovery                           |
+| `GET`      | `/.well-known/oauth-protected-resource`   | Protected resource metadata (RFC 9728)   |
+| `GET`      | `/jwks`                                   | JSON Web Key Set (RFC 7517)              |
 
 The JWKS path defaults to `/jwks`. You can customize it:
 
 ```ts title="start/routes.ts"
 sesame.registerDiscoveryRoutes({ jwksPath: '/.well-known/jwks.json' })
 ```
+
+## Authorization Code Flow
+
+The authorization code flow works in three steps. All clients must use PKCE with S256 (mandatory per OAuth 2.1).
+
+1. The consuming app redirects the user to `GET /oauth/authorize` with `client_id`, `redirect_uri`, `response_type=code`, `scope`, `state`, `code_challenge`, and `code_challenge_method=S256`. If the user is not logged in, they are sent to your `loginPage`. Once authenticated, they see the consent screen (your `consentPage`). If the user has already approved the requested scopes, consent is skipped and the code is issued directly.
+
+2. After the user approves, they are redirected back to the `redirect_uri` with a `code` and `state` parameter. The consuming app exchanges the code at `POST /oauth/token` with `grant_type=authorization_code`, the `code`, `redirect_uri`, client credentials, and the PKCE `code_verifier`. The response contains an `access_token`, `refresh_token` (when the `refresh_token` grant is enabled), `token_type`, `expires_in`, and `scope`. The `iss` parameter is included in all redirect responses per RFC 9207.
+
+3. The consuming app passes the access token as a `Bearer` token in the `Authorization` header when calling your API.
 
 ## Authentication Guard
 
@@ -150,7 +160,9 @@ export default class ApiController {
 }
 ```
 
-## Scope Middleware
+## Scopes
+
+### Scope Middleware
 
 Two named middleware are available for checking scopes on authenticated requests. Use `scopes` when the client must have **all** listed scopes, and `anyScope` when having **at least one** is sufficient.
 
@@ -165,6 +177,52 @@ router
   .get('/data', [DataController])
   .use(middleware.anyScope({ scopes: ['read', 'write'] }))
 ```
+
+### Programmatic Scope Checking
+
+You can also check scopes directly in your controller logic using `hasScope()` and `hasAnyScope()` on the guard instance. This is useful when you need conditional behavior based on scopes rather than a hard reject.
+
+```ts title="app/controllers/posts_controller.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+
+export default class PostsController {
+  async index({ auth }: HttpContext) {
+    const guard = auth.use('oauth')
+    await guard.authenticate()
+
+    // Check if the token has a specific scope
+    if (guard.hasScope('write')) {
+      return { posts: await Post.all(), canEdit: true }
+    }
+
+    return { posts: await Post.all(), canEdit: false }
+  }
+}
+```
+
+`hasScope()` requires **all** provided scopes. `hasAnyScope()` requires **at least one**.
+
+## Managing Tokens
+
+### Refreshing tokens
+
+The consuming app sends `POST /oauth/token` with `grant_type=refresh_token`, the `refresh_token`, and client credentials to get a new token pair. Sésame uses **refresh token rotation**: every refresh returns a new refresh token and the old one is revoked immediately. If an attacker replays a revoked refresh token, all tokens for that client+user pair are nuked as a security measure. The client can request a narrower set of scopes by passing a `scope` parameter, but cannot request scopes that were not in the original grant.
+
+### Revoking tokens
+
+The consuming app can call `POST /oauth/revoke` with the `token`, optional `token_type_hint`, and client credentials. The endpoint always returns HTTP 200, even if the token was not found (to prevent information leakage per RFC 7009). When revoking a refresh token, the associated access token is also revoked automatically.
+
+On the server side, you can revoke all tokens for a user at once. This is useful when a user is deleted or deactivated.
+
+```ts
+import sesame from '@julr/sesame/services/main'
+
+await sesame.revokeAllForUser(user.id)
+```
+
+### Introspecting tokens
+
+Resource servers can verify a token's state by calling `POST /oauth/introspect` with the `token`, optional `token_type_hint`, and client credentials. The response is `{ "active": true, "token_type": "Bearer", "client_id": "...", "sub": "...", "scope": "...", ... }` for valid tokens, or `{ "active": false }` for invalid, expired, or revoked tokens. This is useful when a separate service needs to validate tokens without sharing database access.
 
 ## OpenID Connect (OIDC)
 
@@ -299,7 +357,7 @@ The `/jwks` endpoint serves the public key(s) used to sign ID tokens. Relying pa
 
 ## Client Credentials Grant
 
-For machine-to-machine (M2M) authentication, enable the `client_credentials` grant. This allows a confidential client to authenticate directly with its credentials and receive an access token without a user interaction step.
+For machine-to-machine (M2M) authentication, enable the `client_credentials` grant. This allows a confidential client to send `POST /oauth/token` with `grant_type=client_credentials`, its credentials (via Basic auth or POST body), and the requested `scope`. No refresh token is issued.
 
 ```ts title="config/sesame.ts"
 const sesameConfig = defineConfig({
@@ -310,6 +368,18 @@ const sesameConfig = defineConfig({
 ```
 
 User-centric scopes (`openid`, `profile`, `email`, `offline_access`) are rejected for client credentials since they are meaningless in an M2M context. The client must be associated with a user (`userId` on the client record) and must be confidential (not public).
+
+## Dynamic Client Registration
+
+Sésame supports RFC 7591 dynamic client registration. Clients send their metadata (`redirect_uris`, `client_name`, `grant_types`, `scope`, `token_endpoint_auth_method`) to `POST /oauth/register` and receive a `client_id` and `client_secret` in return. Set `token_endpoint_auth_method` to `"none"` for public clients (no secret issued). Requested scopes and grant types are validated against your server config.
+
+```ts title="config/sesame.ts"
+const sesameConfig = defineConfig({
+  // ...
+  allowDynamicRegistration: true,
+  allowPublicRegistration: true, // allows unauthenticated registration
+})
+```
 
 ## MCP Support
 
@@ -324,13 +394,23 @@ sesame.registerProtectedResource({
 
 This creates a `/.well-known/oauth-protected-resource/api/mcp` endpoint. MCP clients that support the latest spec will discover this automatically.
 
-You will also want to enable dynamic client registration for MCP clients, since they need to register themselves:
+MCP clients typically need to self-register, so you will want to enable dynamic client registration with public access (see the [Dynamic Client Registration](#dynamic-client-registration) section above).
 
-```ts title="config/sesame.ts"
-const sesameConfig = defineConfig({
-  // ...
-  allowDynamicRegistration: true,
-  allowPublicRegistration: true,
+## Events
+
+The OAuth guard emits events during authentication that you can listen to for logging, analytics, or custom behavior.
+
+| Event                                 | When                                                                   |
+| ------------------------------------- | ---------------------------------------------------------------------- |
+| `oauth_auth:authentication_attempted` | A bearer token has been received and authentication starts             |
+| `oauth_auth:authentication_succeeded` | The token is valid and the user has been resolved                      |
+| `oauth_auth:authentication_failed`    | The token is invalid, expired, revoked, or the user cannot be resolved |
+
+```ts title="start/events.ts"
+import emitter from '@adonisjs/core/services/emitter'
+
+emitter.on('oauth_auth:authentication_failed', (event) => {
+  logger.warn({ guardName: event.guardName, err: event.error }, 'OAuth authentication failed')
 })
 ```
 
