@@ -191,8 +191,7 @@ export class ExchangeAuthorizationCodeAction {
     refreshToken: { raw: string; hash: string; expiresAt: DateTime } | null
   ) {
     await OAuthAuthorizationCode.transaction(async (trx) => {
-      const deleteResult = await OAuthAuthorizationCode.query()
-        .useTransaction(trx)
+      const deleteResult = await OAuthAuthorizationCode.query({ client: trx })
         .where('id', authCode.id)
         .delete()
       const deletedRows = Array.isArray(deleteResult)

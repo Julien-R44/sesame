@@ -199,8 +199,7 @@ export class ExchangeRefreshTokenAction {
     await OAuthRefreshToken.transaction(async (trx) => {
       const revokedAt = DateTime.now()
 
-      const updateResult = await OAuthRefreshToken.query()
-        .useTransaction(trx)
+      const updateResult = await OAuthRefreshToken.query({ client: trx })
         .where('id', oldRefreshToken.id)
         .whereNull('revokedAt')
         .update({ revokedAt: revokedAt.toSQL() })
@@ -212,8 +211,7 @@ export class ExchangeRefreshTokenAction {
         throw new E_INVALID_GRANT('Refresh token has already been consumed')
       }
 
-      await OAuthAccessToken.query()
-        .useTransaction(trx)
+      await OAuthAccessToken.query({ client: trx })
         .where('id', oldRefreshToken.accessTokenId)
         .whereNull('revokedAt')
         .update({ revokedAt: revokedAt.toSQL() })
