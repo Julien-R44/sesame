@@ -16,4 +16,4 @@ jobs:
           cache: true
       - run: vp install
       - run: vp check
-      - run: pnpm test
+      - run: vp run test
