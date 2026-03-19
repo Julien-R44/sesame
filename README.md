@@ -152,7 +152,7 @@ export default class ApiController {
     await guard.authenticate()
 
     const user = auth.user!
-    const scopes = guard.scopes   // e.g. ['read', 'write']
+    const scopes = guard.scopes // e.g. ['read', 'write']
     const clientId = guard.clientId // e.g. 'my-app-client-id'
 
     return { user, scopes, clientId }
@@ -168,14 +168,10 @@ Two named middleware are available for checking scopes on authenticated requests
 
 ```ts title="start/routes.ts"
 // Requires ALL listed scopes
-router
-  .get('/admin', [AdminController])
-  .use(middleware.scopes({ scopes: ['admin', 'write'] }))
+router.get('/admin', [AdminController]).use(middleware.scopes({ scopes: ['admin', 'write'] }))
 
 // Requires AT LEAST ONE of the listed scopes
-router
-  .get('/data', [DataController])
-  .use(middleware.anyScope({ scopes: ['read', 'write'] }))
+router.get('/data', [DataController]).use(middleware.anyScope({ scopes: ['read', 'write'] }))
 ```
 
 ### Programmatic Scope Checking
@@ -426,9 +422,7 @@ test.group('API', () => {
   test('returns user data for authenticated request', async ({ client }) => {
     const user = await User.find(1)
 
-    const response = await client
-      .get('/api/me')
-      .loginAs(user, 'oauth')
+    const response = await client.get('/api/me').loginAs(user, 'oauth')
 
     response.assertStatus(200)
     response.assertBodyContains({ id: user.id })

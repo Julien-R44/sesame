@@ -25,21 +25,15 @@
     "./commands": "./build/commands/main.js"
   },
   "scripts": {
-    "copy:templates": "copyfiles \"stubs/**/*.stub\" build",
-    "typecheck": "tsc --noEmit",
-    "lint": "oxlint .",
-    "format": "oxfmt --write .",
+    "check": "vp check",
+    "format": "vp fmt --write .",
     "quick:test": "node --import=@poppinss/ts-exec --enable-source-maps bin/test.ts",
-    "pretest": "npm run lint",
     "test": "c8 npm run quick:test",
-    "precompile": "npm run lint",
-    "index:commands": "adonis-kit index build/commands",
-    "compile": "tsdown && tsc --emitDeclarationOnly --declaration",
-    "postcompile": "npm run copy:templates && npm run index:commands",
-    "build": "npm run compile",
+    "build": "vp pack && tsc --emitDeclarationOnly --declaration && adonis-kit index build/commands",
     "release": "release-it",
     "version": "npm run build",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "prepare": "vp config"
   },
   "repository": {
     "type": "git",
@@ -57,7 +51,6 @@
     "@adonisjs/auth": "^10.0.0",
     "@adonisjs/core": "^7.0.0",
     "@adonisjs/lucid": "^22.0.0",
-    "@adonisjs/prettier-config": "^1.4.5",
     "@adonisjs/tsconfig": "^2.0.0",
     "@japa/assert": "^4.2.0",
     "@japa/expect-type": "^2.0.4",
@@ -69,13 +62,10 @@
     "@vinejs/vine": "^4.3.0",
     "better-sqlite3": "^12.6.2",
     "c8": "^11.0.0",
-    "copyfiles": "^2.4.1",
     "cross-env": "^10.1.0",
-    "oxfmt": "^0.36.0",
-    "oxlint": "^1.51.0",
     "release-it": "^19.2.4",
-    "tsdown": "^0.20.3",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vite-plus": "catalog:"
   },
   "peerDependencies": {
     "@adonisjs/assembler": "^8.0.0",
@@ -91,27 +81,6 @@
   },
   "publishConfig": {
     "access": "public"
-  },
-  "tsdown": {
-    "entry": [
-      "./index.ts",
-      "./configure.ts",
-      "./providers/sesame_provider.ts",
-      "./services/main.ts",
-      "./src/guard/main.ts",
-      "./commands/sesame_purge.ts",
-      "./src/middleware/scope_middleware.ts",
-      "./src/middleware/any_scope_middleware.ts"
-    ],
-    "outDir": "./build",
-    "clean": true,
-    "format": "esm",
-    "minify": "dce-only",
-    "fixedExtension": false,
-    "dts": false,
-    "treeshake": false,
-    "sourcemaps": false,
-    "target": "esnext"
   },
   "release-it": {
     "git": {

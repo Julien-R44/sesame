@@ -1,0 +1,68 @@
+import { defineConfig } from 'vite-plus'
+
+export default defineConfig({
+  pack: {
+    entry: [
+      './index.ts',
+      './configure.ts',
+      './providers/sesame_provider.ts',
+      './services/main.ts',
+      './src/guard/main.ts',
+      './commands/sesame_purge.ts',
+      './src/middleware/scope_middleware.ts',
+      './src/middleware/any_scope_middleware.ts',
+    ],
+    outDir: './build',
+    clean: true,
+    minify: 'dce-only',
+    fixedExtension: false,
+    dts: false,
+    treeshake: false,
+    sourcemap: false,
+    target: 'esnext',
+    copy: ['stubs'],
+  },
+  staged: {
+    '*': 'vp check --fix',
+  },
+  fmt: {
+    trailingComma: 'es5',
+    semi: false,
+    singleQuote: true,
+    useTabs: false,
+    quoteProps: 'consistent',
+    bracketSpacing: true,
+    arrowParens: 'always',
+    printWidth: 100,
+    sortPackageJson: false,
+    ignorePatterns: ['build', 'docs', 'coverage', '*.html'],
+  },
+  lint: {
+    plugins: ['eslint', 'node', 'oxc', 'typescript', 'promise'],
+    categories: {
+      correctness: 'off',
+    },
+    env: {
+      builtin: true,
+    },
+    ignorePatterns: [
+      '*.min.*',
+      '*.d.ts',
+      'CHANGELOG.md',
+      'dist/**',
+      'LICENSE*',
+      'output/**',
+      'coverage/**',
+      'temp/**',
+      'build/**',
+      '.yalc/**',
+      'pnpm-lock.yaml',
+      'yarn.lock',
+      'package-lock.json',
+    ],
+    options: {
+      typeAware: true,
+      typeCheck: true,
+    },
+  },
+})
