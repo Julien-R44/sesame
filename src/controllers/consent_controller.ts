@@ -2,14 +2,13 @@
 
 import vine from '@vinejs/vine'
 import { DateTime } from 'luxon'
-import string from '@adonisjs/core/helpers/string'
 import type { HttpContext } from '@adonisjs/core/http'
 import { SesameManager } from '../sesame_manager.ts'
 import { TokenService } from '../services/token_service.ts'
 import { OAuthClient } from '../models/oauth_client.ts'
-import { OAuthAuthorizationCode } from '../models/oauth_authorization_code.ts'
 import { OAuthConsent } from '../models/oauth_consent.ts'
 import { OAuthPendingAuthorizationRequest } from '../models/oauth_pending_authorization_request.ts'
+import { IssueAuthorizationCodeAction } from '../actions/issue_authorization_code.ts'
 import { E_INVALID_CLIENT, E_INVALID_GRANT, E_INVALID_REQUEST } from '../oauth_error.ts'
 
 /**
@@ -31,78 +30,10 @@ export default class ConsentController {
   })
 
   /**
-   * Atomically consume a pending authorization request from the
-   * database. Uses DELETE-by-PK with affected-row check to prevent
-   * concurrent consent submissions from producing two authorization
-   * codes.
+   * Validate the consent submission, consume the pending
+   * request, and redirect back to the client with either
+   * an authorization code or an access_denied error.
    */
-  async #consumePendingRequest(hashedToken: string, userId: string) {
-    const row = await OAuthPendingAuthorizationRequest.query()
-      .where('token', hashedToken)
-      .where('userId', userId)
-      .where('expiresAt', '>', DateTime.now().toSQL()!)
-      .first()
-
-    if (!row) return null
-
-    // Atomic delete by PK — only the first concurrent request succeeds
-    const deleted = await OAuthPendingAuthorizationRequest.query().where('id', row.id).delete()
-
-    const count = Array.isArray(deleted) ? Number(deleted[0]) : Number(deleted)
-    if (count === 0) return null
-
-    return row
-  }
-
-  /**
-   * Create and store an authorization code, then redirect the user
-   * back to the client's redirect_uri with the code and state.
-   *
-   * The authorization code is stored as a SHA-256 hash in the database.
-   * Only the raw (unhashed) value is sent to the client via the redirect.
-   *
-   * @see https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2
-   */
-  async #issueAuthorizationCode(
-    ctx: HttpContext,
-    manager: SesameManager,
-    options: {
-      client: OAuthClient
-      userId: string
-      scopes: string[]
-      redirectUri: string
-      codeChallenge?: string
-      codeChallengeMethod?: string
-      state?: string
-      nonce?: string
-    }
-  ) {
-    const tokenService = new TokenService(manager)
-    const raw = tokenService.generateOpaqueToken()
-    const hashed = tokenService.hashToken(raw)
-    const ttl = string.seconds.parse(manager.config.authorizationCodeTtl)
-
-    await OAuthAuthorizationCode.create({
-      id: crypto.randomUUID(),
-      code: hashed,
-      clientId: options.client.clientId,
-      userId: options.userId,
-      scopes: options.scopes,
-      redirectUri: options.redirectUri,
-      codeChallenge: options.codeChallenge ?? null,
-      codeChallengeMethod: options.codeChallengeMethod ?? null,
-      nonce: options.nonce ?? null,
-      expiresAt: DateTime.now().plus({ seconds: ttl }),
-    })
-
-    const url = new URL(options.redirectUri)
-    url.searchParams.set('code', raw)
-    if (options.state) url.searchParams.set('state', options.state)
-    url.searchParams.set('iss', manager.config.issuer)
-
-    return ctx.response.redirect().toPath(url.toString())
-  }
-
   async handle(ctx: HttpContext) {
     const manager = await ctx.containerResolver.make(SesameManager)
 
@@ -113,11 +44,10 @@ export default class ConsentController {
     const [error, body] = await ConsentController.validator.tryValidate(ctx.request.body())
     if (error) throw new E_INVALID_REQUEST('Missing required parameter: auth_token')
 
-    const accept = ctx.request.body().accept
-
+    const userId = String(user.id)
     const tokenService = new TokenService(manager)
     const hashedToken = tokenService.hashToken(body.auth_token)
-    const pendingRequest = await this.#consumePendingRequest(hashedToken, String(user.id))
+    const pendingRequest = await this.#consumePendingRequest(hashedToken, userId)
 
     if (!pendingRequest) throw new E_INVALID_GRANT('Authorization request not found or expired')
 
@@ -128,45 +58,92 @@ export default class ConsentController {
       throw new E_INVALID_REQUEST('Invalid redirect_uri')
     }
 
-    // User denied — redirect back with access_denied error
-    if (!accept) {
-      const url = new URL(pendingRequest.redirectUri)
-      url.searchParams.set('error', 'access_denied')
-      url.searchParams.set('error_description', 'The user denied the authorization request')
-      if (pendingRequest.state) url.searchParams.set('state', pendingRequest.state)
-      url.searchParams.set('iss', manager.config.issuer)
-
-      return ctx.response.redirect().toPath(url.toString())
+    if (!ctx.request.body().accept) {
+      return this.#redirectWithDenied(ctx, manager, pendingRequest)
     }
 
-    // Persist or merge consent so future requests skip the consent screen
-    const existingConsent = await OAuthConsent.query()
-      .where('clientId', client.clientId)
-      .where('userId', String(user.id))
-      .first()
+    await this.#persistConsent(client.clientId, userId, pendingRequest.scopes)
 
-    if (existingConsent) {
-      const merged = [...new Set([...existingConsent.scopes, ...pendingRequest.scopes])]
-      existingConsent.scopes = merged
-      await existingConsent.save()
-    } else {
-      await OAuthConsent.create({
-        id: crypto.randomUUID(),
-        clientId: client.clientId,
-        userId: String(user.id),
-        scopes: pendingRequest.scopes,
-      })
-    }
-
-    return this.#issueAuthorizationCode(ctx, manager, {
+    const action = new IssueAuthorizationCodeAction()
+    const code = await action.execute(manager, {
       client,
-      userId: String(user.id),
+      userId,
       scopes: pendingRequest.scopes,
       redirectUri: pendingRequest.redirectUri,
       codeChallenge: pendingRequest.codeChallenge ?? undefined,
       codeChallengeMethod: pendingRequest.codeChallengeMethod ?? undefined,
-      state: pendingRequest.state ?? undefined,
       nonce: pendingRequest.nonce ?? undefined,
     })
+
+    const url = new URL(pendingRequest.redirectUri)
+    url.searchParams.set('code', code)
+    if (pendingRequest.state) url.searchParams.set('state', pendingRequest.state)
+    url.searchParams.set('iss', manager.config.issuer)
+
+    return ctx.response.redirect().toPath(url.toString())
+  }
+
+  /**
+   * Atomically consume a pending authorization request.
+   * Uses DELETE-by-PK with affected-row check to prevent
+   * concurrent consent submissions from producing two
+   * authorization codes.
+   */
+  async #consumePendingRequest(hashedToken: string, userId: string) {
+    const row = await OAuthPendingAuthorizationRequest.query()
+      .where('token', hashedToken)
+      .where('userId', userId)
+      .where('expiresAt', '>', DateTime.now().toSQL()!)
+      .first()
+
+    if (!row) return null
+
+    const deleted = await OAuthPendingAuthorizationRequest.query().where('id', row.id).delete()
+    const count = Array.isArray(deleted) ? Number(deleted[0]) : Number(deleted)
+    if (count === 0) return null
+
+    return row
+  }
+
+  /**
+   * Persist or merge consent so future authorization requests
+   * for the same client skip the consent screen.
+   */
+  async #persistConsent(clientId: string, userId: string, scopes: string[]) {
+    const existingConsent = await OAuthConsent.query()
+      .where('clientId', clientId)
+      .where('userId', userId)
+      .first()
+
+    if (existingConsent) {
+      existingConsent.scopes = [...new Set([...existingConsent.scopes, ...scopes])]
+      await existingConsent.save()
+      return
+    }
+
+    await OAuthConsent.create({
+      id: crypto.randomUUID(),
+      clientId,
+      userId,
+      scopes,
+    })
+  }
+
+  /**
+   * Redirect back to the client with an access_denied error
+   * when the user denies the authorization request.
+   */
+  #redirectWithDenied(
+    ctx: HttpContext,
+    manager: SesameManager,
+    pendingRequest: OAuthPendingAuthorizationRequest
+  ) {
+    const url = new URL(pendingRequest.redirectUri)
+    url.searchParams.set('error', 'access_denied')
+    url.searchParams.set('error_description', 'The user denied the authorization request')
+    if (pendingRequest.state) url.searchParams.set('state', pendingRequest.state)
+    url.searchParams.set('iss', manager.config.issuer)
+
+    return ctx.response.redirect().toPath(url.toString())
   }
 }
