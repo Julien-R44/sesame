@@ -2,8 +2,7 @@ import { test } from '@japa/runner'
 import { createHash } from 'node:crypto'
 import { DateTime } from 'luxon'
 import { jwtVerify } from 'jose'
-import type { ApplicationService } from '@adonisjs/core/types'
-import { createApp, setupDatabase, teardownDatabase, createManager } from './helpers/app.ts'
+import { createManager, setupIntegrationGroup } from './helpers/app.ts'
 import { mockCtx } from './helpers/mock_ctx.ts'
 import { getTestJwk, FakeUserProvider, type FakeUser } from './helpers/fakes.ts'
 import { createTestClient } from './helpers/create_test_client.ts'
@@ -415,21 +414,8 @@ test.group('JWKS Endpoint', () => {
 // --- Integration: Authorization Code Grant with openid ---
 
 test.group('Authorization Code Grant — OIDC', (group) => {
-  let app: ApplicationService
+  setupIntegrationGroup(group)
   const users: FakeUser[] = [{ id: 'user-1', name: 'Test User' }]
-
-  group.setup(async () => {
-    app = await createApp()
-    await setupDatabase(app)
-  })
-
-  group.teardown(async () => {
-    await teardownDatabase(app)
-  })
-
-  group.each.setup(async () => {
-    await OAuthAccessToken.query().delete()
-  })
 
   test('returns id_token when openid scope is present', async ({ assert }) => {
     const jwk = await getTestJwk()
@@ -576,21 +562,7 @@ test.group('Authorization Code Grant — OIDC', (group) => {
 // --- Integration: Refresh Token Grant with openid ---
 
 test.group('Refresh Token Grant — OIDC', (group) => {
-  let app: ApplicationService
-
-  group.setup(async () => {
-    app = await createApp()
-    await setupDatabase(app)
-  })
-
-  group.teardown(async () => {
-    await teardownDatabase(app)
-  })
-
-  group.each.setup(async () => {
-    await OAuthAccessToken.query().delete()
-    await OAuthRefreshToken.query().delete()
-  })
+  setupIntegrationGroup(group)
 
   test('rejects openid refresh when OIDC user cannot be resolved', async ({ assert }) => {
     const jwk = await getTestJwk()
@@ -703,21 +675,11 @@ test.group('Refresh Token Grant — OIDC', (group) => {
 // --- UserInfo Endpoint ---
 
 test.group('UserInfo Endpoint', (group) => {
-  let app: ApplicationService
+  setupIntegrationGroup(group)
   const users: FakeUser[] = [{ id: 'user-1', name: 'Test User' }]
 
-  group.setup(async () => {
-    app = await createApp()
-    await setupDatabase(app)
-    await createTestClient({ scopes: ['read', 'openid', 'offline_access'] })
-  })
-
-  group.teardown(async () => {
-    await teardownDatabase(app)
-  })
-
   group.each.setup(async () => {
-    await OAuthAccessToken.query().delete()
+    await createTestClient({ scopes: ['read', 'openid', 'offline_access'] })
   })
 
   test('returns sub for valid token with openid scope', async ({ assert }) => {

@@ -1,27 +1,13 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
-import type { ApplicationService } from '@adonisjs/core/types'
-import { createApp, setupDatabase, teardownDatabase } from './helpers/app.ts'
 import { createTestClient } from './helpers/create_test_client.ts'
 import { createTestAccessToken } from './helpers/create_test_access_token.ts'
 import { createTestGuard } from './helpers/create_test_guard.ts'
-import { cleanModels } from './helpers/clean_models.ts'
+import { setupIntegrationGroup } from './helpers/app.ts'
 import { errors } from '@adonisjs/auth'
 
-let app: ApplicationService
-
 test.group('OAuthGuard', (group) => {
-  group.setup(async () => {
-    app = await createApp()
-    await setupDatabase(app)
-  })
-
-  group.teardown(async () => {
-    await teardownDatabase(app)
-    await app.terminate()
-  })
-
-  group.each.setup(cleanModels())
+  setupIntegrationGroup(group)
 
   test('authenticates with a valid token', async ({ assert }) => {
     await createTestClient()

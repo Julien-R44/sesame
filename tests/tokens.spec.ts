@@ -1,12 +1,10 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
-import type { ApplicationService } from '@adonisjs/core/types'
-import { createApp, setupDatabase, teardownDatabase, createManager } from './helpers/app.ts'
+import { createManager, setupIntegrationGroup } from './helpers/app.ts'
 import { mockCtx } from './helpers/mock_ctx.ts'
 import { createTestClient } from './helpers/create_test_client.ts'
 import { createTestAccessToken } from './helpers/create_test_access_token.ts'
 import { createTestRefreshToken } from './helpers/create_test_refresh_token.ts'
-import { cleanModels } from './helpers/clean_models.ts'
 import { assertOAuthError } from './helpers/assert_oauth_error.ts'
 import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
 import { OAuthRefreshToken } from '../src/models/oauth_refresh_token.ts'
@@ -17,20 +15,8 @@ import IntrospectController from '../src/controllers/introspect_controller.ts'
 import RevokeController from '../src/controllers/revoke_controller.ts'
 import { E_INVALID_CLIENT } from '../src/oauth_error.ts'
 
-let app: ApplicationService
-
 test.group('Integration | Refresh Token Grant', (group) => {
-  group.setup(async () => {
-    app = await createApp()
-    await setupDatabase(app)
-  })
-
-  group.teardown(async () => {
-    await teardownDatabase(app)
-    await app.terminate()
-  })
-
-  group.each.setup(cleanModels())
+  setupIntegrationGroup(group)
 
   test('exchanges refresh token for new tokens', async ({ assert }) => {
     const client = await createTestClient()
@@ -210,15 +196,7 @@ test.group('Integration | Refresh Token Grant', (group) => {
 })
 
 test.group('Integration | Token Endpoint Dispatch', (group) => {
-  group.setup(async () => {
-    app = await createApp()
-    await setupDatabase(app)
-  })
-
-  group.teardown(async () => {
-    await teardownDatabase(app)
-    await app.terminate()
-  })
+  setupIntegrationGroup(group)
 
   test('rejects unsupported grant type', async ({ assert }) => {
     const manager = createManager()
@@ -238,17 +216,7 @@ test.group('Integration | Token Endpoint Dispatch', (group) => {
 })
 
 test.group('Integration | Introspection', (group) => {
-  group.setup(async () => {
-    app = await createApp()
-    await setupDatabase(app)
-  })
-
-  group.teardown(async () => {
-    await teardownDatabase(app)
-    await app.terminate()
-  })
-
-  group.each.setup(cleanModels())
+  setupIntegrationGroup(group)
 
   test('introspects a valid access token', async ({ assert }) => {
     await createTestClient()
@@ -397,17 +365,7 @@ test.group('Integration | Introspection', (group) => {
 })
 
 test.group('Integration | Revocation', (group) => {
-  group.setup(async () => {
-    app = await createApp()
-    await setupDatabase(app)
-  })
-
-  group.teardown(async () => {
-    await teardownDatabase(app)
-    await app.terminate()
-  })
-
-  group.each.setup(cleanModels())
+  setupIntegrationGroup(group)
 
   test('revokes an access token', async ({ assert }) => {
     await createTestClient()

@@ -1,29 +1,15 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
-import type { ApplicationService } from '@adonisjs/core/types'
-import { createApp, setupDatabase, teardownDatabase, createManager } from './helpers/app.ts'
+import { createManager, setupIntegrationGroup } from './helpers/app.ts'
 import { createTestClient } from './helpers/create_test_client.ts'
-import { cleanModels } from './helpers/clean_models.ts'
 import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
 import { OAuthRefreshToken } from '../src/models/oauth_refresh_token.ts'
 import { OAuthAuthorizationCode } from '../src/models/oauth_authorization_code.ts'
 import { OAuthPendingAuthorizationRequest } from '../src/models/oauth_pending_authorization_request.ts'
 import { TokenService } from '../src/services/token_service.ts'
 
-let app: ApplicationService
-
 test.group('SesameManager | purgeTokens', (group) => {
-  group.setup(async () => {
-    app = await createApp()
-    await setupDatabase(app)
-  })
-
-  group.teardown(async () => {
-    await teardownDatabase(app)
-    await app.terminate()
-  })
-
-  group.each.setup(cleanModels())
+  setupIntegrationGroup(group)
 
   test('purges expired access tokens beyond retention period', async ({ assert }) => {
     const client = await createTestClient()

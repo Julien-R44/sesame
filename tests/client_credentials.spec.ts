@@ -1,29 +1,15 @@
 import { test } from '@japa/runner'
-import type { ApplicationService } from '@adonisjs/core/types'
-import { createApp, setupDatabase, teardownDatabase, createManager } from './helpers/app.ts'
+import { createManager, setupIntegrationGroup } from './helpers/app.ts'
 import { createTestClient } from './helpers/create_test_client.ts'
 import { createTestGuard } from './helpers/create_test_guard.ts'
-import { cleanModels } from './helpers/clean_models.ts'
 import { assertOAuthError } from './helpers/assert_oauth_error.ts'
 import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
 import { OAuthRefreshToken } from '../src/models/oauth_refresh_token.ts'
 import { ClientService } from '../src/services/client_service.ts'
 import { ExchangeClientCredentialsAction } from '../src/actions/exchange_client_credentials.ts'
 
-let app: ApplicationService
-
 test.group('Integration | Client Credentials Grant', (group) => {
-  group.setup(async () => {
-    app = await createApp()
-    await setupDatabase(app)
-  })
-
-  group.teardown(async () => {
-    await teardownDatabase(app)
-    await app.terminate()
-  })
-
-  group.each.setup(cleanModels())
+  setupIntegrationGroup(group)
 
   test('issues an access token for a confidential client', async ({ assert }) => {
     const manager = createManager({ grantTypes: ['client_credentials'] })

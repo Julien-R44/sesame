@@ -1,8 +1,6 @@
 import { test } from '@japa/runner'
-import type { ApplicationService } from '@adonisjs/core/types'
-import { createApp, setupDatabase, teardownDatabase, createManager } from './helpers/app.ts'
+import { createManager, setupIntegrationGroup } from './helpers/app.ts'
 import { createTestClient } from './helpers/create_test_client.ts'
-import { cleanModels } from './helpers/clean_models.ts'
 import { OAuthClient } from '../src/models/oauth_client.ts'
 import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
 import { OAuthRefreshToken } from '../src/models/oauth_refresh_token.ts'
@@ -13,20 +11,8 @@ import { ClientService } from '../src/services/client_service.ts'
 import { TokenService } from '../src/services/token_service.ts'
 import { DateTime } from 'luxon'
 
-let app: ApplicationService
-
 test.group('Integration | Client CRUD | createClient', (group) => {
-  group.setup(async () => {
-    app = await createApp()
-    await setupDatabase(app)
-  })
-
-  group.teardown(async () => {
-    await teardownDatabase(app)
-    await app.terminate()
-  })
-
-  group.each.setup(cleanModels())
+  setupIntegrationGroup(group)
 
   test('creates a confidential client with defaults', async ({ assert }) => {
     const manager = createManager()
@@ -125,17 +111,7 @@ test.group('Integration | Client CRUD | createClient', (group) => {
 })
 
 test.group('Integration | Client CRUD | findClient', (group) => {
-  group.setup(async () => {
-    app = await createApp()
-    await setupDatabase(app)
-  })
-
-  group.teardown(async () => {
-    await teardownDatabase(app)
-    await app.terminate()
-  })
-
-  group.each.setup(cleanModels())
+  setupIntegrationGroup(group)
 
   test('finds an existing client', async ({ assert }) => {
     const client = await createTestClient({ name: 'Findable' })
@@ -157,17 +133,7 @@ test.group('Integration | Client CRUD | findClient', (group) => {
 })
 
 test.group('Integration | Client CRUD | listClients', (group) => {
-  group.setup(async () => {
-    app = await createApp()
-    await setupDatabase(app)
-  })
-
-  group.teardown(async () => {
-    await teardownDatabase(app)
-    await app.terminate()
-  })
-
-  group.each.setup(cleanModels())
+  setupIntegrationGroup(group)
 
   test('lists all clients', async ({ assert }) => {
     const manager = createManager()
@@ -208,17 +174,7 @@ test.group('Integration | Client CRUD | listClients', (group) => {
 })
 
 test.group('Integration | Client CRUD | updateClient', (group) => {
-  group.setup(async () => {
-    app = await createApp()
-    await setupDatabase(app)
-  })
-
-  group.teardown(async () => {
-    await teardownDatabase(app)
-    await app.terminate()
-  })
-
-  group.each.setup(cleanModels())
+  setupIntegrationGroup(group)
 
   test('updates client name', async ({ assert }) => {
     const client = await createTestClient({ name: 'Old Name' })
@@ -268,17 +224,7 @@ test.group('Integration | Client CRUD | updateClient', (group) => {
 })
 
 test.group('Integration | Client CRUD | deleteClient', (group) => {
-  group.setup(async () => {
-    app = await createApp()
-    await setupDatabase(app)
-  })
-
-  group.teardown(async () => {
-    await teardownDatabase(app)
-    await app.terminate()
-  })
-
-  group.each.setup(cleanModels())
+  setupIntegrationGroup(group)
 
   test('deletes a client', async ({ assert }) => {
     const client = await createTestClient()
@@ -398,17 +344,7 @@ test.group('Integration | Client CRUD | deleteClient', (group) => {
 })
 
 test.group('Integration | Client CRUD | rotateClientSecret', (group) => {
-  group.setup(async () => {
-    app = await createApp()
-    await setupDatabase(app)
-  })
-
-  group.teardown(async () => {
-    await teardownDatabase(app)
-    await app.terminate()
-  })
-
-  group.each.setup(cleanModels())
+  setupIntegrationGroup(group)
 
   test('rotates secret for a confidential client', async ({ assert }) => {
     const client = await createTestClient()

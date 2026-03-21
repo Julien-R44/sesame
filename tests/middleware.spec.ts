@@ -1,17 +1,13 @@
 import { test } from '@japa/runner'
-import type { ApplicationService } from '@adonisjs/core/types'
-import { createApp, setupDatabase, teardownDatabase, createManager } from './helpers/app.ts'
+import { createManager, setupIntegrationGroup } from './helpers/app.ts'
 import { mockCtx } from './helpers/mock_ctx.ts'
 import { FakeUserProvider, createFakeEmitter } from './helpers/fakes.ts'
 import { createTestClient } from './helpers/create_test_client.ts'
 import { createTestAccessToken } from './helpers/create_test_access_token.ts'
-import { cleanModels } from './helpers/clean_models.ts'
 import { OAuthGuard } from '../src/guard/guard.ts'
 import ScopeMiddleware from '../src/middleware/scope_middleware.ts'
 import AnyScopeMiddleware from '../src/middleware/any_scope_middleware.ts'
 import { E_INSUFFICIENT_SCOPE } from '../src/oauth_error.ts'
-
-let app: ApplicationService
 
 function mockCtxWithGuard(options: {
   headers?: Record<string, string>
@@ -45,18 +41,7 @@ function patchBearerToken(ctx: any, raw: string) {
 
 test.group('Middleware | ScopeMiddleware', (group) => {
   const middleware = new ScopeMiddleware()
-
-  group.setup(async () => {
-    app = await createApp()
-    await setupDatabase(app)
-  })
-
-  group.teardown(async () => {
-    await teardownDatabase(app)
-    await app.terminate()
-  })
-
-  group.each.setup(cleanModels())
+  setupIntegrationGroup(group)
 
   test('throws 401 when no Bearer token is provided', async ({ assert }) => {
     const { ctx } = mockCtxWithGuard({})
@@ -128,18 +113,7 @@ test.group('Middleware | ScopeMiddleware', (group) => {
 
 test.group('Middleware | AnyScopeMiddleware', (group) => {
   const middleware = new AnyScopeMiddleware()
-
-  group.setup(async () => {
-    app = await createApp()
-    await setupDatabase(app)
-  })
-
-  group.teardown(async () => {
-    await teardownDatabase(app)
-    await app.terminate()
-  })
-
-  group.each.setup(cleanModels())
+  setupIntegrationGroup(group)
 
   test('throws 403 when token lacks all listed scopes', async ({ assert }) => {
     const { ctx, manager } = mockCtxWithGuard({ userId: 'user-1' })
@@ -178,17 +152,7 @@ test.group('Middleware | AnyScopeMiddleware', (group) => {
 })
 
 test.group('Middleware | TransientToken (session bypass)', (group) => {
-  group.setup(async () => {
-    app = await createApp()
-    await setupDatabase(app)
-  })
-
-  group.teardown(async () => {
-    await teardownDatabase(app)
-    await app.terminate()
-  })
-
-  group.each.setup(cleanModels())
+  setupIntegrationGroup(group)
 
   test('session-authenticated user bypasses ScopeMiddleware without Bearer token', async ({
     assert,
@@ -256,17 +220,7 @@ test.group('Middleware | TransientToken (session bypass)', (group) => {
 })
 
 test.group('Middleware | Idempotency & WWW-Authenticate', (group) => {
-  group.setup(async () => {
-    app = await createApp()
-    await setupDatabase(app)
-  })
-
-  group.teardown(async () => {
-    await teardownDatabase(app)
-    await app.terminate()
-  })
-
-  group.each.setup(cleanModels())
+  setupIntegrationGroup(group)
 
   test('works when guard.authenticate() was already called', async ({ assert }) => {
     const { ctx, guard, manager } = mockCtxWithGuard({ userId: 'user-1' })

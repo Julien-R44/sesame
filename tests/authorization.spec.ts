@@ -1,11 +1,9 @@
 import { test } from '@japa/runner'
 import { createHash } from 'node:crypto'
-import type { ApplicationService } from '@adonisjs/core/types'
-import { createApp, setupDatabase, teardownDatabase, createManager } from './helpers/app.ts'
+import { createManager, setupIntegrationGroup } from './helpers/app.ts'
 import { mockCtx } from './helpers/mock_ctx.ts'
 import { createTestClient, createTestAuthCode } from './helpers/create_test_client.ts'
 import { createPkce } from './helpers/create_pkce.ts'
-import { cleanModels } from './helpers/clean_models.ts'
 import { assertOAuthError } from './helpers/assert_oauth_error.ts'
 import { createAuthCodeExchange } from './helpers/create_auth_code_exchange.ts'
 import { OAuthAuthorizationCode } from '../src/models/oauth_authorization_code.ts'
@@ -19,20 +17,8 @@ import AuthorizeController from '../src/controllers/authorize_controller.ts'
 import ConsentController from '../src/controllers/consent_controller.ts'
 import { DateTime } from 'luxon'
 
-let app: ApplicationService
-
 test.group('Integration | Authorization Flow', (group) => {
-  group.setup(async () => {
-    app = await createApp()
-    await setupDatabase(app)
-  })
-
-  group.teardown(async () => {
-    await teardownDatabase(app)
-    await app.terminate()
-  })
-
-  group.each.setup(cleanModels())
+  setupIntegrationGroup(group)
 
   test('stores an authorization request server-side and consumes it during consent', async ({
     assert,
@@ -492,17 +478,7 @@ test.group('Integration | Authorization Flow', (group) => {
 })
 
 test.group('Integration | Authorization Code Grant', (group) => {
-  group.setup(async () => {
-    app = await createApp()
-    await setupDatabase(app)
-  })
-
-  group.teardown(async () => {
-    await teardownDatabase(app)
-    await app.terminate()
-  })
-
-  group.each.setup(cleanModels())
+  setupIntegrationGroup(group)
 
   test('exchanges authorization code for tokens', async ({ assert }) => {
     await createTestClient()

@@ -1,28 +1,14 @@
 import { test } from '@japa/runner'
-import type { ApplicationService } from '@adonisjs/core/types'
-import { createApp, setupDatabase, teardownDatabase, createManager } from './helpers/app.ts'
+import { createManager, setupIntegrationGroup } from './helpers/app.ts'
 import { mockCtx } from './helpers/mock_ctx.ts'
 import { createTestClient } from './helpers/create_test_client.ts'
-import { cleanModels } from './helpers/clean_models.ts'
 import { assertOAuthError } from './helpers/assert_oauth_error.ts'
 import { OAuthClient } from '../src/models/oauth_client.ts'
 import RegisterController from '../src/controllers/register_controller.ts'
 import ClientInfoController from '../src/controllers/client_info_controller.ts'
 
-let app: ApplicationService
-
 test.group('Integration | Dynamic Registration', (group) => {
-  group.setup(async () => {
-    app = await createApp()
-    await setupDatabase(app)
-  })
-
-  group.teardown(async () => {
-    await teardownDatabase(app)
-    await app.terminate()
-  })
-
-  group.each.setup(cleanModels())
+  setupIntegrationGroup(group)
 
   test('registers a new confidential client', async ({ assert }) => {
     const manager = createManager()
@@ -525,19 +511,7 @@ test.group('Integration | Dynamic Registration', (group) => {
 })
 
 test.group('Integration | Client Info', (group) => {
-  group.setup(async () => {
-    app = await createApp()
-    await setupDatabase(app)
-  })
-
-  group.teardown(async () => {
-    await teardownDatabase(app)
-    await app.terminate()
-  })
-
-  group.each.setup(async () => {
-    await OAuthClient.query().delete()
-  })
+  setupIntegrationGroup(group)
 
   test('returns public info for a valid client', async ({ assert }) => {
     const client = await createTestClient({ name: 'Claude Code' })

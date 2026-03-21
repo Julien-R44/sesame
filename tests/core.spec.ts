@@ -1,12 +1,10 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
-import type { ApplicationService } from '@adonisjs/core/types'
-import { createApp, setupDatabase, teardownDatabase, createManager } from './helpers/app.ts'
+import { createManager, setupIntegrationGroup } from './helpers/app.ts'
 import { mockCtx } from './helpers/mock_ctx.ts'
 import { getTestJwk, FakeUserProvider } from './helpers/fakes.ts'
 import { createTestClient } from './helpers/create_test_client.ts'
 import { createPkce } from './helpers/create_pkce.ts'
-import { cleanModels } from './helpers/clean_models.ts'
 import { OAuthClient } from '../src/models/oauth_client.ts'
 import { OAuthAuthorizationCode } from '../src/models/oauth_authorization_code.ts'
 import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
@@ -24,8 +22,6 @@ import {
 import { ClientService } from '../src/services/client_service.ts'
 import AuthorizeController from '../src/controllers/authorize_controller.ts'
 import RegisterController from '../src/controllers/register_controller.ts'
-
-let app: ApplicationService
 
 test.group('Integration | Metadata Endpoints', () => {
   test('returns OAuth authorization server metadata', async ({ assert }) => {
@@ -243,17 +239,7 @@ test.group('Integration | SesameManager', () => {
 })
 
 test.group('Integration | revokeAllForUser', (group) => {
-  group.setup(async () => {
-    app = await createApp()
-    await setupDatabase(app)
-  })
-
-  group.teardown(async () => {
-    await teardownDatabase(app)
-    await app.terminate()
-  })
-
-  group.each.setup(cleanModels())
+  setupIntegrationGroup(group)
 
   test('revokes all tokens, codes and consents for a user', async ({ assert }) => {
     const manager = createManager()
@@ -428,17 +414,7 @@ test.group('Security | Scope validation bypass (C1/C2)', () => {
 })
 
 test.group('Security | Scope validation bypass (C1/C2) — Integration', (group) => {
-  group.setup(async () => {
-    app = await createApp()
-    await setupDatabase(app)
-  })
-
-  group.teardown(async () => {
-    await teardownDatabase(app)
-    await app.terminate()
-  })
-
-  group.each.setup(cleanModels())
+  setupIntegrationGroup(group)
 
   test('C1+C2: authorize endpoint rejects arbitrary scopes with empty configs', async ({
     assert,
