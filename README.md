@@ -237,18 +237,21 @@ OIDC is opt-in. You need two things: an RSA key pair (JWK) for signing ID tokens
 
 ### Generating a JWK
 
-You need an RSA private key in JWK format. Generate one with Node.js:
+You need an RSA private key in JWK format. The easiest way is to write it directly to your `.env` file:
 
 ```bash
-node -e "
-  const { generateKeyPair, exportJWK } = require('jose');
-  generateKeyPair('RS256', { extractable: true })
-    .then(({ privateKey }) => exportJWK(privateKey))
-    .then((jwk) => console.log(JSON.stringify(jwk)))
-"
+node ace sesame:key --write-env
 ```
 
-Store the output in an environment variable (e.g. `OIDC_JWK`). Never commit the private key to your repository.
+This generates a JWK and adds (or replaces) `OIDC_JWK` in your `.env` file. Never commit the private key to your repository.
+
+You can also output the raw JSON for piping to a secret manager or file:
+
+```bash
+node ace sesame:key --raw > jwk.json
+```
+
+Or run `node ace sesame:key` without flags to see the key with usage instructions.
 
 ### Configuration
 
