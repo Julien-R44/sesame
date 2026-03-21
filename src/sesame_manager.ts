@@ -297,12 +297,19 @@ export class SesameManager {
     const client = await OAuthClient.query().where('clientId', clientId).first()
     if (!client) return false
 
-    await OAuthRefreshToken.query().where('clientId', clientId).delete()
-    await OAuthAccessToken.query().where('clientId', clientId).delete()
-    await OAuthAuthorizationCode.query().where('clientId', clientId).delete()
-    await OAuthPendingAuthorizationRequest.query().where('clientId', clientId).delete()
-    await OAuthConsent.query().where('clientId', clientId).delete()
-    await client.delete()
+    await OAuthClient.transaction(async (trx) => {
+      await Promise.all([
+        OAuthRefreshToken.query({ client: trx }).where('clientId', clientId).delete(),
+        OAuthAccessToken.query({ client: trx }).where('clientId', clientId).delete(),
+        OAuthAuthorizationCode.query({ client: trx }).where('clientId', clientId).delete(),
+        OAuthPendingAuthorizationRequest.query({ client: trx })
+          .where('clientId', clientId)
+          .delete(),
+        OAuthConsent.query({ client: trx }).where('clientId', clientId).delete(),
+      ])
+
+      await client.useTransaction(trx).delete()
+    })
 
     return true
   }
