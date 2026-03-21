@@ -15,6 +15,7 @@
   "main": "build/index.js",
   "exports": {
     ".": "./build/index.js",
+    "./exceptions": "./build/src/oauth_error.js",
     "./types": "./build/src/types.js",
     "./sesame_provider": "./build/providers/sesame_provider.js",
     "./guard": "./build/src/guard/main.js",
