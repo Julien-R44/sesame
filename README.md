@@ -383,6 +383,79 @@ const sesameConfig = defineConfig({
 })
 ```
 
+## Managing Clients
+
+### Creating clients from the CLI
+
+The `sesame:client` Ace command creates a new OAuth client interactively. It prompts for a name, redirect URIs, and client type, then outputs the generated credentials.
+
+```bash
+node ace sesame:client
+```
+
+You can also pass flags to skip the prompts:
+
+```bash
+node ace sesame:client --name "My App" --redirect-uris https://app.example.com/callback
+node ace sesame:client --name "SPA" --public --redirect-uris https://spa.example.com/callback
+node ace sesame:client --name "M2M Service" --grant-types client_credentials --user-id 42
+```
+
+The client secret is displayed once at creation time and cannot be retrieved later (it is stored as a SHA-256 hash).
+
+### Programmatic client management
+
+The `SesameManager` exposes methods for managing clients from your application code. This is useful for admin panels, seeding scripts, or any workflow where you need to create and manage clients without the CLI or dynamic registration.
+
+```ts
+import sesame from '@julr/sesame/services/main'
+
+// Create a confidential client
+const { client, clientSecret } = await sesame.createClient({
+  name: 'Partner App',
+  redirectUris: ['https://partner.example.com/callback'],
+  scopes: ['read', 'write'],
+  grantTypes: ['authorization_code', 'refresh_token'],
+})
+
+// Create a public client (no secret)
+const { client: spa } = await sesame.createClient({
+  name: 'SPA',
+  redirectUris: ['https://spa.example.com/callback'],
+  isPublic: true,
+})
+```
+
+`createClient` returns the client model and the raw secret. The secret is only available at creation time.
+
+To find, list, update, or delete clients:
+
+```ts
+// Find by public client_id
+const client = await sesame.findClient('a1b2c3...')
+
+// List all clients (optionally filtered by owner)
+const allClients = await sesame.listClients()
+const userClients = await sesame.listClients({ userId: '42' })
+
+// Update specific fields
+await sesame.updateClient('a1b2c3...', {
+  name: 'New Name',
+  redirectUris: ['https://new.example.com/callback'],
+  isDisabled: true,
+})
+
+// Delete a client and all its tokens, codes, and consents
+await sesame.deleteClient('a1b2c3...')
+```
+
+To rotate a confidential client's secret (e.g. after a suspected leak):
+
+```ts
+const newSecret = await sesame.rotateClientSecret('a1b2c3...')
+// Returns the new raw secret, or null if the client is public or not found
+```
+
 ## MCP Support
 
 For MCP (Model Context Protocol) servers, you can register per-resource discovery endpoints following RFC 9728. This tells MCP clients which authorization server protects a given resource.
