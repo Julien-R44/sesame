@@ -134,6 +134,42 @@ export function collectOidcClaims(
 export type GrantType = 'authorization_code' | 'refresh_token' | 'client_credentials'
 
 /**
+ * Options for creating an OAuth client programmatically.
+ */
+export interface CreateClientOptions {
+  name: string
+  redirectUris: string[]
+  scopes?: string[]
+  grantTypes?: GrantType[]
+  isPublic?: boolean
+  requirePkce?: boolean
+  userId?: string
+  metadata?: Record<string, any>
+}
+
+/**
+ * Options for updating an existing OAuth client.
+ */
+export interface UpdateClientOptions {
+  name?: string
+  redirectUris?: string[]
+  scopes?: string[]
+  grantTypes?: GrantType[]
+  isDisabled?: boolean
+  requirePkce?: boolean
+  metadata?: Record<string, any>
+}
+
+/**
+ * Result returned when creating a client.
+ * Includes the raw secret (only available at creation time).
+ */
+export interface CreateClientResult {
+  client: import('./models/oauth_client.ts').OAuthClient
+  clientSecret: string | null
+}
+
+/**
  * User-facing configuration interface for Sésame.
  *
  * Provides all options needed to set up the OAuth 2.1 authorization

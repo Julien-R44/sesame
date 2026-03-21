@@ -3,11 +3,16 @@ import type { HttpContext, Router } from '@adonisjs/core/http'
 import {
   BUILTIN_SCOPES,
   OIDC_SCOPES,
+  type CreateClientOptions,
+  type CreateClientResult,
   type ResolvedSesameConfig,
   type ResourceServerMetadata,
   type Scope,
+  type UpdateClientOptions,
 } from './types.ts'
+import { ClientService } from './services/client_service.ts'
 import { KeyService } from './services/key_service.ts'
+import { OAuthClient } from './models/oauth_client.ts'
 import { registerOAuthRoutes, registerWellKnownRoutes as registerWellKnown } from './routes.ts'
 import { OAuthAccessToken } from './models/oauth_access_token.ts'
 import { OAuthRefreshToken } from './models/oauth_refresh_token.ts'
@@ -211,6 +216,111 @@ export class SesameManager {
     )
 
     return { accessTokens, refreshTokens, authorizationCodes, pendingRequests }
+  }
+
+  /**
+   * Create a new OAuth client programmatically.
+   * Returns the client and the raw secret (only available at creation time).
+   */
+  async createClient(options: CreateClientOptions): Promise<CreateClientResult> {
+    const clientService = new ClientService()
+    const isPublic = options.isPublic ?? false
+    const grantTypes = options.grantTypes ?? ['authorization_code']
+    const scopes = options.scopes ?? this.#config.defaultScopes
+
+    const clientId = clientService.generateClientId()
+    const clientSecret = isPublic ? null : clientService.generateClientSecret()
+    const hashedSecret = clientSecret ? clientService.hashSecret(clientSecret) : null
+
+    const client = await OAuthClient.create({
+      id: crypto.randomUUID(),
+      clientId,
+      clientSecret: hashedSecret,
+      name: options.name,
+      redirectUris: options.redirectUris,
+      scopes,
+      grantTypes,
+      isPublic,
+      isDisabled: false,
+      requirePkce: options.requirePkce ?? true,
+      type: isPublic ? 'public' : 'confidential',
+      metadata: options.metadata ?? null,
+      userId: options.userId ?? null,
+    })
+
+    return { client, clientSecret }
+  }
+
+  /**
+   * Find a client by its public client_id.
+   */
+  async findClient(clientId: string): Promise<OAuthClient | null> {
+    return OAuthClient.query().where('clientId', clientId).first()
+  }
+
+  /**
+   * List all clients, optionally filtered by userId.
+   */
+  async listClients(options?: { userId?: string }): Promise<OAuthClient[]> {
+    const query = OAuthClient.query().orderBy('createdAt', 'desc')
+    if (options?.userId) query.where('userId', options.userId)
+
+    return query
+  }
+
+  /**
+   * Update an existing client by its public client_id.
+   * Returns the updated client, or null if not found.
+   */
+  async updateClient(clientId: string, options: UpdateClientOptions): Promise<OAuthClient | null> {
+    const client = await OAuthClient.query().where('clientId', clientId).first()
+    if (!client) return null
+
+    if (options.name !== undefined) client.name = options.name
+    if (options.redirectUris !== undefined) client.redirectUris = options.redirectUris
+    if (options.scopes !== undefined) client.scopes = options.scopes
+    if (options.grantTypes !== undefined) client.grantTypes = options.grantTypes
+    if (options.isDisabled !== undefined) client.isDisabled = options.isDisabled
+    if (options.requirePkce !== undefined) client.requirePkce = options.requirePkce
+    if (options.metadata !== undefined) client.metadata = options.metadata
+
+    await client.save()
+
+    return client
+  }
+
+  /**
+   * Delete a client and all its associated tokens, codes, and consents.
+   * Returns true if the client was found and deleted.
+   */
+  async deleteClient(clientId: string): Promise<boolean> {
+    const client = await OAuthClient.query().where('clientId', clientId).first()
+    if (!client) return false
+
+    await OAuthRefreshToken.query().where('clientId', clientId).delete()
+    await OAuthAccessToken.query().where('clientId', clientId).delete()
+    await OAuthAuthorizationCode.query().where('clientId', clientId).delete()
+    await OAuthPendingAuthorizationRequest.query().where('clientId', clientId).delete()
+    await OAuthConsent.query().where('clientId', clientId).delete()
+    await client.delete()
+
+    return true
+  }
+
+  /**
+   * Rotate the secret of a confidential client.
+   * Returns the new raw secret, or null if the client is public or not found.
+   */
+  async rotateClientSecret(clientId: string): Promise<string | null> {
+    const client = await OAuthClient.query().where('clientId', clientId).first()
+    if (!client || client.isPublic) return null
+
+    const clientService = new ClientService()
+    const newSecret = clientService.generateClientSecret()
+    client.clientSecret = clientService.hashSecret(newSecret)
+    await client.save()
+
+    return newSecret
   }
 
   /**
