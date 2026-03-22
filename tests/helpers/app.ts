@@ -7,6 +7,8 @@ import type { ApplicationService } from '@adonisjs/core/types'
 import { MigrationRunner } from '@adonisjs/lucid/migration'
 import { defineConfig } from '../../src/define_config.ts'
 import { SesameManager } from '../../src/sesame_manager.ts'
+import { OAuthGuard } from '../../src/guard/guard.ts'
+import { FakeUserProvider, createFakeEmitter, type FakeUser } from './fakes.ts'
 import { OAuthClient } from '../../src/models/oauth_client.ts'
 import { OAuthAuthorizationCode } from '../../src/models/oauth_authorization_code.ts'
 import { OAuthAccessToken } from '../../src/models/oauth_access_token.ts'
@@ -125,20 +127,63 @@ export async function teardownDatabase(app: ApplicationService) {
  */
 export async function createHttpServer(
   app: ApplicationService,
-  configOverrides?: Record<string, any>
+  configOverrides?: Record<string, any>,
+  options?: {
+    routePrefix?: string
+    skipOAuthRoutes?: boolean
+    skipDiscoveryRoutes?: boolean
+    setupRoutes?: (router: any, manager: SesameManager) => void
+  }
 ) {
   const adonisServer = await app.container.make('server')
   const router = adonisServer.getRouter()
 
-  adonisServer.use([() => import('@adonisjs/core/bodyparser_middleware')])
+  adonisServer.use([
+    () => import('@adonisjs/core/bodyparser_middleware'),
+    /**
+     * Fake auth middleware: wires `ctx.auth` with a real OAuthGuard
+     * so scope middleware and controllers work.
+     *
+     * Reads `X-Test-User-Id` header for non-Bearer user identification
+     * (authorize/consent flow). For Bearer token flows, the guard
+     * authenticates from the Authorization header as usual.
+     */
+    async () => ({
+      default: class {
+        async handle(ctx: any, next: () => Promise<void>) {
+          const mgr = await ctx.containerResolver.make(SesameManager)
+          const users: FakeUser[] = [
+            { id: 'user-1', name: 'Test User' },
+            { id: 'user-2', name: 'Test User 2' },
+          ]
+          const provider = new FakeUserProvider(users)
+          const emitter = createFakeEmitter()
+          const guard = new OAuthGuard('oauth', ctx, emitter, provider, mgr)
+
+          const userId = ctx.request.header('x-test-user-id')
+          ctx.auth = {
+            user: userId ? { id: userId } : undefined,
+            check: async () => !!userId,
+            use: () => guard,
+          }
+
+          await next()
+        }
+      },
+    }),
+  ])
   adonisServer.errorHandler(async () => ({ default: ExceptionHandler }))
 
   const config = createTestConfig(configOverrides)
   const manager = new SesameManager(config, router)
   app.container.singleton(SesameManager, () => manager)
 
-  router.group(() => manager.registerRoutes()).prefix('/oauth')
-  manager.registerDiscoveryRoutes()
+  if (!options?.skipOAuthRoutes) {
+    const prefix = options?.routePrefix ?? '/oauth'
+    router.group(() => manager.registerRoutes()).prefix(prefix)
+  }
+  if (!options?.skipDiscoveryRoutes) manager.registerDiscoveryRoutes()
+  options?.setupRoutes?.(router, manager)
 
   await adonisServer.boot()
 
@@ -204,13 +249,17 @@ export function setupIntegrationGroup(group: Group) {
  * Boots the app, runs migrations, starts a real HTTP server
  * on a random port, and registers all Sesame routes.
  */
-export function setupHttpGroup(group: Group, configOverrides?: Record<string, any>) {
+export function setupHttpGroup(
+  group: Group,
+  configOverrides?: Record<string, any>,
+  httpOptions?: Parameters<typeof createHttpServer>[2]
+) {
   const ctx = {} as { app: ApplicationService; baseUrl: string }
 
   group.setup(async () => {
     ctx.app = await createApp()
     await setupDatabase(ctx.app)
-    const server = await createHttpServer(ctx.app, configOverrides)
+    const server = await createHttpServer(ctx.app, configOverrides, httpOptions)
     ctx.baseUrl = server.baseUrl
 
     return async () => {

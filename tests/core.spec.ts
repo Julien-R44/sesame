@@ -1,177 +1,16 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
 import { createManager, setupIntegrationGroup } from './helpers/app.ts'
-import { mockCtx } from './helpers/mock_ctx.ts'
-import { getTestJwk, FakeUserProvider } from './helpers/fakes.ts'
 import { createTestClient } from './helpers/create_test_client.ts'
 import { createPkce } from './helpers/create_pkce.ts'
-import { OAuthClient } from '../src/models/oauth_client.ts'
-import { OAuthAuthorizationCode } from '../src/models/oauth_authorization_code.ts'
 import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
 import { OAuthRefreshToken } from '../src/models/oauth_refresh_token.ts'
+import { OAuthAuthorizationCode } from '../src/models/oauth_authorization_code.ts'
 import { OAuthConsent } from '../src/models/oauth_consent.ts'
 import { OAuthPendingAuthorizationRequest } from '../src/models/oauth_pending_authorization_request.ts'
 import { TokenService } from '../src/services/token_service.ts'
-import MetadataController from '../src/controllers/metadata_controller.ts'
-import {
-  OAuthError,
-  E_INVALID_CLIENT,
-  E_INVALID_CLIENT_METADATA,
-  E_SERVER_ERROR,
-} from '../src/oauth_error.ts'
+import { OAuthError, E_INVALID_CLIENT } from '../src/oauth_error.ts'
 import { ClientService } from '../src/services/client_service.ts'
-import AuthorizeController from '../src/controllers/authorize_controller.ts'
-import RegisterController from '../src/controllers/register_controller.ts'
-
-test.group('Integration | Metadata Endpoints', () => {
-  test('returns OAuth authorization server metadata', async ({ assert }) => {
-    const manager = createManager()
-    const ctx = mockCtx({ manager })
-
-    const controller = new MetadataController()
-    const result = await controller.authServer(ctx)
-
-    assert.equal(result.issuer, 'https://auth.example.com')
-    assert.equal(result.authorization_endpoint, 'https://auth.example.com/oauth/authorize')
-    assert.equal(result.token_endpoint, 'https://auth.example.com/oauth/token')
-    assert.deepEqual(result.response_types_supported, ['code'])
-    assert.deepEqual(result.code_challenge_methods_supported, ['S256'])
-    assert.isTrue(result.authorization_response_iss_parameter_supported)
-    assert.isDefined(result.registration_endpoint)
-  })
-
-  test('returns protected resource metadata for MCP', async ({ assert }) => {
-    const manager = createManager()
-    const ctx = mockCtx({ manager })
-
-    const controller = new MetadataController()
-    const result = await controller.protectedResource(ctx)
-
-    assert.equal(result.resource, 'https://auth.example.com')
-    assert.deepEqual(result.authorization_servers, ['https://auth.example.com'])
-    assert.isArray(result.scopes_supported)
-    assert.include(result.scopes_supported!, 'offline_access')
-    assert.deepEqual(result.bearer_methods_supported, ['header'])
-  })
-
-  test('protected resource metadata includes offline_access even with minimal scopes', async ({
-    assert,
-  }) => {
-    const manager = createManager({ scopes: { 'mcp:full': 'Full MCP access' } })
-    const ctx = mockCtx({ manager })
-
-    const controller = new MetadataController()
-    const result = await controller.protectedResource(ctx)
-
-    assert.include(result.scopes_supported!, 'mcp:full')
-    assert.include(result.scopes_supported!, 'offline_access')
-  })
-
-  test('returns OIDC metadata', async ({ assert }) => {
-    const jwk = await getTestJwk()
-    const manager = createManager({ jwk, oidcProvider: new FakeUserProvider([]) })
-    const ctx = mockCtx({ manager })
-
-    const controller = new MetadataController()
-    const result = (await controller.oidc(ctx)) as any
-
-    assert.equal(result.issuer, 'https://auth.example.com')
-    assert.deepEqual(result.subject_types_supported, ['public'])
-    assert.isArray(result.scopes_supported)
-    assert.include(result.scopes_supported, 'offline_access')
-  })
-
-  test('advertises none auth method for all endpoints', async ({ assert }) => {
-    const manager = createManager()
-    const ctx = mockCtx({ manager })
-
-    const controller = new MetadataController()
-    const result = await controller.authServer(ctx)
-
-    const allEndpoints = [
-      result.token_endpoint_auth_methods_supported,
-      result.introspection_endpoint_auth_methods_supported,
-      result.revocation_endpoint_auth_methods_supported,
-    ]
-    for (const methods of allEndpoints) assert.include(methods!, 'none')
-  })
-
-  test('hides registration endpoint when disabled', async ({ assert }) => {
-    const manager = createManager({ allowDynamicRegistration: false })
-    const ctx = mockCtx({ manager })
-
-    const controller = new MetadataController()
-    const result = await controller.authServer(ctx)
-    assert.isUndefined(result.registration_endpoint)
-  })
-
-  test('uses router-generated URLs for discovery metadata', async ({ assert }) => {
-    const manager = createManager()
-    const ctx = mockCtx({
-      manager,
-      router: {
-        has(name: string) {
-          return [
-            'sesame.authorize',
-            'sesame.token',
-            'sesame.register',
-            'sesame.introspect',
-            'sesame.revoke',
-          ].includes(name)
-        },
-        makeUrl(name: string, _params: any, opts?: { prefixUrl?: string }) {
-          const paths: Record<string, string> = {
-            'sesame.authorize': '/auth/authorize',
-            'sesame.token': '/auth/token',
-            'sesame.register': '/auth/register',
-            'sesame.introspect': '/auth/introspect',
-            'sesame.revoke': '/auth/revoke',
-          }
-
-          return `${opts?.prefixUrl ?? ''}${paths[name]}`
-        },
-      },
-    })
-
-    const controller = new MetadataController()
-    const result = await controller.authServer(ctx)
-
-    assert.equal(result.authorization_endpoint, 'https://auth.example.com/auth/authorize')
-    assert.equal(result.token_endpoint, 'https://auth.example.com/auth/token')
-    assert.equal(result.registration_endpoint, 'https://auth.example.com/auth/register')
-    assert.equal(result.introspection_endpoint, 'https://auth.example.com/auth/introspect')
-    assert.equal(result.revocation_endpoint, 'https://auth.example.com/auth/revoke')
-  })
-
-  test('throws a clear server error when OAuth routes are missing from discovery', async ({
-    assert,
-  }) => {
-    const manager = createManager()
-    const ctx = mockCtx({
-      manager,
-      router: {
-        has() {
-          return false
-        },
-        makeUrl(): string {
-          throw new Error('makeUrl should not be called when required routes are missing')
-        },
-      },
-    })
-
-    try {
-      await new MetadataController().authServer(ctx)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.instanceOf(error, E_SERVER_ERROR)
-      assert.include(error.message, 'OAuth discovery is misconfigured')
-      assert.include(error.message, 'sesame.authorize')
-      assert.include(error.message, 'sesame.token')
-      assert.include(error.message, 'sesame.introspect')
-      assert.include(error.message, 'sesame.revoke')
-    }
-  })
-})
 
 test.group('Integration | OAuth Error Handling', () => {
   test('OAuthError has correct properties', ({ assert }) => {
@@ -247,7 +86,6 @@ test.group('Integration | revokeAllForUser', (group) => {
     const tokenService = new TokenService(manager)
     const { codeChallenge } = createPkce('revoke-all-verifier')
 
-    // Create access token
     const accessTokenId = crypto.randomUUID()
     await OAuthAccessToken.create({
       id: accessTokenId,
@@ -258,7 +96,6 @@ test.group('Integration | revokeAllForUser', (group) => {
       expiresAt: DateTime.now().plus({ hours: 1 }),
     })
 
-    // Create refresh token
     await OAuthRefreshToken.create({
       id: crypto.randomUUID(),
       token: tokenService.hashToken('rt-1'),
@@ -269,7 +106,6 @@ test.group('Integration | revokeAllForUser', (group) => {
       expiresAt: DateTime.now().plus({ days: 30 }),
     })
 
-    // Create authorization code
     await OAuthAuthorizationCode.create({
       id: crypto.randomUUID(),
       code: tokenService.hashToken('code-1'),
@@ -282,7 +118,6 @@ test.group('Integration | revokeAllForUser', (group) => {
       expiresAt: DateTime.now().plus({ minutes: 10 }),
     })
 
-    // Create consent
     await OAuthConsent.create({
       id: crypto.randomUUID(),
       clientId: client.clientId,
@@ -410,151 +245,5 @@ test.group('Security | Scope validation bypass (C1/C2)', () => {
   }) => {
     const service = new ClientService()
     assert.doesNotThrow(() => service.validateClientScopes([], []))
-  })
-})
-
-test.group('Security | Scope validation bypass (C1/C2) — Integration', (group) => {
-  setupIntegrationGroup(group)
-
-  test('C1+C2: authorize endpoint rejects arbitrary scopes with empty configs', async ({
-    assert,
-  }) => {
-    const manager = createManager({ scopes: {}, defaultScopes: [] })
-    const { codeChallenge } = createPkce('a'.repeat(43))
-
-    const clientService = new ClientService()
-    await OAuthClient.create({
-      id: crypto.randomUUID(),
-      clientId: 'bypass-client',
-      clientSecret: clientService.hashSecret('secret'),
-      name: 'Bypass Client',
-      redirectUris: ['https://evil.example.com/callback'],
-      scopes: [],
-      grantTypes: ['authorization_code'],
-      isPublic: false,
-      isDisabled: false,
-      requirePkce: true,
-      type: 'confidential',
-      metadata: null,
-      userId: null,
-    })
-
-    // Pre-create consent (should never be reached due to scope rejection)
-    await OAuthConsent.create({
-      id: crypto.randomUUID(),
-      clientId: 'bypass-client',
-      userId: 'user-1',
-      scopes: ['admin', 'superuser'],
-    })
-
-    const ctx = mockCtx({
-      query: {
-        client_id: 'bypass-client',
-        response_type: 'code',
-        redirect_uri: 'https://evil.example.com/callback',
-        scope: 'admin superuser',
-        code_challenge: codeChallenge,
-        code_challenge_method: 'S256',
-      },
-      auth: { user: { id: 'user-1' } },
-      manager,
-    })
-
-    const result = (await new AuthorizeController().handle(ctx)) as any
-
-    // C1 rejects unknown scopes → redirect with invalid_scope error
-    assert.include(result.redirectUrl, 'error=invalid_scope')
-
-    // No auth code should have been created
-    const authCodes = await OAuthAuthorizationCode.query()
-      .where('clientId', 'bypass-client')
-      .where('userId', 'user-1')
-    assert.lengthOf(authCodes, 0)
-  })
-
-  test('B5: registration rejects client_name longer than 255 characters', async ({ assert }) => {
-    const manager = createManager()
-    const ctx = mockCtx({
-      body: {
-        redirect_uris: ['https://app.example.com/callback'],
-        token_endpoint_auth_method: 'none',
-        client_name: 'A'.repeat(256),
-      },
-      manager,
-    })
-
-    await assert.rejects(() => new RegisterController().handle(ctx), E_INVALID_CLIENT_METADATA)
-  })
-
-  test('B5: registration trims client_name whitespace', async ({ assert }) => {
-    const manager = createManager()
-    const ctx = mockCtx({
-      body: {
-        redirect_uris: ['https://app.example.com/callback'],
-        token_endpoint_auth_method: 'none',
-        client_name: '  My App  ',
-      },
-      manager,
-    })
-
-    const result = await new RegisterController().handle(ctx)
-    assert.equal(result.client_name, 'My App')
-  })
-
-  test('B5: registration accepts client_name at exactly 255 characters', async ({ assert }) => {
-    const manager = createManager()
-    const name = 'A'.repeat(255)
-    const ctx = mockCtx({
-      body: {
-        redirect_uris: ['https://app.example.com/callback'],
-        token_endpoint_auth_method: 'none',
-        client_name: name,
-      },
-      manager,
-    })
-
-    const result = await new RegisterController().handle(ctx)
-    assert.equal(result.client_name, name)
-  })
-
-  test('C1+C2: dynamic registration → authorize rejects arbitrary scopes', async ({ assert }) => {
-    const manager = createManager({ scopes: {}, defaultScopes: [] })
-    const { codeChallenge } = createPkce('b'.repeat(43))
-
-    // Step 1: Register a public client (no scopes → gets defaultScopes = [])
-    const registerCtx = mockCtx({
-      body: {
-        redirect_uris: ['https://attacker.example.com/callback'],
-        token_endpoint_auth_method: 'none',
-      },
-      manager,
-    })
-    const registerResult = await new RegisterController().handle(registerCtx)
-    assert.isDefined(registerResult.client_id)
-
-    // Step 2: Authorize with arbitrary scopes — should be rejected by C1
-    const authorizeCtx = mockCtx({
-      query: {
-        client_id: registerResult.client_id,
-        response_type: 'code',
-        redirect_uri: 'https://attacker.example.com/callback',
-        scope: 'admin superuser',
-        code_challenge: codeChallenge,
-        code_challenge_method: 'S256',
-      },
-      auth: { user: { id: 'user-1' } },
-      manager,
-    })
-    const authorizeResult = (await new AuthorizeController().handle(authorizeCtx)) as any
-
-    // Attack chain broken at authorize: scopes rejected
-    assert.include(authorizeResult.redirectUrl, 'error=invalid_scope')
-    assert.include(authorizeResult.redirectUrl, 'admin')
-
-    // No auth code or token should exist
-    const authCodes = await OAuthAuthorizationCode.query().where('userId', 'user-1')
-    assert.lengthOf(authCodes, 0)
-    const accessTokens = await OAuthAccessToken.query().where('userId', 'user-1')
-    assert.lengthOf(accessTokens, 0)
   })
 })

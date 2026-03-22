@@ -1,10 +1,12 @@
 import { test } from '@japa/runner'
+import { HttpContextFactory, RequestFactory } from '@adonisjs/core/factories/http'
 import { createManager, setupIntegrationGroup } from './helpers/app.ts'
 import { createTestClient } from './helpers/create_test_client.ts'
-import { createTestGuard } from './helpers/create_test_guard.ts'
+import { createFakeEmitter, FakeUserProvider } from './helpers/fakes.ts'
 import { assertOAuthError } from './helpers/assert_oauth_error.ts'
 import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
 import { OAuthRefreshToken } from '../src/models/oauth_refresh_token.ts'
+import { OAuthGuard } from '../src/guard/guard.ts'
 import { ClientService } from '../src/services/client_service.ts'
 import { ExchangeClientCredentialsAction } from '../src/actions/exchange_client_credentials.ts'
 
@@ -66,11 +68,11 @@ test.group('Integration | Client Credentials Grant', (group) => {
       scope: 'read',
     })
 
-    const { guard } = createTestGuard({
-      manager,
-      bearerToken: result.access_token,
-      users: [{ id: 'user-1', name: 'Service Account' }],
-    })
+    const request = new RequestFactory().merge({ url: '/' }).create()
+    request.request.headers.authorization = `Bearer ${result.access_token}`
+    const ctx = new HttpContextFactory().merge({ request }).create()
+    const provider = new FakeUserProvider([{ id: 'user-1', name: 'Service Account' }])
+    const guard = new OAuthGuard('oauth', ctx, createFakeEmitter(), provider, manager)
 
     const user = await guard.authenticate()
 

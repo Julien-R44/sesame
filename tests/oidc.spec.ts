@@ -3,10 +3,8 @@ import { createHash } from 'node:crypto'
 import { DateTime } from 'luxon'
 import { jwtVerify } from 'jose'
 import { createManager, setupIntegrationGroup } from './helpers/app.ts'
-import { mockCtx } from './helpers/mock_ctx.ts'
 import { getTestJwk, FakeUserProvider, type FakeUser } from './helpers/fakes.ts'
 import { createTestClient } from './helpers/create_test_client.ts'
-import { createTestAccessToken } from './helpers/create_test_access_token.ts'
 import { createAuthCodeExchange } from './helpers/create_auth_code_exchange.ts'
 import { KeyService } from '../src/services/key_service.ts'
 import { IdTokenService } from '../src/services/id_token_service.ts'
@@ -14,9 +12,6 @@ import { TokenService } from '../src/services/token_service.ts'
 import { OAuthAuthorizationCode } from '../src/models/oauth_authorization_code.ts'
 import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
 import { OAuthRefreshToken } from '../src/models/oauth_refresh_token.ts'
-import MetadataController from '../src/controllers/metadata_controller.ts'
-import JwksController from '../src/controllers/jwks_controller.ts'
-import UserinfoController from '../src/controllers/userinfo_controller.ts'
 import { ExchangeAuthorizationCodeAction } from '../src/actions/exchange_authorization_code.ts'
 import { ExchangeRefreshTokenAction } from '../src/actions/exchange_refresh_token.ts'
 import { OIDC_SCOPES, RESERVED_OIDC_CLAIMS } from '../src/types.ts'
@@ -304,113 +299,6 @@ test.group('SesameManager OIDC', () => {
   })
 })
 
-// --- OIDC Metadata ---
-
-test.group('OIDC Metadata', () => {
-  test('returns 404 when OIDC is not configured', async ({ assert }) => {
-    const manager = createManager()
-    const ctx = mockCtx({ manager })
-
-    const controller = new MetadataController()
-    const result = await controller.oidc(ctx)
-
-    assert.equal(ctx.__responseStatus, 404)
-    assert.deepEqual(result, { error: 'OIDC is not configured' })
-  })
-
-  test('returns 404 when JWK is configured without an OIDC provider', async ({ assert }) => {
-    const jwk = await getTestJwk()
-    const manager = createManager({ jwk })
-    const ctx = mockCtx({ manager })
-
-    const controller = new MetadataController()
-    const result = await controller.oidc(ctx)
-
-    assert.equal(ctx.__responseStatus, 404)
-    assert.deepEqual(result, { error: 'OIDC is not configured' })
-  })
-
-  test('returns complete OIDC metadata when configured', async ({ assert }) => {
-    const jwk = await getTestJwk()
-    const manager = createManager({ jwk, oidcProvider: new FakeUserProvider([]) })
-    const ctx = mockCtx({ manager })
-
-    const controller = new MetadataController()
-    const result = (await controller.oidc(ctx)) as any
-
-    assert.equal(result.issuer, 'https://auth.example.com')
-    assert.deepEqual(result.subject_types_supported, ['public'])
-    assert.deepEqual(result.id_token_signing_alg_values_supported, ['RS256'])
-    assert.include(result.scopes_supported, 'openid')
-    assert.include(result.scopes_supported, 'profile')
-    assert.include(result.scopes_supported, 'email')
-    assert.isString(result.jwks_uri)
-    assert.isString(result.userinfo_endpoint)
-    assert.isArray(result.claims_supported)
-    assert.include(result.claims_supported, 'sub')
-    assert.include(result.claims_supported, 'at_hash')
-  })
-
-  test('throws a clear server error when OIDC routes are missing from discovery', async ({
-    assert,
-  }) => {
-    const jwk = await getTestJwk()
-    const manager = createManager({ jwk, oidcProvider: new FakeUserProvider([]) })
-    const ctx = mockCtx({
-      manager,
-      router: {
-        has(name: string) {
-          return !['sesame.userinfo', 'sesame.jwks'].includes(name)
-        },
-        makeUrl(name: string, _params?: any, opts?: { prefixUrl?: string }) {
-          const path = name === 'sesame.userinfo' ? '/oauth/userinfo' : '/jwks'
-          return opts?.prefixUrl ? `${opts.prefixUrl}${path}` : path
-        },
-      },
-    })
-
-    const controller = new MetadataController()
-
-    await assert.rejects(
-      () => controller.oidc(ctx),
-      'OIDC discovery is misconfigured. Missing named route(s): sesame.userinfo, sesame.jwks. Register OAuth routes with sesame.registerRoutes(router) and sesame.registerWellKnownRoutes(router) before exposing OpenID discovery.'
-    )
-  })
-})
-
-// --- JWKS Endpoint ---
-
-test.group('JWKS Endpoint', () => {
-  test('returns 404 when OIDC is not configured', async ({ assert }) => {
-    const manager = createManager()
-    const ctx = mockCtx({ manager })
-
-    const controller = new JwksController()
-    const result = await controller.handle(ctx)
-
-    assert.equal(ctx.__responseStatus, 404)
-    assert.deepEqual(result, { error: 'OIDC is not configured' })
-  })
-
-  test('returns public JWKS', async ({ assert }) => {
-    const jwk = await getTestJwk()
-    const manager = createManager({ jwk, oidcProvider: new FakeUserProvider([]) })
-    const ctx = mockCtx({ manager })
-
-    const controller = new JwksController()
-    const result = await controller.handle(ctx)
-    assert.notProperty(result, 'error')
-
-    const jwks = result as { keys: import('jose').JWK[] }
-    assert.isArray(jwks.keys)
-    assert.equal(jwks.keys.length, 1)
-    assert.equal(jwks.keys[0].alg, 'RS256')
-    assert.notProperty(jwks.keys[0], 'd')
-    assert.equal(ctx.__responseHeaders['Content-Type'], 'application/jwk-set+json')
-    assert.include(ctx.__responseHeaders['Cache-Control'], 'public')
-  })
-})
-
 // --- Integration: Authorization Code Grant with openid ---
 
 test.group('Authorization Code Grant — OIDC', (group) => {
@@ -669,113 +557,5 @@ test.group('Refresh Token Grant — OIDC', (group) => {
     assert.exists(originalRefreshToken)
     assert.isNull(originalAccessToken!.revokedAt)
     assert.isNull(originalRefreshToken!.revokedAt)
-  })
-})
-
-// --- UserInfo Endpoint ---
-
-test.group('UserInfo Endpoint', (group) => {
-  setupIntegrationGroup(group)
-  const users: FakeUser[] = [{ id: 'user-1', name: 'Test User' }]
-
-  group.each.setup(async () => {
-    await createTestClient({ scopes: ['read', 'openid', 'offline_access'] })
-  })
-
-  test('returns sub for valid token with openid scope', async ({ assert }) => {
-    const jwk = await getTestJwk()
-    const userProvider = new FakeUserProvider(users)
-    const manager = createManager({ jwk, oidcProvider: userProvider })
-
-    const { raw } = await createTestAccessToken({ manager, scopes: ['openid', 'read'] })
-
-    const ctx = mockCtx({
-      manager,
-      headers: { authorization: `Bearer ${raw}` },
-    })
-
-    const controller = new UserinfoController()
-    const result = await controller.handle(ctx)
-
-    assert.equal(result.sub, 'user-1')
-  })
-
-  test('accepts POST body access_token', async ({ assert }) => {
-    const jwk = await getTestJwk()
-    const userProvider = new FakeUserProvider(users)
-    const manager = createManager({ jwk, oidcProvider: userProvider })
-
-    const { raw } = await createTestAccessToken({ manager, scopes: ['openid', 'read'] })
-
-    const ctx = mockCtx({
-      manager,
-      body: { access_token: raw },
-    })
-
-    const controller = new UserinfoController()
-    const result = await controller.handle(ctx)
-
-    assert.equal(result.sub, 'user-1')
-  })
-
-  test('rejects request without Bearer token', async ({ assert }) => {
-    const jwk = await getTestJwk()
-    const manager = createManager({ jwk })
-    const ctx = mockCtx({ manager })
-
-    const controller = new UserinfoController()
-
-    await assert.rejects(() => controller.handle(ctx), 'Missing Bearer token')
-  })
-
-  test('rejects token without openid scope', async ({ assert }) => {
-    const jwk = await getTestJwk()
-    const manager = createManager({ jwk })
-
-    const { raw } = await createTestAccessToken({ manager, scopes: ['read'] })
-
-    const ctx = mockCtx({
-      manager,
-      headers: { authorization: `Bearer ${raw}` },
-    })
-
-    const controller = new UserinfoController()
-
-    try {
-      await controller.handle(ctx)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.equal(error.oauthCode, 'insufficient_scope')
-      error.handle(error, ctx)
-      assert.equal(ctx.__responseStatus, 403)
-      assert.include(ctx.__responseHeaders['WWW-Authenticate'], 'error="insufficient_scope"')
-      assert.include(ctx.__responseHeaders['WWW-Authenticate'], 'scope="openid"')
-    }
-  })
-
-  test('rejects token when the OIDC user can no longer be resolved', async ({ assert }) => {
-    const jwk = await getTestJwk()
-    const manager = createManager({ jwk, oidcProvider: new FakeUserProvider([]) })
-
-    const { raw } = await createTestAccessToken({ manager, scopes: ['openid', 'read'] })
-
-    const ctx = mockCtx({
-      manager,
-      headers: { authorization: `Bearer ${raw}` },
-    })
-
-    const controller = new UserinfoController()
-
-    try {
-      await controller.handle(ctx)
-      assert.fail('Should have thrown')
-    } catch (error: any) {
-      assert.equal(error.oauthCode, 'invalid_token')
-      error.handle(error, ctx)
-      assert.equal(ctx.__responseStatus, 401)
-      assert.include(ctx.__responseHeaders['WWW-Authenticate'], 'Bearer')
-      assert.include(ctx.__responseHeaders['WWW-Authenticate'], 'error="invalid_token"')
-      assert.include(ctx.__responseHeaders['WWW-Authenticate'], 'Invalid access token')
-    }
   })
 })
