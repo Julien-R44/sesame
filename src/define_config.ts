@@ -29,6 +29,7 @@ export function defineConfig<const TScopes extends Record<string, string>>(
     clientCredentialsAccessTokenTtl:
       config.clientCredentialsAccessTokenTtl ?? config.accessTokenTtl ?? '1h',
     refreshTokenTtl: config.refreshTokenTtl ?? '30d',
+    refreshTokenRotationGracePeriod: config.refreshTokenRotationGracePeriod ?? 120,
     authorizationCodeTtl: config.authorizationCodeTtl ?? '10m',
     authorizationRequestTtl: config.authorizationRequestTtl ?? config.authorizationCodeTtl ?? '10m',
     loginPage: config.loginPage,

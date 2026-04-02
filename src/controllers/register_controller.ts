@@ -76,7 +76,7 @@ export default class RegisterController {
     // Apply defaults for optional client metadata fields
     const tokenEndpointAuthMethod = body.token_endpoint_auth_method ?? 'client_secret_basic'
     const isPublic = tokenEndpointAuthMethod === 'none'
-    const grantTypes = body.grant_types ?? ['authorization_code']
+    const grantTypes = body.grant_types ?? ['authorization_code', 'refresh_token']
     const responseTypes = body.response_types ?? ['code']
     const scopes = body.scope ? body.scope.split(' ') : manager.config.defaultScopes
 

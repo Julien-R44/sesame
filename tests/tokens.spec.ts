@@ -127,7 +127,7 @@ test.group('Integration | Refresh Token Grant', (group) => {
       userId: 'user-1',
       scopes: ['read'],
       expiresAt: DateTime.now().plus({ days: 30 }),
-      revokedAt: DateTime.now().minus({ minutes: 1 }),
+      revokedAt: DateTime.now().minus({ minutes: 5 }),
     })
 
     // Another valid refresh token for the same user+client
@@ -155,6 +155,33 @@ test.group('Integration | Refresh Token Grant', (group) => {
       .where('clientId', 'test-client')
       .where('userId', 'user-1')
     assert.lengthOf(remaining, 0)
+  })
+
+  test('grace period allows recently-rotated refresh token reuse', async ({ assert }) => {
+    const client = await createTestClient()
+    const manager = createManager()
+    const tokenService = new TokenService(manager)
+
+    const rawRefreshToken = 'recently-rotated-refresh'
+    await OAuthRefreshToken.create({
+      id: crypto.randomUUID(),
+      token: tokenService.hashToken(rawRefreshToken),
+      accessTokenId: crypto.randomUUID(),
+      clientId: 'test-client',
+      userId: 'user-1',
+      scopes: ['read'],
+      expiresAt: DateTime.now().plus({ days: 30 }),
+      revokedAt: DateTime.now().minus({ seconds: 30 }),
+    })
+
+    const result = await new ExchangeRefreshTokenAction().execute(manager, {
+      client,
+      refreshToken: rawRefreshToken,
+    })
+
+    assert.property(result, 'access_token')
+    assert.property(result, 'refresh_token')
+    assert.equal(result.token_type, 'Bearer')
   })
 
   test('rejects concurrent rotation of the same refresh token', async ({ assert }) => {

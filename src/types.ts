@@ -217,6 +217,19 @@ export interface SesameConfig {
   refreshTokenTtl?: string
 
   /**
+   * Grace period (in seconds) during which a recently-rotated
+   * refresh token is still accepted instead of triggering
+   * replay-attack detection. Handles race conditions in
+   * multi-process clients (e.g. MCP SDK).
+   *
+   * Set to `0` to disable (strict rotation, no grace period).
+   * Defaults to `120` (2 minutes).
+   *
+   * @see https://auth0.com/docs/secure/tokens/refresh-tokens/configure-refresh-token-rotation
+   */
+  refreshTokenRotationGracePeriod?: number
+
+  /**
    * Access token TTL for the client_credentials grant (M2M).
    * Defaults to `accessTokenTtl`.
    */
@@ -302,6 +315,7 @@ export interface ResolvedSesameConfig {
   accessTokenTtl: string
   clientCredentialsAccessTokenTtl: string
   refreshTokenTtl: string
+  refreshTokenRotationGracePeriod: number
   authorizationCodeTtl: string
   authorizationRequestTtl: string
   loginPage: string | ((ctx: HttpContext, params: URLSearchParams) => string)

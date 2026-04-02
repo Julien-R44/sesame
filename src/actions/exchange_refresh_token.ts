@@ -27,11 +27,34 @@ export interface ExchangeRefreshTokenInput {
  * refresh token (rotation). The old refresh token is revoked
  * immediately after use.
  *
- * Implements replay detection: if a revoked refresh token is
- * presented, all tokens for that client+user pair are nuked
- * to mitigate stolen token reuse attacks.
+ * ## Replay detection
+ *
+ * If a revoked refresh token is presented **outside** the grace
+ * period, all tokens for that client+user pair are nuked to
+ * mitigate stolen-token reuse (RFC 6819 §5.2.2.3, RFC 9700 §4.14.2).
+ *
+ * ## Grace period (rotation reuse window)
+ *
+ * OAuth 2.1 requires that rotated refresh tokens be single-use.
+ * However, that requirement conflicts with the realities of
+ * distributed systems: if the server rotates the token but the
+ * client never receives (or persists) the new token — due to a
+ * network failure, a concurrent refresh from another process, or
+ * a retry after timeout — the client loses its grant permanently.
+ *
+ * To handle this, we allow a recently-rotated refresh token to be
+ * reused within a short configurable window (`refreshTokenRotationGracePeriod`,
+ * defaults to 120 s). During that window the old token issues fresh
+ * tokens without triggering replay-attack revocation.
+ *
+ * This is the same approach used by Auth0 ("reuse interval") and
+ * Cloudflare workers-oauth-provider ("previous token"). It provides
+ * most of the security benefits of strict rotation while remaining
+ * reliable for real-world clients (MCP SDK, multi-process CLIs, etc.).
  *
  * @see https://datatracker.ietf.org/doc/html/rfc6749#section-6
+ * @see https://datatracker.ietf.org/doc/html/rfc6819#section-5.2.2.3
+ * @see https://datatracker.ietf.org/doc/html/rfc9700#section-4.14.2
  */
 export class ExchangeRefreshTokenAction {
   /**
@@ -59,8 +82,22 @@ export class ExchangeRefreshTokenAction {
     if (!refreshToken) throw new E_INVALID_GRANT('Refresh token not found')
 
     if (refreshToken.revokedAt) {
-      await this.#nukeTokensForReplay(input.client.clientId, refreshToken.userId)
-      throw new E_INVALID_GRANT('Refresh token has been revoked (possible replay attack)')
+      const gracePeriodSeconds = manager.config.refreshTokenRotationGracePeriod
+      const revokedSecondsAgo = DateTime.now().diff(refreshToken.revokedAt, 'seconds').seconds
+
+      if (gracePeriodSeconds <= 0 || revokedSecondsAgo > gracePeriodSeconds) {
+        await this.#nukeTokensForReplay(input.client.clientId, refreshToken.userId)
+        throw new E_INVALID_GRANT('Refresh token has been revoked (possible replay attack)')
+      }
+
+      /**
+       * Within grace period — the old refresh token was recently
+       * rotated and a concurrent client is reusing it. Issue new
+       * tokens without nuking the family. This matches Auth0 / Okta
+       * behavior for handling race conditions in multi-process
+       * clients (e.g. MCP SDK proactive refresh + SDK 401 retry).
+       */
+      return this.#issueFreshTokens(manager, input, refreshToken)
     }
 
     if (refreshToken.expiresAt < DateTime.now()) {
@@ -80,6 +117,64 @@ export class ExchangeRefreshTokenAction {
     )
 
     await this.#atomicRotation(input, refreshToken, accessToken, newRefreshToken, scopes)
+
+    const ttlSeconds = string.seconds.parse(manager.config.accessTokenTtl)
+
+    return {
+      access_token: accessToken.raw,
+      token_type: 'Bearer' as const,
+      expires_in: ttlSeconds,
+      scope: scopes.join(' '),
+      refresh_token: newRefreshToken.raw,
+      ...(idToken ? { id_token: idToken } : {}),
+    }
+  }
+
+  /**
+   * Grace-period reuse: the old refresh token was rotated
+   * recently and a concurrent client replayed it. Issue a
+   * brand-new AT + RT pair directly (the old pair is already
+   * revoked from the first rotation).
+   */
+  async #issueFreshTokens(
+    manager: SesameManager,
+    input: ExchangeRefreshTokenInput,
+    revokedRefreshToken: OAuthRefreshToken
+  ) {
+    const tokenService = new TokenService(manager)
+    const clientService = new ClientService()
+    const scopes = this.#resolveScopes(manager, input, revokedRefreshToken, clientService)
+
+    const accessToken = tokenService.createAccessToken()
+    const newRefreshToken = this.#prepareRefreshToken(manager, tokenService)
+    const idToken = await this.#prepareIdToken(
+      manager,
+      scopes,
+      revokedRefreshToken,
+      input.client,
+      accessToken.raw
+    )
+
+    const accessTokenId = crypto.randomUUID()
+
+    await OAuthAccessToken.create({
+      id: accessTokenId,
+      tokenHash: accessToken.hash,
+      clientId: input.client.clientId,
+      userId: revokedRefreshToken.userId,
+      scopes,
+      expiresAt: DateTime.fromJSDate(accessToken.expiresAt),
+    })
+
+    await OAuthRefreshToken.create({
+      id: crypto.randomUUID(),
+      token: newRefreshToken.hash,
+      accessTokenId,
+      clientId: input.client.clientId,
+      userId: revokedRefreshToken.userId,
+      scopes,
+      expiresAt: newRefreshToken.expiresAt,
+    })
 
     const ttlSeconds = string.seconds.parse(manager.config.accessTokenTtl)
 
