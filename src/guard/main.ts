@@ -2,23 +2,11 @@ import type { HttpContext } from '@adonisjs/core/http'
 import { symbols } from '@adonisjs/auth'
 import type { GuardConfigProvider } from '@adonisjs/auth/types'
 import type { EmitterLike } from '@adonisjs/core/types/events'
-import type { LucidModel } from '@adonisjs/lucid/types/model'
 import { OAuthGuard } from './guard.ts'
-import { OAuthLucidUserProvider } from './user_provider.ts'
-import type {
-  OAuthGuardEvents,
-  OAuthLucidUserProviderOptions,
-  OAuthUserProviderContract,
-} from './types.ts'
+import type { OAuthGuardEvents, OAuthUserProviderContract } from './types.ts'
 
 export { OAuthGuard } from './guard.ts'
-export { OAuthLucidUserProvider } from './user_provider.ts'
-export type {
-  OAuthGuardUser,
-  OAuthGuardEvents,
-  OAuthUserProviderContract,
-  OAuthLucidUserProviderOptions,
-} from './types.ts'
+export type { OAuthGuardUser, OAuthGuardEvents, OAuthUserProviderContract } from './types.ts'
 
 /**
  * Configure the OAuth guard for `@adonisjs/auth`.
@@ -44,13 +32,4 @@ export function oauthGuard<UserProvider extends OAuthUserProviderContract<unknow
         )
     },
   }
-}
-
-/**
- * Create a Lucid-based user provider for the OAuth guard.
- */
-export function oauthUserProvider<Model extends LucidModel>(
-  options: OAuthLucidUserProviderOptions<Model>
-): OAuthLucidUserProvider<Model> {
-  return new OAuthLucidUserProvider(options)
 }

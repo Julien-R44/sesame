@@ -1,0 +1,145 @@
+import type { Kysely } from 'kysely'
+
+/**
+ * Kysely migration for Sesame's OAuth tables.
+ */
+export async function up(db: Kysely<any>): Promise<void> {
+  // Clients own OAuth grants and define the allowed redirects, scopes, and grant types.
+  await db.schema
+    .createTable('oauth_clients')
+    .addColumn('id', 'varchar(36)', (column) => column.primaryKey())
+    .addColumn('client_id', 'varchar(255)', (column) => column.notNull().unique())
+    .addColumn('client_secret', 'text')
+    .addColumn('name', 'varchar(255)', (column) => column.notNull())
+    .addColumn('redirect_uris', 'json', (column) => column.notNull())
+    .addColumn('scopes', 'json', (column) => column.notNull())
+    .addColumn('grant_types', 'json', (column) => column.notNull())
+    .addColumn('is_public', 'boolean', (column) => column.notNull().defaultTo(false))
+    .addColumn('is_disabled', 'boolean', (column) => column.notNull().defaultTo(false))
+    .addColumn('require_pkce', 'boolean', (column) => column.notNull().defaultTo(true))
+    .addColumn('type', 'varchar(255)')
+    .addColumn('metadata', 'json')
+    .addColumn('user_id', 'varchar(255)')
+    .addColumn('created_at', 'timestamp', (column) => column.notNull())
+    .addColumn('updated_at', 'timestamp', (column) => column.notNull())
+    .execute()
+
+  // Access tokens are stored by hash so a leaked database never exposes bearer tokens.
+  await db.schema
+    .createTable('oauth_access_tokens')
+    .addColumn('id', 'varchar(36)', (column) => column.primaryKey())
+    .addColumn('token_hash', 'varchar(255)', (column) => column.notNull().unique())
+    .addColumn('client_id', 'varchar(255)', (column) =>
+      column.notNull().references('oauth_clients.client_id').onDelete('cascade')
+    )
+    .addColumn('user_id', 'varchar(255)')
+    .addColumn('scopes', 'json', (column) => column.notNull())
+    .addColumn('expires_at', 'timestamp', (column) => column.notNull())
+    .addColumn('revoked_at', 'timestamp')
+    .addColumn('created_at', 'timestamp', (column) => column.notNull())
+    .addColumn('updated_at', 'timestamp', (column) => column.notNull())
+    .execute()
+
+  // Refresh tokens point to their access token so rotation can revoke the old pair.
+  await db.schema
+    .createTable('oauth_refresh_tokens')
+    .addColumn('id', 'varchar(36)', (column) => column.primaryKey())
+    .addColumn('token', 'varchar(255)', (column) => column.notNull())
+    .addColumn('access_token_id', 'varchar(36)', (column) => column.notNull())
+    .addColumn('client_id', 'varchar(255)', (column) =>
+      column.notNull().references('oauth_clients.client_id').onDelete('cascade')
+    )
+    .addColumn('user_id', 'varchar(255)', (column) => column.notNull())
+    .addColumn('scopes', 'json', (column) => column.notNull())
+    .addColumn('expires_at', 'timestamp', (column) => column.notNull())
+    .addColumn('revoked_at', 'timestamp')
+    .addColumn('created_at', 'timestamp', (column) => column.notNull())
+    .addColumn('updated_at', 'timestamp', (column) => column.notNull())
+    .execute()
+  // Token lookup is part of the refresh grant's hot path.
+  await db.schema
+    .createIndex('oauth_refresh_tokens_token_idx')
+    .on('oauth_refresh_tokens')
+    .column('token')
+    .execute()
+
+  // Authorization codes are short-lived, single-use credentials for the code grant.
+  await db.schema
+    .createTable('oauth_authorization_codes')
+    .addColumn('id', 'varchar(36)', (column) => column.primaryKey())
+    .addColumn('code', 'varchar(255)', (column) => column.notNull())
+    .addColumn('client_id', 'varchar(255)', (column) =>
+      column.notNull().references('oauth_clients.client_id').onDelete('cascade')
+    )
+    .addColumn('user_id', 'varchar(255)', (column) => column.notNull())
+    .addColumn('scopes', 'json', (column) => column.notNull())
+    .addColumn('redirect_uri', 'text', (column) => column.notNull())
+    .addColumn('code_challenge', 'varchar(255)')
+    .addColumn('code_challenge_method', 'varchar(255)')
+    .addColumn('nonce', 'varchar(255)')
+    .addColumn('expires_at', 'timestamp', (column) => column.notNull())
+    .addColumn('created_at', 'timestamp', (column) => column.notNull())
+    .addColumn('updated_at', 'timestamp', (column) => column.notNull())
+    .execute()
+  // Locate the authorization code submitted to the token endpoint.
+  await db.schema
+    .createIndex('oauth_authorization_codes_code_idx')
+    .on('oauth_authorization_codes')
+    .column('code')
+    .execute()
+
+  // A consent records the scopes approved by one user for one client.
+  await db.schema
+    .createTable('oauth_consents')
+    .addColumn('id', 'varchar(36)', (column) => column.primaryKey())
+    .addColumn('client_id', 'varchar(255)', (column) =>
+      column.notNull().references('oauth_clients.client_id').onDelete('cascade')
+    )
+    .addColumn('user_id', 'varchar(255)', (column) => column.notNull())
+    .addColumn('scopes', 'json', (column) => column.notNull())
+    .addColumn('created_at', 'timestamp', (column) => column.notNull())
+    .addColumn('updated_at', 'timestamp', (column) => column.notNull())
+    .execute()
+  // Only one consent record may exist for a client and user pair.
+  await db.schema
+    .createIndex('oauth_consents_client_id_user_id_unique')
+    .on('oauth_consents')
+    .columns(['client_id', 'user_id'])
+    .unique()
+    .execute()
+
+  // Pending requests carry the authorization context across the consent redirect.
+  await db.schema
+    .createTable('oauth_pending_authorization_requests')
+    .addColumn('id', 'varchar(36)', (column) => column.primaryKey())
+    .addColumn('token', 'varchar(255)', (column) => column.notNull())
+    .addColumn('client_id', 'varchar(255)', (column) =>
+      column.notNull().references('oauth_clients.client_id').onDelete('cascade')
+    )
+    .addColumn('user_id', 'varchar(255)', (column) => column.notNull())
+    .addColumn('scopes', 'json', (column) => column.notNull())
+    .addColumn('redirect_uri', 'text', (column) => column.notNull())
+    .addColumn('state', 'varchar(255)')
+    .addColumn('code_challenge', 'varchar(255)')
+    .addColumn('code_challenge_method', 'varchar(255)')
+    .addColumn('nonce', 'varchar(255)')
+    .addColumn('expires_at', 'timestamp', (column) => column.notNull())
+    .addColumn('created_at', 'timestamp', (column) => column.notNull())
+    .execute()
+  // Resolve the opaque pending-request token when the consent form returns.
+  await db.schema
+    .createIndex('oauth_pending_authorization_requests_token_idx')
+    .on('oauth_pending_authorization_requests')
+    .column('token')
+    .execute()
+}
+
+export async function down(db: Kysely<any>): Promise<void> {
+  // Drop children before clients to respect the client foreign keys.
+  await db.schema.dropTable('oauth_pending_authorization_requests').execute()
+  await db.schema.dropTable('oauth_consents').execute()
+  await db.schema.dropTable('oauth_authorization_codes').execute()
+  await db.schema.dropTable('oauth_refresh_tokens').execute()
+  await db.schema.dropTable('oauth_access_tokens').execute()
+  await db.schema.dropTable('oauth_clients').execute()
+}

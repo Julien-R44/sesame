@@ -1,0 +1,195 @@
+import type { DateTime } from 'luxon'
+
+/**
+ * Stored OAuth client. `clientSecret` is a hash and must never be exposed
+ * in public responses.
+ */
+export interface OAuthClientRecord {
+  id: string
+  clientId: string
+  clientSecret: string | null
+  name: string
+  redirectUris: string[]
+  scopes: string[]
+  grantTypes: string[]
+  isPublic: boolean
+  isDisabled: boolean
+  requirePkce: boolean
+  type: string | null
+  metadata: Record<string, any> | null
+  userId: string | null
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+export interface OAuthAccessTokenRecord {
+  id: string
+  tokenHash: string
+  clientId: string
+  userId: string | null
+  scopes: string[]
+  expiresAt: DateTime
+  revokedAt: DateTime | null
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+export interface OAuthRefreshTokenRecord {
+  id: string
+  token: string
+  accessTokenId: string
+  clientId: string
+  userId: string
+  scopes: string[]
+  expiresAt: DateTime
+  revokedAt: DateTime | null
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+export interface OAuthAuthorizationCodeRecord {
+  id: string
+  code: string
+  clientId: string
+  userId: string
+  scopes: string[]
+  redirectUri: string
+  codeChallenge: string | null
+  codeChallengeMethod: string | null
+  nonce: string | null
+  expiresAt: DateTime
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+export interface OAuthConsentRecord {
+  id: string
+  clientId: string
+  userId: string
+  scopes: string[]
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+export interface OAuthPendingAuthorizationRequestRecord {
+  id: string
+  token: string
+  userId: string
+  clientId: string
+  redirectUri: string
+  scopes: string[]
+  state: string | null
+  codeChallenge: string | null
+  codeChallengeMethod: string | null
+  nonce: string | null
+  expiresAt: DateTime
+  createdAt: DateTime
+}
+
+type SesameOptionalCreateKeys<T> =
+  | Extract<keyof T, 'createdAt' | 'updatedAt'>
+  | { [K in keyof T]-?: null extends T[K] ? K : never }[keyof T]
+
+/**
+ * Nullable fields default to null; timestamps default to the current time.
+ */
+export type SesameCreateRecord<T> = Omit<T, SesameOptionalCreateKeys<T>> &
+  Partial<Pick<T, SesameOptionalCreateKeys<T>>>
+
+/**
+ * Creation input for each persisted OAuth record.
+ */
+export type CreateClientRecord = SesameCreateRecord<OAuthClientRecord>
+export type CreateAccessTokenRecord = SesameCreateRecord<OAuthAccessTokenRecord>
+export type CreateRefreshTokenRecord = SesameCreateRecord<OAuthRefreshTokenRecord>
+export type CreateAuthorizationCodeRecord = SesameCreateRecord<OAuthAuthorizationCodeRecord>
+export type CreatePendingAuthorizationRequestRecord =
+  SesameCreateRecord<OAuthPendingAuthorizationRequestRecord>
+
+export type UpdateClientRecord = Partial<
+  Pick<
+    OAuthClientRecord,
+    'name' | 'redirectUris' | 'scopes' | 'grantTypes' | 'isDisabled' | 'requirePkce' | 'metadata'
+  >
+>
+
+export interface SesamePurgeResult {
+  accessTokens: number
+  refreshTokens: number
+  authorizationCodes: number
+  pendingRequests: number
+}
+
+export interface IssueTokenPairOptions {
+  accessToken: CreateAccessTokenRecord
+  refreshToken: CreateRefreshTokenRecord
+}
+
+export interface ExchangeAuthorizationCodeOptions {
+  codeId: string
+  accessToken: CreateAccessTokenRecord
+  refreshToken: CreateRefreshTokenRecord | null
+}
+
+export interface RotateRefreshTokenOptions extends IssueTokenPairOptions {
+  oldRefreshTokenId: string
+  oldAccessTokenId: string
+  revokedAt: DateTime
+}
+
+export interface PurgeTokensOptions {
+  purgeRevoked: boolean
+  purgeExpired: boolean
+  cutoff: DateTime
+  now: DateTime
+}
+
+/**
+ * OAuth-specific persistence operations. Callers never build database predicates.
+ * Conditional exchanges and rotations return false when another request won.
+ */
+export interface SesameStore {
+  findClient(clientId: string): Promise<OAuthClientRecord | null>
+  listClients(options?: { userId?: string }): Promise<OAuthClientRecord[]>
+  createClient(data: CreateClientRecord): Promise<OAuthClientRecord>
+  updateClient(options: { id: string; data: UpdateClientRecord }): Promise<void>
+  updateClientSecret(options: { id: string; secret: string }): Promise<void>
+  deleteClient(clientId: string): Promise<boolean>
+
+  findAccessToken(options: {
+    hash: string
+    clientId?: string
+  }): Promise<OAuthAccessTokenRecord | null>
+  createAccessToken(data: CreateAccessTokenRecord): Promise<void>
+  revokeAccessToken(options: { hash: string; clientId: string; now: DateTime }): Promise<boolean>
+
+  findRefreshToken(options: {
+    hash: string
+    clientId: string
+  }): Promise<OAuthRefreshTokenRecord | null>
+  revokeRefreshToken(options: { hash: string; clientId: string; now: DateTime }): Promise<void>
+  revokeTokenFamily(options: { clientId: string; userId: string; now: DateTime }): Promise<void>
+
+  findAuthorizationCode(options: {
+    code: string
+    clientId: string
+  }): Promise<OAuthAuthorizationCodeRecord | null>
+  createAuthorizationCode(data: CreateAuthorizationCodeRecord): Promise<void>
+  deleteAuthorizationCode(id: string): Promise<void>
+  exchangeAuthorizationCode(options: ExchangeAuthorizationCodeOptions): Promise<boolean>
+
+  findConsent(options: { clientId: string; userId: string }): Promise<OAuthConsentRecord | null>
+  grantConsent(options: { clientId: string; userId: string; scopes: string[] }): Promise<void>
+
+  createPendingAuthorizationRequest(data: CreatePendingAuthorizationRequestRecord): Promise<void>
+  consumePendingAuthorizationRequest(options: {
+    token: string
+    userId: string
+    now: DateTime
+  }): Promise<OAuthPendingAuthorizationRequestRecord | null>
+
+  issueTokenPair(options: IssueTokenPairOptions): Promise<void>
+  rotateRefreshToken(options: RotateRefreshTokenOptions): Promise<boolean>
+  revokeAllForUser(options: { userId: string; now: DateTime }): Promise<void>
+  purgeTokens(options: PurgeTokensOptions): Promise<SesamePurgeResult>
+}

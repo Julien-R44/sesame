@@ -1,6 +1,6 @@
 import vine from '@vinejs/vine'
 import type { HttpContext } from '@adonisjs/core/http'
-import { OAuthClient } from '../models/oauth_client.ts'
+import { SesameManager } from '../sesame_manager.ts'
 import { E_INVALID_CLIENT, E_INVALID_REQUEST } from '../oauth_error.ts'
 
 /**
@@ -18,7 +18,9 @@ export default class ClientInfoController {
     const [error, query] = await ClientInfoController.validator.tryValidate(ctx.request.qs())
     if (error) throw new E_INVALID_REQUEST('Missing client_id')
 
-    const client = await OAuthClient.query().where('clientId', query.client_id).first()
+    const manager = await ctx.containerResolver.make(SesameManager)
+    const store = manager.store
+    const client = await store.findClient(query.client_id)
     if (!client) throw new E_INVALID_CLIENT('Client not found')
 
     return { client_id: client.clientId, client_name: client.name }

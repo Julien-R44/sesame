@@ -1,11 +1,14 @@
 import { RuntimeException } from '@adonisjs/core/exceptions'
 import { symbols } from '@adonisjs/auth'
 import type { LucidModel } from '@adonisjs/lucid/types/model'
-import type {
-  OAuthGuardUser,
-  OAuthLucidUserProviderOptions,
-  OAuthUserProviderContract,
-} from './types.ts'
+import type { OAuthGuardUser, OAuthUserProviderContract } from './types.ts'
+
+/**
+ * Options for the Lucid-based OAuth user provider.
+ */
+export type OAuthLucidUserProviderOptions<Model extends LucidModel> = {
+  model: () => Promise<{ default: Model }>
+}
 
 /**
  * Lucid-based user provider for the OAuth guard.

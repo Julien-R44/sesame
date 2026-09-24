@@ -218,6 +218,7 @@ test.group('Integration | Authorization Code Grant', (group) => {
   })
 
   test('rejects invalid client secret', async ({ assert }) => {
+    const manager = createManager()
     await createTestClient()
     const rawCode = 'secret-test-code'
 
@@ -229,7 +230,7 @@ test.group('Integration | Authorization Code Grant', (group) => {
       rawCode,
     })
 
-    const clientService = new ClientService()
+    const clientService = new ClientService(manager)
     await assertOAuthError(
       assert,
       () =>

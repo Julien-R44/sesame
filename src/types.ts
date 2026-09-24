@@ -1,6 +1,10 @@
 import type { HttpContext } from '@adonisjs/core/http'
+import type { ConfigProvider } from '@adonisjs/core/types'
 import type { JWK } from 'jose'
 import type { OAuthUserProviderContract } from './guard/types.ts'
+import type { OAuthClientRecord, SesameStore } from './storage/types.ts'
+
+export type * from './storage/types.ts'
 
 /**
  * Augment this interface via module augmentation to enable
@@ -165,7 +169,7 @@ export interface UpdateClientOptions {
  * Includes the raw secret (only available at creation time).
  */
 export interface CreateClientResult {
-  client: import('./models/oauth_client.ts').OAuthClient
+  client: OAuthClientRecord
   clientSecret: string | null
 }
 
@@ -177,6 +181,11 @@ export interface CreateClientResult {
  * page redirects for the authorization flow.
  */
 export interface SesameConfig {
+  /**
+   * Store driver resolved by the service provider.
+   */
+  store: ConfigProvider<SesameStore>
+
   /**
    * The issuer URL (must be HTTPS in production).
    * Used in JWT `iss` claim and discovery metadata.
@@ -308,6 +317,7 @@ export interface SesameConfig {
  * Created by `defineConfig()` from user-supplied `SesameConfig`.
  */
 export interface ResolvedSesameConfig {
+  store: ConfigProvider<SesameStore>
   issuer: string
   scopes: Record<string, string>
   defaultScopes: string[]

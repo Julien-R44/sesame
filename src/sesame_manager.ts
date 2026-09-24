@@ -12,13 +12,8 @@ import {
 } from './types.ts'
 import { ClientService } from './services/client_service.ts'
 import { KeyService } from './services/key_service.ts'
-import { OAuthClient } from './models/oauth_client.ts'
 import { registerOAuthRoutes, registerWellKnownRoutes as registerWellKnown } from './routes.ts'
-import { OAuthAccessToken } from './models/oauth_access_token.ts'
-import { OAuthRefreshToken } from './models/oauth_refresh_token.ts'
-import { OAuthAuthorizationCode } from './models/oauth_authorization_code.ts'
-import { OAuthConsent } from './models/oauth_consent.ts'
-import { OAuthPendingAuthorizationRequest } from './models/oauth_pending_authorization_request.ts'
+import type { OAuthClientRecord, SesameStore } from './storage/types.ts'
 
 export interface PurgeResult {
   accessTokens: number
@@ -37,15 +32,32 @@ export class SesameManager {
   #config: ResolvedSesameConfig
   #router: Router
   #keyService: KeyService | null
+  #store: SesameStore
 
-  constructor(config: ResolvedSesameConfig, router: Router) {
+  constructor(config: ResolvedSesameConfig, router: Router, store: SesameStore) {
     this.#config = config
     this.#router = router
+    this.#store = store
     this.#keyService = config.jwk ? new KeyService(config.jwk) : null
+  }
+
+  #publicClient(client: OAuthClientRecord): OAuthClientRecord {
+    const publicClient = { ...client }
+    Object.defineProperty(publicClient, 'clientSecret', {
+      value: client.clientSecret,
+      enumerable: false,
+      writable: false,
+    })
+
+    return publicClient
   }
 
   get config() {
     return this.#config
+  }
+
+  get store(): SesameStore {
+    return this.#store
   }
 
   get keyService(): KeyService {
@@ -141,20 +153,9 @@ export class SesameManager {
    */
   async revokeAllForUser(userId: string): Promise<void> {
     const now = DateTime.now()
+    const store = this.#store
 
-    await OAuthAccessToken.query()
-      .where('userId', userId)
-      .whereNull('revokedAt')
-      .update({ revokedAt: now.toSQL() })
-
-    await OAuthRefreshToken.query()
-      .where('userId', userId)
-      .whereNull('revokedAt')
-      .update({ revokedAt: now.toSQL() })
-
-    await OAuthAuthorizationCode.query().where('userId', userId).delete()
-    await OAuthPendingAuthorizationRequest.query().where('userId', userId).delete()
-    await OAuthConsent.query().where('userId', userId).delete()
+    await store.revokeAllForUser({ userId, now })
   }
 
   /**
@@ -175,47 +176,9 @@ export class SesameManager {
     const purgeRevoked = revokedOnly || !expiredOnly
     const purgeExpired = expiredOnly || !revokedOnly
     const cutoff = DateTime.now().minus({ hours: retentionHours })
+    const store = this.#store
 
-    let accessTokens = 0
-    let refreshTokens = 0
-    let authorizationCodes = 0
-    let pendingRequests = 0
-
-    if (purgeRevoked) {
-      accessTokens += await this.#deleteCount(
-        OAuthAccessToken.query().whereNotNull('revokedAt').delete()
-      )
-      refreshTokens += await this.#deleteCount(
-        OAuthRefreshToken.query().whereNotNull('revokedAt').delete()
-      )
-    }
-
-    if (purgeExpired) {
-      accessTokens += await this.#deleteCount(
-        OAuthAccessToken.query()
-          .where('expiresAt', '<', cutoff.toSQL()!)
-          .whereNull('revokedAt')
-          .delete()
-      )
-      refreshTokens += await this.#deleteCount(
-        OAuthRefreshToken.query()
-          .where('expiresAt', '<', cutoff.toSQL()!)
-          .whereNull('revokedAt')
-          .delete()
-      )
-      authorizationCodes += await this.#deleteCount(
-        OAuthAuthorizationCode.query().where('expiresAt', '<', cutoff.toSQL()!).delete()
-      )
-    }
-
-    // Pending requests have no audit value — purge immediately on expiration
-    pendingRequests += await this.#deleteCount(
-      OAuthPendingAuthorizationRequest.query()
-        .where('expiresAt', '<', DateTime.now().toSQL()!)
-        .delete()
-    )
-
-    return { accessTokens, refreshTokens, authorizationCodes, pendingRequests }
+    return store.purgeTokens({ purgeRevoked, purgeExpired, cutoff, now: DateTime.now() })
   }
 
   /**
@@ -232,7 +195,8 @@ export class SesameManager {
     const clientSecret = isPublic ? null : clientService.generateClientSecret()
     const hashedSecret = clientSecret ? clientService.hashSecret(clientSecret) : null
 
-    const client = await OAuthClient.create({
+    const store = this.#store
+    const client = await store.createClient({
       id: crypto.randomUUID(),
       clientId,
       clientSecret: hashedSecret,
@@ -248,32 +212,36 @@ export class SesameManager {
       userId: options.userId ?? null,
     })
 
-    return { client, clientSecret }
+    return { client: this.#publicClient(client), clientSecret }
   }
 
   /**
    * Find a client by its public client_id.
    */
-  async findClient(clientId: string): Promise<OAuthClient | null> {
-    return OAuthClient.query().where('clientId', clientId).first()
+  async findClient(clientId: string) {
+    const store = this.#store
+    const client = await store.findClient(clientId)
+
+    return client ? this.#publicClient(client) : null
   }
 
   /**
    * List all clients, optionally filtered by userId.
    */
-  async listClients(options?: { userId?: string }): Promise<OAuthClient[]> {
-    const query = OAuthClient.query().orderBy('createdAt', 'desc')
-    if (options?.userId) query.where('userId', options.userId)
+  async listClients(options?: { userId?: string }) {
+    const store = this.#store
+    const clients = await store.listClients(options)
 
-    return query
+    return clients.map((client) => this.#publicClient(client))
   }
 
   /**
    * Update an existing client by its public client_id.
    * Returns the updated client, or null if not found.
    */
-  async updateClient(clientId: string, options: UpdateClientOptions): Promise<OAuthClient | null> {
-    const client = await OAuthClient.query().where('clientId', clientId).first()
+  async updateClient(clientId: string, options: UpdateClientOptions) {
+    const store = this.#store
+    const client = await store.findClient(clientId)
     if (!client) return null
 
     if (options.name !== undefined) client.name = options.name
@@ -284,9 +252,11 @@ export class SesameManager {
     if (options.requirePkce !== undefined) client.requirePkce = options.requirePkce
     if (options.metadata !== undefined) client.metadata = options.metadata
 
-    await client.save()
+    await store.updateClient({ id: client.id, data: options })
 
-    return client
+    const updated = await store.findClient(clientId)
+
+    return updated ? this.#publicClient(updated) : null
   }
 
   /**
@@ -294,24 +264,7 @@ export class SesameManager {
    * Returns true if the client was found and deleted.
    */
   async deleteClient(clientId: string): Promise<boolean> {
-    const client = await OAuthClient.query().where('clientId', clientId).first()
-    if (!client) return false
-
-    await OAuthClient.transaction(async (trx) => {
-      await Promise.all([
-        OAuthRefreshToken.query({ client: trx }).where('clientId', clientId).delete(),
-        OAuthAccessToken.query({ client: trx }).where('clientId', clientId).delete(),
-        OAuthAuthorizationCode.query({ client: trx }).where('clientId', clientId).delete(),
-        OAuthPendingAuthorizationRequest.query({ client: trx })
-          .where('clientId', clientId)
-          .delete(),
-        OAuthConsent.query({ client: trx }).where('clientId', clientId).delete(),
-      ])
-
-      await client.useTransaction(trx).delete()
-    })
-
-    return true
+    return this.#store.deleteClient(clientId)
   }
 
   /**
@@ -319,13 +272,14 @@ export class SesameManager {
    * Returns the new raw secret, or null if the client is public or not found.
    */
   async rotateClientSecret(clientId: string): Promise<string | null> {
-    const client = await OAuthClient.query().where('clientId', clientId).first()
+    const store = this.#store
+    const client = await store.findClient(clientId)
     if (!client || client.isPublic) return null
 
     const clientService = new ClientService()
     const newSecret = clientService.generateClientSecret()
     client.clientSecret = clientService.hashSecret(newSecret)
-    await client.save()
+    await store.updateClientSecret({ id: client.id, secret: client.clientSecret })
 
     return newSecret
   }
@@ -394,9 +348,5 @@ export class SesameManager {
         bearer_methods_supported: ['header'],
       }
     })
-  }
-
-  #deleteCount(result: Promise<unknown>): Promise<number> {
-    return result.then((r) => (Array.isArray(r) ? Number(r[0] ?? 0) : Number(r)))
   }
 }

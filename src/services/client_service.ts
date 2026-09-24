@@ -1,5 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
-import { OAuthClient } from '../models/oauth_client.ts'
+import type { SesameManager } from '../sesame_manager.ts'
+import type { OAuthClientRecord } from '../storage/types.ts'
 import { E_INVALID_CLIENT, E_INVALID_REQUEST, E_INVALID_SCOPE } from '../oauth_error.ts'
 import { BUILTIN_SCOPES } from '../types.ts'
 
@@ -25,6 +26,12 @@ export interface ClientCredentials {
  * @see https://datatracker.ietf.org/doc/html/rfc6749#section-2.3
  */
 export class ClientService {
+  #manager?: SesameManager
+
+  constructor(manager?: SesameManager) {
+    this.#manager = manager
+  }
+
   /**
    * Parse an HTTP Basic Authorization header into client credentials.
    * Follows RFC 6749 §2.3.1 — the client_id and client_secret are
@@ -88,11 +95,13 @@ export class ClientService {
     authorizationHeader?: string
     bodyClientId?: string
     bodyClientSecret?: string
-  }): Promise<OAuthClient> {
+  }): Promise<OAuthClientRecord> {
     const credentials = this.extractCredentials(options)
     if (!credentials) throw new E_INVALID_CLIENT('Client authentication failed')
+    if (!this.#manager) throw new Error('ClientService requires SesameManager for authentication')
 
-    const client = await OAuthClient.query().where('clientId', credentials.clientId).first()
+    const store = this.#manager.store
+    const client = await store.findClient(credentials.clientId)
     if (!client || client.isDisabled) throw new E_INVALID_CLIENT('Client authentication failed')
 
     if (!client.isPublic) {

@@ -1,12 +1,10 @@
 import { DateTime } from 'luxon'
 import string from '@adonisjs/core/helpers/string'
 import type { SesameManager } from '../sesame_manager.ts'
-import type { OAuthClient } from '../models/oauth_client.ts'
+import type { OAuthClientRecord, OAuthRefreshTokenRecord } from '../storage/types.ts'
 import { TokenService } from '../services/token_service.ts'
 import { IdTokenService } from '../services/id_token_service.ts'
 import { ClientService } from '../services/client_service.ts'
-import { OAuthAccessToken } from '../models/oauth_access_token.ts'
-import { OAuthRefreshToken } from '../models/oauth_refresh_token.ts'
 import {
   E_INVALID_CLIENT,
   E_INVALID_GRANT,
@@ -15,7 +13,7 @@ import {
 } from '../oauth_error.ts'
 
 export interface ExchangeRefreshTokenInput {
-  client: OAuthClient
+  client: OAuthClientRecord
   refreshToken: string
   scope?: string
 }
@@ -74,10 +72,11 @@ export class ExchangeRefreshTokenAction {
     }
 
     const hashedToken = tokenService.hashToken(input.refreshToken)
-    const refreshToken = await OAuthRefreshToken.query()
-      .where('token', hashedToken)
-      .where('clientId', input.client.clientId)
-      .first()
+    const store = manager.store
+    const refreshToken = await store.findRefreshToken({
+      hash: hashedToken,
+      clientId: input.client.clientId,
+    })
 
     if (!refreshToken) throw new E_INVALID_GRANT('Refresh token not found')
 
@@ -86,7 +85,7 @@ export class ExchangeRefreshTokenAction {
       const revokedSecondsAgo = DateTime.now().diff(refreshToken.revokedAt, 'seconds').seconds
 
       if (gracePeriodSeconds <= 0 || revokedSecondsAgo > gracePeriodSeconds) {
-        await this.#nukeTokensForReplay(input.client.clientId, refreshToken.userId)
+        await this.#nukeTokensForReplay(manager, input.client.clientId, refreshToken.userId)
         throw new E_INVALID_GRANT('Refresh token has been revoked (possible replay attack)')
       }
 
@@ -116,7 +115,7 @@ export class ExchangeRefreshTokenAction {
       accessToken.raw
     )
 
-    await this.#atomicRotation(input, refreshToken, accessToken, newRefreshToken, scopes)
+    await this.#atomicRotation(manager, input, refreshToken, accessToken, newRefreshToken, scopes)
 
     const ttlSeconds = string.seconds.parse(manager.config.accessTokenTtl)
 
@@ -139,7 +138,7 @@ export class ExchangeRefreshTokenAction {
   async #issueFreshTokens(
     manager: SesameManager,
     input: ExchangeRefreshTokenInput,
-    revokedRefreshToken: OAuthRefreshToken
+    revokedRefreshToken: OAuthRefreshTokenRecord
   ) {
     const tokenService = new TokenService(manager)
     const clientService = new ClientService()
@@ -157,23 +156,25 @@ export class ExchangeRefreshTokenAction {
 
     const accessTokenId = crypto.randomUUID()
 
-    await OAuthAccessToken.create({
-      id: accessTokenId,
-      tokenHash: accessToken.hash,
-      clientId: input.client.clientId,
-      userId: revokedRefreshToken.userId,
-      scopes,
-      expiresAt: DateTime.fromJSDate(accessToken.expiresAt),
-    })
-
-    await OAuthRefreshToken.create({
-      id: crypto.randomUUID(),
-      token: newRefreshToken.hash,
-      accessTokenId,
-      clientId: input.client.clientId,
-      userId: revokedRefreshToken.userId,
-      scopes,
-      expiresAt: newRefreshToken.expiresAt,
+    const store = manager.store
+    await store.issueTokenPair({
+      accessToken: {
+        id: accessTokenId,
+        tokenHash: accessToken.hash,
+        clientId: input.client.clientId,
+        userId: revokedRefreshToken.userId,
+        scopes,
+        expiresAt: DateTime.fromJSDate(accessToken.expiresAt),
+      },
+      refreshToken: {
+        id: crypto.randomUUID(),
+        token: newRefreshToken.hash,
+        accessTokenId,
+        clientId: input.client.clientId,
+        userId: revokedRefreshToken.userId,
+        scopes,
+        expiresAt: newRefreshToken.expiresAt,
+      },
     })
 
     const ttlSeconds = string.seconds.parse(manager.config.accessTokenTtl)
@@ -192,14 +193,9 @@ export class ExchangeRefreshTokenAction {
    * Replay detection: nuke all tokens for this client+user
    * pair when a revoked token is reused.
    */
-  async #nukeTokensForReplay(clientId: string, userId: string) {
-    await OAuthRefreshToken.query().where('clientId', clientId).where('userId', userId).delete()
-
-    await OAuthAccessToken.query()
-      .where('clientId', clientId)
-      .where('userId', userId)
-      .whereNull('revokedAt')
-      .update({ revokedAt: DateTime.now().toSQL() })
+  async #nukeTokensForReplay(manager: SesameManager, clientId: string, userId: string) {
+    const store = manager.store
+    await store.revokeTokenFamily({ clientId, userId, now: DateTime.now() })
   }
 
   /**
@@ -209,7 +205,7 @@ export class ExchangeRefreshTokenAction {
   #resolveScopes(
     manager: SesameManager,
     input: ExchangeRefreshTokenInput,
-    refreshToken: OAuthRefreshToken,
+    refreshToken: OAuthRefreshTokenRecord,
     clientService: ClientService
   ): string[] {
     if (!input.scope) {
@@ -261,8 +257,8 @@ export class ExchangeRefreshTokenAction {
   async #prepareIdToken(
     manager: SesameManager,
     scopes: string[],
-    refreshToken: OAuthRefreshToken,
-    client: OAuthClient,
+    refreshToken: OAuthRefreshTokenRecord,
+    client: OAuthClientRecord,
     accessTokenRaw: string
   ) {
     if (!scopes.includes('openid')) return null
@@ -285,58 +281,38 @@ export class ExchangeRefreshTokenAction {
    * new access + refresh tokens inside a single transaction.
    */
   async #atomicRotation(
+    manager: SesameManager,
     input: ExchangeRefreshTokenInput,
-    oldRefreshToken: OAuthRefreshToken,
+    oldRefreshToken: OAuthRefreshTokenRecord,
     accessToken: { raw: string; hash: string; expiresAt: Date },
     newRefreshToken: { raw: string; hash: string; expiresAt: DateTime },
     scopes: string[]
   ) {
-    await OAuthRefreshToken.transaction(async (trx) => {
-      const revokedAt = DateTime.now()
-
-      const updateResult = await OAuthRefreshToken.query({ client: trx })
-        .where('id', oldRefreshToken.id)
-        .whereNull('revokedAt')
-        .update({ revokedAt: revokedAt.toSQL() })
-      const updatedRows = Array.isArray(updateResult)
-        ? Number(updateResult[0] ?? 0)
-        : Number(updateResult)
-
-      if (updatedRows !== 1) {
-        throw new E_INVALID_GRANT('Refresh token has already been consumed')
-      }
-
-      await OAuthAccessToken.query({ client: trx })
-        .where('id', oldRefreshToken.accessTokenId)
-        .whereNull('revokedAt')
-        .update({ revokedAt: revokedAt.toSQL() })
-
-      const accessTokenId = crypto.randomUUID()
-
-      await OAuthAccessToken.create(
-        {
-          id: accessTokenId,
-          tokenHash: accessToken.hash,
-          clientId: input.client.clientId,
-          userId: oldRefreshToken.userId,
-          scopes,
-          expiresAt: DateTime.fromJSDate(accessToken.expiresAt),
-        },
-        { client: trx }
-      )
-
-      await OAuthRefreshToken.create(
-        {
-          id: crypto.randomUUID(),
-          token: newRefreshToken.hash,
-          accessTokenId,
-          clientId: input.client.clientId,
-          userId: oldRefreshToken.userId,
-          scopes,
-          expiresAt: newRefreshToken.expiresAt,
-        },
-        { client: trx }
-      )
+    const store = manager.store
+    const accessTokenId = crypto.randomUUID()
+    const rotated = await store.rotateRefreshToken({
+      oldRefreshTokenId: oldRefreshToken.id,
+      oldAccessTokenId: oldRefreshToken.accessTokenId,
+      revokedAt: DateTime.now(),
+      accessToken: {
+        id: accessTokenId,
+        tokenHash: accessToken.hash,
+        clientId: input.client.clientId,
+        userId: oldRefreshToken.userId,
+        scopes,
+        expiresAt: DateTime.fromJSDate(accessToken.expiresAt),
+      },
+      refreshToken: {
+        id: crypto.randomUUID(),
+        token: newRefreshToken.hash,
+        accessTokenId,
+        clientId: input.client.clientId,
+        userId: oldRefreshToken.userId,
+        scopes,
+        expiresAt: newRefreshToken.expiresAt,
+      },
     })
+
+    if (!rotated) throw new E_INVALID_GRANT('Refresh token has already been consumed')
   }
 }

@@ -2,8 +2,6 @@ import type { HttpContext } from '@adonisjs/core/http'
 import { SesameManager } from '../sesame_manager.ts'
 import { TokenService } from '../services/token_service.ts'
 import { ClientService } from '../services/client_service.ts'
-import { OAuthAccessToken } from '../models/oauth_access_token.ts'
-import { OAuthRefreshToken } from '../models/oauth_refresh_token.ts'
 
 const INACTIVE = { active: false }
 
@@ -23,7 +21,8 @@ const INACTIVE = { active: false }
 export default class IntrospectController {
   async handle(ctx: HttpContext) {
     const manager = await ctx.containerResolver.make(SesameManager)
-    const clientService = new ClientService()
+    const clientService = new ClientService(manager)
+    const store = manager.store
 
     // Authenticate the requesting client
     const client = await clientService.authenticateClient({
@@ -41,10 +40,7 @@ export default class IntrospectController {
 
     // Try as access token
     if (!tokenTypeHint || tokenTypeHint === 'access_token') {
-      const record = await OAuthAccessToken.query()
-        .where('tokenHash', hashed)
-        .where('clientId', client.clientId)
-        .first()
+      const record = await store.findAccessToken({ hash: hashed, clientId: client.clientId })
 
       if (record && !record.revokedAt && record.expiresAt.toJSDate() >= new Date()) {
         return {
@@ -64,10 +60,7 @@ export default class IntrospectController {
 
     // Try as refresh token
     if (!tokenTypeHint || tokenTypeHint === 'refresh_token') {
-      const refreshToken = await OAuthRefreshToken.query()
-        .where('token', hashed)
-        .where('clientId', client.clientId)
-        .first()
+      const refreshToken = await store.findRefreshToken({ hash: hashed, clientId: client.clientId })
 
       if (!refreshToken) return INACTIVE
       if (refreshToken.revokedAt) return INACTIVE

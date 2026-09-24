@@ -20,15 +20,73 @@ When you need identity claims on top of authorization, Sésame supports OpenID C
 
 ## Installation
 
+`@adonisjs/auth` is required, including when you use Kysely without Lucid. If your application does not already have it, run `pnpm add @adonisjs/auth` before installing Sésame.
+
 ```bash
 node ace add @julr/sesame
 ```
 
-This will publish the configuration file to `config/sesame.ts`, create six database migration files, and register the service provider and commands. Then run the migrations:
+By default, this publishes `config/sesame.ts`, creates six Lucid migrations, and registers the service provider and commands. Make sure `@adonisjs/lucid` is installed in your application, then run the migrations:
 
 ```bash
 node ace migration:run
 ```
+
+### Kysely installation
+
+You can use Sésame in a Kysely application without installing Lucid. The installer publishes a configuration file and a migration, but it does not connect to the database or create tables automatically.
+
+```bash title="Terminal"
+pnpm add kysely
+node ace add @julr/sesame --store=kysely
+```
+
+The generated `config/sesame.ts` selects the Kysely driver. Its `#services/kysely` import is a placeholder. Replace it with the module that exports your application's existing Kysely connection. For example, if that module exports `appDb` from `#services/database`, configure the store like this:
+
+```ts title="config/sesame.ts"
+import env from '#start/env'
+import { defineConfig, stores } from '@julr/sesame'
+import type { InferScopes } from '@julr/sesame/types'
+
+const sesameConfig = defineConfig({
+  issuer: env.get('APP_URL'),
+  store: stores.kysely({
+    connection: async () => {
+      const { appDb } = await import('#services/database')
+      return appDb
+    },
+  }),
+  scopes: {},
+  defaultScopes: [],
+  grantTypes: ['authorization_code', 'refresh_token'],
+  accessTokenTtl: '1h',
+  refreshTokenTtl: '30d',
+  authorizationCodeTtl: '10m',
+  loginPage: '/login',
+  consentPage: '/oauth/consent',
+  allowDynamicRegistration: false,
+  allowPublicRegistration: false,
+})
+
+export default sesameConfig
+
+declare module '@julr/sesame/types' {
+  interface SesameScopes extends InferScopes<typeof sesameConfig> {}
+}
+```
+
+> [!WARNING]
+> The generated config reads `APP_URL`. Your `start/env.ts` must validate that variable, and its value must be the public URL of the OAuth server, not the frontend URL or a `0.0.0.0` bind address. If your application already validates another public API URL, use that variable for `issuer` instead. Without a validated value, `env.get('APP_URL')` can be `undefined` and TypeScript will reject the config.
+
+The installer writes the complete migration to `database/kysely_migrations/create_oauth_tables.ts`. Keep that generated file in your application as a schema snapshot. When you already have a Kysely migrator, move it into that migrator's `migrationFolder`, give it a filename that sorts after your existing migrations, and run your usual migration command. For example, an application whose migrator reads `database/migrations` should put the file there. Do not pass it to Lucid's `node ace migration:run`.
+
+If Sésame uses its own migration folder, configure a separate [Kysely migrator](https://kysely-org.github.io/kysely-apidoc/classes/migration.Migrator.html) for `database/kysely_migrations` and call `migrateToLatest()` explicitly. Give that migrator unique `migrationTableName` and `migrationLockTableName` values when your application already has another Kysely migrator on the same database. Commit the generated migration so future Sésame upgrades cannot alter a migration you already applied.
+
+The Kysely driver supports SQLite, PostgreSQL, and MySQL. The default tests cover SQLite; `pnpm test:sql` runs the PostgreSQL and MySQL integration suite in temporary Docker containers. For a custom adapter backed by one of these databases, pass its `dialect` explicitly to `stores.kysely()`.
+
+Sésame configures one `store` at a time. It must be an AdonisJS `ConfigProvider<SesameStore>`; the service provider resolves it with the application before creating the manager. Choose `stores.lucid()`, `stores.kysely()`, or a custom driver. To add a custom driver, implement `SesameStore` from `@julr/sesame/types` and wrap it with `configProvider.create()`. The store interface exposes OAuth operations rather than generic CRUD queries. Its `exchangeAuthorizationCode`, `rotateRefreshToken`, and `issueTokenPair` methods must use real database transactions; the first two return `false` when another request consumed the credential first.
+
+Upgrading an existing Lucid application from 0.6.0 requires config and import changes. Follow the [0.6.0 to 0.7.0 migration guide](docs/migration-0.6-to-0.7.md).
 
 ## Configuration
 
@@ -36,11 +94,13 @@ The configuration file lives at `config/sesame.ts`. You define your issuer URL, 
 
 ```ts title="config/sesame.ts"
 import env from '#start/env'
-import { defineConfig } from '@julr/sesame'
+import { defineConfig, stores } from '@julr/sesame'
 import type { InferScopes } from '@julr/sesame/types'
 
 const sesameConfig = defineConfig({
   issuer: env.get('APP_URL'),
+
+  store: stores.lucid(),
 
   scopes: {
     read: 'Read access',
@@ -128,7 +188,8 @@ Sésame provides an OAuth guard for `@adonisjs/auth` that verifies opaque Bearer
 
 ```ts title="config/auth.ts"
 import { defineConfig } from '@adonisjs/auth'
-import { oauthGuard, oauthUserProvider } from '@julr/sesame/guard'
+import { oauthGuard } from '@julr/sesame/guard'
+import { oauthUserProvider } from '@julr/sesame/guard/lucid'
 
 const authConfig = defineConfig({
   default: 'web',
@@ -259,11 +320,13 @@ Pass the JWK and a user provider to `defineConfig`. The `oidcProvider` uses the 
 
 ```ts title="config/sesame.ts"
 import env from '#start/env'
-import { defineConfig } from '@julr/sesame'
-import { oauthUserProvider } from '@julr/sesame/guard'
+import { defineConfig, stores } from '@julr/sesame'
+import { oauthUserProvider } from '@julr/sesame/guard/lucid'
 
 const sesameConfig = defineConfig({
   issuer: env.get('APP_URL'),
+
+  store: stores.lucid(),
 
   scopes: {
     read: 'Read access',
@@ -429,7 +492,7 @@ const { client: spa } = await sesame.createClient({
 })
 ```
 
-`createClient` returns the client model and the raw secret. The secret is only available at creation time.
+`createClient` returns a plain client record and the raw secret. The secret is only available at creation time. Client records returned by the public management methods do not serialize the stored `clientSecret` hash.
 
 To find, list, update, or delete clients:
 

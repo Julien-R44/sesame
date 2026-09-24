@@ -7,6 +7,9 @@ import type { ApplicationService } from '@adonisjs/core/types'
 import { MigrationRunner } from '@adonisjs/lucid/migration'
 import { defineConfig } from '../../src/define_config.ts'
 import { SesameManager } from '../../src/sesame_manager.ts'
+import { stores } from '../../src/stores.ts'
+import { lucidStore } from '../../src/storage/drivers/lucid.ts'
+import type { SesameStore } from '../../src/storage/types.ts'
 import { OAuthGuard } from '../../src/guard/guard.ts'
 import { FakeUserProvider, createFakeEmitter, type FakeUser } from './fakes.ts'
 import { OAuthClient } from '../../src/models/oauth_client.ts'
@@ -33,6 +36,7 @@ export function createTestConfig(overrides?: Record<string, any>) {
       offline_access: 'Offline access',
     },
     defaultScopes: ['read'],
+    store: stores.lucid(),
     loginPage: '/login',
     consentPage: '/oauth/consent',
     allowDynamicRegistration: true,
@@ -45,7 +49,7 @@ export function createTestConfig(overrides?: Record<string, any>) {
  * Creates a SesameManager instance with test config.
  */
 export function createManager(overrides?: Record<string, any>) {
-  return new SesameManager(createTestConfig(overrides), {} as any)
+  return new SesameManager(createTestConfig(overrides), {} as any, lucidStore())
 }
 
 /**
@@ -133,6 +137,7 @@ export async function createHttpServer(
     skipOAuthRoutes?: boolean
     skipDiscoveryRoutes?: boolean
     setupRoutes?: (router: any, manager: SesameManager) => void
+    store?: SesameStore
   }
 ) {
   const adonisServer = await app.container.make('server')
@@ -175,7 +180,7 @@ export async function createHttpServer(
   adonisServer.errorHandler(async () => ({ default: ExceptionHandler }))
 
   const config = createTestConfig(configOverrides)
-  const manager = new SesameManager(config, router)
+  const manager = new SesameManager(config, router, options?.store ?? lucidStore())
   app.container.singleton(SesameManager, () => manager)
 
   if (!options?.skipOAuthRoutes) {

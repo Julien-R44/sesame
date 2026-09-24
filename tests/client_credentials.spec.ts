@@ -133,9 +133,10 @@ test.group('Integration | Client Credentials Grant', (group) => {
   })
 
   test('rejects invalid client secret', async ({ assert }) => {
+    const manager = createManager({ grantTypes: ['client_credentials'] })
     await createTestClient({ grantTypes: ['client_credentials'] })
 
-    const clientService = new ClientService()
+    const clientService = new ClientService(manager)
     await assertOAuthError(
       assert,
       () =>
@@ -254,7 +255,7 @@ test.group('Integration | Client Credentials Grant', (group) => {
     const manager = createManager({ grantTypes: ['client_credentials'] })
     await createTestClient({ grantTypes: ['client_credentials'], userId: 'user-1' })
 
-    const clientService = new ClientService()
+    const clientService = new ClientService(manager)
     const encoded = Buffer.from('test-client:test-secret').toString('base64')
     const client = await clientService.authenticateClient({
       authorizationHeader: `Basic ${encoded}`,

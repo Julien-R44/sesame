@@ -8,25 +8,22 @@ import type { InferScopes } from '@julr/sesame/types'
 const sesameConfig = defineConfig({
   issuer: env.get('APP_URL'),
 
-  store: stores.lucid(),
+  // Replace this import with your application's Kysely instance.
+  store: stores.kysely({
+    connection: async () => {
+      const { db } = await import('#services/kysely')
+      return db
+    },
+  }),
 
-  scopes: {
-    // Define your available scopes here
-    // 'read': 'Read access',
-    // 'write': 'Write access',
-  },
-
+  scopes: {},
   defaultScopes: [],
-
   grantTypes: ['authorization_code', 'refresh_token'],
-
   accessTokenTtl: '1h',
   refreshTokenTtl: '30d',
   authorizationCodeTtl: '10m',
-
   loginPage: '/login',
   consentPage: '/oauth/consent',
-
   allowDynamicRegistration: false,
   allowPublicRegistration: false,
 })

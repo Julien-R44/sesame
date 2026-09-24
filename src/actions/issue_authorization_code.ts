@@ -1,12 +1,11 @@
 import { DateTime } from 'luxon'
 import string from '@adonisjs/core/helpers/string'
 import type { SesameManager } from '../sesame_manager.ts'
-import type { OAuthClient } from '../models/oauth_client.ts'
+import type { OAuthClientRecord } from '../storage/types.ts'
 import { TokenService } from '../services/token_service.ts'
-import { OAuthAuthorizationCode } from '../models/oauth_authorization_code.ts'
 
 export interface AuthorizationCodeInput {
-  client: OAuthClient
+  client: OAuthClientRecord
   userId: string
   scopes: string[]
   redirectUri: string
@@ -34,7 +33,8 @@ export class IssueAuthorizationCodeAction {
     const hashed = tokenService.hashToken(raw)
     const ttl = string.seconds.parse(manager.config.authorizationCodeTtl)
 
-    await OAuthAuthorizationCode.create({
+    const store = manager.store
+    await store.createAuthorizationCode({
       id: crypto.randomUUID(),
       code: hashed,
       clientId: input.client.clientId,

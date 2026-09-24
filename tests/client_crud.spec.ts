@@ -11,6 +11,35 @@ import { ClientService } from '../src/services/client_service.ts'
 import { TokenService } from '../src/services/token_service.ts'
 import { DateTime } from 'luxon'
 
+test.group('Integration | Consent storage', (group) => {
+  setupIntegrationGroup(group)
+
+  test('merges concurrent first-time approvals', async ({ assert }) => {
+    const manager = createManager()
+    const client = await createTestClient()
+    const identity = { clientId: client.clientId, userId: 'consent-user' }
+
+    await Promise.all([
+      manager.store.grantConsent({ ...identity, scopes: ['read'] }),
+      manager.store.grantConsent({ ...identity, scopes: ['write'] }),
+    ])
+
+    assert.sameMembers((await manager.store.findConsent(identity))!.scopes, ['read', 'write'])
+
+    await Promise.all([
+      manager.store.grantConsent({ ...identity, scopes: ['profile'] }),
+      manager.store.grantConsent({ ...identity, scopes: ['email'] }),
+    ])
+
+    assert.sameMembers((await manager.store.findConsent(identity))!.scopes, [
+      'read',
+      'write',
+      'profile',
+      'email',
+    ])
+  })
+})
+
 test.group('Integration | Client CRUD | createClient', (group) => {
   setupIntegrationGroup(group)
 
@@ -23,6 +52,8 @@ test.group('Integration | Client CRUD | createClient', (group) => {
     })
 
     assert.equal(client.name, 'My App')
+    assert.isString(client.id)
+    assert.equal(client.id, (await manager.findClient(client.clientId))?.id)
     assert.deepEqual(client.redirectUris, ['https://example.com/callback'])
     assert.isFalse(client.isPublic)
     assert.isFalse(client.isDisabled)

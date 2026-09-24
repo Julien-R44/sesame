@@ -5,9 +5,7 @@ import { DateTime } from 'luxon'
 import type { HttpContext } from '@adonisjs/core/http'
 import { SesameManager } from '../sesame_manager.ts'
 import { TokenService } from '../services/token_service.ts'
-import { OAuthClient } from '../models/oauth_client.ts'
-import { OAuthConsent } from '../models/oauth_consent.ts'
-import { OAuthPendingAuthorizationRequest } from '../models/oauth_pending_authorization_request.ts'
+import type { OAuthPendingAuthorizationRequestRecord } from '../storage/types.ts'
 import { IssueAuthorizationCodeAction } from '../actions/issue_authorization_code.ts'
 import { E_INVALID_CLIENT, E_INVALID_GRANT, E_INVALID_REQUEST } from '../oauth_error.ts'
 
@@ -47,11 +45,12 @@ export default class ConsentController {
     const userId = String(user.id)
     const tokenService = new TokenService(manager)
     const hashedToken = tokenService.hashToken(body.auth_token)
-    const pendingRequest = await this.#consumePendingRequest(hashedToken, userId)
+    const pendingRequest = await this.#consumePendingRequest(manager, hashedToken, userId)
 
     if (!pendingRequest) throw new E_INVALID_GRANT('Authorization request not found or expired')
 
-    const client = await OAuthClient.query().where('clientId', pendingRequest.clientId).first()
+    const store = manager.store
+    const client = await store.findClient(pendingRequest.clientId)
     if (!client) throw new E_INVALID_CLIENT('Client not found')
     if (client.isDisabled) throw new E_INVALID_CLIENT('Client is disabled')
     if (!client.redirectUris.includes(pendingRequest.redirectUri)) {
@@ -62,7 +61,7 @@ export default class ConsentController {
       return this.#redirectWithDenied(ctx, manager, pendingRequest)
     }
 
-    await this.#persistConsent(client.clientId, userId, pendingRequest.scopes)
+    await this.#persistConsent(manager, client.clientId, userId, pendingRequest.scopes)
 
     const action = new IssueAuthorizationCodeAction()
     const code = await action.execute(manager, {
@@ -84,49 +83,30 @@ export default class ConsentController {
   }
 
   /**
-   * Atomically consume a pending authorization request.
-   * Uses DELETE-by-PK with affected-row check to prevent
-   * concurrent consent submissions from producing two
-   * authorization codes.
+   * Atomically consume a pending authorization request so concurrent
+   * consent submissions cannot produce two authorization codes.
    */
-  async #consumePendingRequest(hashedToken: string, userId: string) {
-    const row = await OAuthPendingAuthorizationRequest.query()
-      .where('token', hashedToken)
-      .where('userId', userId)
-      .where('expiresAt', '>', DateTime.now().toSQL()!)
-      .first()
-
-    if (!row) return null
-
-    const deleted = await OAuthPendingAuthorizationRequest.query().where('id', row.id).delete()
-    const count = Array.isArray(deleted) ? Number(deleted[0]) : Number(deleted)
-    if (count === 0) return null
-
-    return row
+  async #consumePendingRequest(manager: SesameManager, hashedToken: string, userId: string) {
+    const store = manager.store
+    return store.consumePendingAuthorizationRequest({
+      token: hashedToken,
+      userId,
+      now: DateTime.now(),
+    })
   }
 
   /**
    * Persist or merge consent so future authorization requests
    * for the same client skip the consent screen.
    */
-  async #persistConsent(clientId: string, userId: string, scopes: string[]) {
-    const existingConsent = await OAuthConsent.query()
-      .where('clientId', clientId)
-      .where('userId', userId)
-      .first()
-
-    if (existingConsent) {
-      existingConsent.scopes = [...new Set([...existingConsent.scopes, ...scopes])]
-      await existingConsent.save()
-      return
-    }
-
-    await OAuthConsent.create({
-      id: crypto.randomUUID(),
-      clientId,
-      userId,
-      scopes,
-    })
+  async #persistConsent(
+    manager: SesameManager,
+    clientId: string,
+    userId: string,
+    scopes: string[]
+  ) {
+    const store = manager.store
+    await store.grantConsent({ clientId, userId, scopes })
   }
 
   /**
@@ -136,7 +116,7 @@ export default class ConsentController {
   #redirectWithDenied(
     ctx: HttpContext,
     manager: SesameManager,
-    pendingRequest: OAuthPendingAuthorizationRequest
+    pendingRequest: OAuthPendingAuthorizationRequestRecord
   ) {
     const url = new URL(pendingRequest.redirectUri)
     url.searchParams.set('error', 'access_denied')

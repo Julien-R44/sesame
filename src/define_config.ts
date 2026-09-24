@@ -1,3 +1,4 @@
+import { InvalidArgumentsException } from '@adonisjs/core/exceptions'
 import type { SesameConfig, ResolvedSesameConfig } from './types.ts'
 
 /**
@@ -20,7 +21,10 @@ export function defineConfig<const TScopes extends Record<string, string>>(
     defaultScopes?: Array<Extract<keyof TScopes, string>>
   }
 ): Omit<ResolvedSesameConfig, 'scopes'> & { scopes: TScopes } {
+  if (!config.store) throw new InvalidArgumentsException('Missing "store" in Sesame config')
+
   return {
+    store: config.store,
     issuer: config.issuer,
     scopes: config.scopes ?? ({} as TScopes),
     defaultScopes: (config.defaultScopes ?? []) as string[],

@@ -1,6 +1,6 @@
 import vine from '@vinejs/vine'
 import type { HttpContext } from '@adonisjs/core/http'
-import type { OAuthClient } from '../models/oauth_client.ts'
+import type { OAuthClientRecord } from '../storage/types.ts'
 import { SesameManager } from '../sesame_manager.ts'
 import { ClientService } from '../services/client_service.ts'
 import { ExchangeAuthorizationCodeAction } from '../actions/exchange_authorization_code.ts'
@@ -37,7 +37,7 @@ export default class TokenController {
       throw new E_UNSUPPORTED_GRANT_TYPE(`Grant type "${validated.grant_type}" is not enabled`)
     }
 
-    const clientService = new ClientService()
+    const clientService = new ClientService(manager)
     const client = await clientService.authenticateClient({
       authorizationHeader: ctx.request.header('authorization'),
       bodyClientId: body.client_id,
@@ -59,7 +59,7 @@ export default class TokenController {
   #dispatchGrant(
     grantType: string,
     manager: SesameManager,
-    client: OAuthClient,
+    client: OAuthClientRecord,
     body: Record<string, any>
   ) {
     const handlers: Record<string, () => Promise<any>> = {

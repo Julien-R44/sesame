@@ -3,13 +3,10 @@ import { DateTime } from 'luxon'
 import { createHash } from 'node:crypto'
 import string from '@adonisjs/core/helpers/string'
 import type { SesameManager } from '../sesame_manager.ts'
-import type { OAuthClient } from '../models/oauth_client.ts'
+import type { OAuthAuthorizationCodeRecord, OAuthClientRecord } from '../storage/types.ts'
 import { TokenService } from '../services/token_service.ts'
 import { IdTokenService } from '../services/id_token_service.ts'
 import { ClientService } from '../services/client_service.ts'
-import { OAuthAuthorizationCode } from '../models/oauth_authorization_code.ts'
-import { OAuthAccessToken } from '../models/oauth_access_token.ts'
-import { OAuthRefreshToken } from '../models/oauth_refresh_token.ts'
 import { E_INVALID_CLIENT, E_INVALID_GRANT, E_INVALID_REQUEST } from '../oauth_error.ts'
 
 /**
@@ -25,7 +22,7 @@ const codeVerifierValidator = vine.create({
 })
 
 export interface ExchangeAuthorizationCodeInput {
-  client: OAuthClient
+  client: OAuthClientRecord
   code: string
   redirectUri: string
   codeVerifier: string
@@ -55,9 +52,9 @@ export class ExchangeAuthorizationCodeAction {
       throw new E_INVALID_CLIENT('Client is not allowed to use the authorization_code grant')
     }
 
-    const authCode = await this.#validateAuthorizationCode(tokenService, input)
+    const authCode = await this.#validateAuthorizationCode(manager, tokenService, input)
 
-    await this.#verifyPkce(input.codeVerifier, authCode)
+    await this.#verifyPkce(manager, input.codeVerifier, authCode)
 
     clientService.validateClientScopes(authCode.scopes, input.client.scopes)
 
@@ -66,7 +63,7 @@ export class ExchangeAuthorizationCodeAction {
     const refreshToken = this.#prepareRefreshToken(manager, tokenService)
     const idToken = await this.#prepareIdToken(manager, authCode, input.client, accessToken.raw)
 
-    await this.#atomicExchange(input, authCode, accessToken, refreshToken)
+    await this.#atomicExchange(manager, input, authCode, accessToken, refreshToken)
 
     const ttlSeconds = string.seconds.parse(manager.config.accessTokenTtl)
 
@@ -85,6 +82,7 @@ export class ExchangeAuthorizationCodeAction {
    * it has not expired and matches the redirect_uri.
    */
   async #validateAuthorizationCode(
+    manager: SesameManager,
     tokenService: TokenService,
     input: ExchangeAuthorizationCodeInput
   ) {
@@ -92,15 +90,16 @@ export class ExchangeAuthorizationCodeAction {
     if (!input.redirectUri) throw new E_INVALID_REQUEST('Missing required parameter: redirect_uri')
 
     const hashedCode = tokenService.hashToken(input.code)
-    const authCode = await OAuthAuthorizationCode.query()
-      .where('code', hashedCode)
-      .where('clientId', input.client.clientId)
-      .first()
+    const store = manager.store
+    const authCode = await store.findAuthorizationCode({
+      code: hashedCode,
+      clientId: input.client.clientId,
+    })
 
     if (!authCode) throw new E_INVALID_GRANT('Authorization code not found')
 
     if (authCode.expiresAt < DateTime.now()) {
-      await OAuthAuthorizationCode.query().where('id', authCode.id).delete()
+      await store.deleteAuthorizationCode(authCode.id)
       throw new E_INVALID_GRANT('Authorization code has expired')
     }
 
@@ -115,23 +114,28 @@ export class ExchangeAuthorizationCodeAction {
    * Verify the PKCE code_verifier against the stored
    * code_challenge using S256 (mandatory per OAuth 2.1).
    */
-  async #verifyPkce(codeVerifier: string, authCode: OAuthAuthorizationCode) {
+  async #verifyPkce(
+    manager: SesameManager,
+    codeVerifier: string,
+    authCode: OAuthAuthorizationCodeRecord
+  ) {
+    const store = manager.store
     const [verifierError] = await codeVerifierValidator.tryValidate({ code_verifier: codeVerifier })
     if (verifierError) {
-      await OAuthAuthorizationCode.query().where('id', authCode.id).delete()
+      await store.deleteAuthorizationCode(authCode.id)
       throw new E_INVALID_REQUEST(
         'code_verifier must be 43-128 characters using only [A-Za-z0-9-._~] (RFC 7636 §4.1)'
       )
     }
 
     if (!authCode.codeChallenge) {
-      await OAuthAuthorizationCode.query().where('id', authCode.id).delete()
+      await store.deleteAuthorizationCode(authCode.id)
       throw new E_INVALID_GRANT('Authorization code is missing PKCE challenge')
     }
 
     const challenge = createHash('sha256').update(codeVerifier).digest('base64url')
     if (challenge !== authCode.codeChallenge) {
-      await OAuthAuthorizationCode.query().where('id', authCode.id).delete()
+      await store.deleteAuthorizationCode(authCode.id)
       throw new E_INVALID_GRANT('PKCE verification failed')
     }
   }
@@ -159,8 +163,8 @@ export class ExchangeAuthorizationCodeAction {
    */
   async #prepareIdToken(
     manager: SesameManager,
-    authCode: OAuthAuthorizationCode,
-    client: OAuthClient,
+    authCode: OAuthAuthorizationCodeRecord,
+    client: OAuthClientRecord,
     accessTokenRaw: string
   ) {
     if (!authCode.scopes.includes('openid')) return null
@@ -185,40 +189,26 @@ export class ExchangeAuthorizationCodeAction {
    * inside a single transaction.
    */
   async #atomicExchange(
+    manager: SesameManager,
     input: ExchangeAuthorizationCodeInput,
-    authCode: OAuthAuthorizationCode,
+    authCode: OAuthAuthorizationCodeRecord,
     accessToken: { raw: string; hash: string; expiresAt: Date },
     refreshToken: { raw: string; hash: string; expiresAt: DateTime } | null
   ) {
-    await OAuthAuthorizationCode.transaction(async (trx) => {
-      const deleteResult = await OAuthAuthorizationCode.query({ client: trx })
-        .where('id', authCode.id)
-        .delete()
-      const deletedRows = Array.isArray(deleteResult)
-        ? Number(deleteResult[0] ?? 0)
-        : Number(deleteResult)
-
-      if (deletedRows !== 1) {
-        throw new E_INVALID_GRANT('Authorization code has already been consumed')
-      }
-
-      const accessTokenId = crypto.randomUUID()
-
-      await OAuthAccessToken.create(
-        {
-          id: accessTokenId,
-          tokenHash: accessToken.hash,
-          clientId: input.client.clientId,
-          userId: authCode.userId,
-          scopes: authCode.scopes,
-          expiresAt: DateTime.fromJSDate(accessToken.expiresAt),
-        },
-        { client: trx }
-      )
-
-      if (refreshToken) {
-        await OAuthRefreshToken.create(
-          {
+    const store = manager.store
+    const accessTokenId = crypto.randomUUID()
+    const exchanged = await store.exchangeAuthorizationCode({
+      codeId: authCode.id,
+      accessToken: {
+        id: accessTokenId,
+        tokenHash: accessToken.hash,
+        clientId: input.client.clientId,
+        userId: authCode.userId,
+        scopes: authCode.scopes,
+        expiresAt: DateTime.fromJSDate(accessToken.expiresAt),
+      },
+      refreshToken: refreshToken
+        ? {
             id: crypto.randomUUID(),
             token: refreshToken.hash,
             accessTokenId,
@@ -226,10 +216,10 @@ export class ExchangeAuthorizationCodeAction {
             userId: authCode.userId,
             scopes: authCode.scopes,
             expiresAt: refreshToken.expiresAt,
-          },
-          { client: trx }
-        )
-      }
+          }
+        : null,
     })
+
+    if (!exchanged) throw new E_INVALID_GRANT('Authorization code has already been consumed')
   }
 }

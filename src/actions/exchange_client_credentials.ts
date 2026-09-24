@@ -1,15 +1,14 @@
 import { DateTime } from 'luxon'
 import string from '@adonisjs/core/helpers/string'
 import type { SesameManager } from '../sesame_manager.ts'
-import type { OAuthClient } from '../models/oauth_client.ts'
+import type { OAuthClientRecord } from '../storage/types.ts'
 import { TokenService } from '../services/token_service.ts'
 import { ClientService } from '../services/client_service.ts'
-import { OAuthAccessToken } from '../models/oauth_access_token.ts'
 import { BUILTIN_SCOPES, OIDC_SCOPES } from '../types.ts'
 import { E_INVALID_CLIENT, E_INVALID_SCOPE } from '../oauth_error.ts'
 
 export interface ExchangeClientCredentialsInput {
-  client: OAuthClient
+  client: OAuthClientRecord
   scope?: string
 }
 
@@ -51,7 +50,8 @@ export class ExchangeClientCredentialsAction {
     const { raw: accessTokenRaw, hash: tokenHash } = tokenService.createAccessToken()
     const expiresAt = new Date(Date.now() + ttlSeconds * 1000)
 
-    await OAuthAccessToken.create({
+    const store = manager.store
+    await store.createAccessToken({
       id: crypto.randomUUID(),
       tokenHash,
       clientId: input.client.clientId,

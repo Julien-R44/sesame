@@ -4,10 +4,15 @@ export default defineConfig({
   pack: {
     entry: [
       './index.ts',
+      './src/types.ts',
       './configure.ts',
       './providers/sesame_provider.ts',
       './services/main.ts',
       './src/guard/main.ts',
+      './src/guard/lucid.ts',
+      './src/storage/types.ts',
+      './src/storage/drivers/lucid.ts',
+      './src/storage/drivers/kysely.ts',
       './commands/sesame_purge.ts',
       './src/middleware/scope_middleware.ts',
       './src/middleware/any_scope_middleware.ts',

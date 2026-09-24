@@ -1,6 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import type { Exception } from '@adonisjs/core/exceptions'
-import type { LucidModel } from '@adonisjs/lucid/types/model'
 import { symbols } from '@adonisjs/auth'
 
 /**
@@ -18,13 +17,6 @@ export interface OAuthUserProviderContract<RealUser> {
   [symbols.PROVIDER_REAL_USER]: RealUser
   createUserForGuard(user: RealUser): Promise<OAuthGuardUser<RealUser>>
   findById(identifier: string | number | BigInt): Promise<OAuthGuardUser<RealUser> | null>
-}
-
-/**
- * Options for the Lucid-based OAuth user provider.
- */
-export type OAuthLucidUserProviderOptions<Model extends LucidModel> = {
-  model: () => Promise<{ default: Model }>
 }
 
 /**

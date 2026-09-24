@@ -7,8 +7,6 @@ import type { AuthClientResponse, GuardContract } from '@adonisjs/auth/types'
 import type { Scope } from '../types.ts'
 import type { SesameManager } from '../sesame_manager.ts'
 import { TokenService } from '../services/token_service.ts'
-import { OAuthAccessToken } from '../models/oauth_access_token.ts'
-import { OAuthClient } from '../models/oauth_client.ts'
 import type { OAuthGuardEvents, OAuthUserProviderContract } from './types.ts'
 
 /**
@@ -112,7 +110,8 @@ export class OAuthGuard<
 
     const includeError = { includeError: true } as const
     const hashed = tokenService.hashToken(rawToken)
-    const record = await OAuthAccessToken.query().where('tokenHash', hashed).first()
+    const store = this.#manager.store
+    const record = await store.findAccessToken({ hash: hashed })
     if (!record) throw this.#authenticationFailed('Invalid or expired token', includeError)
     if (record.revokedAt) throw this.#authenticationFailed('Invalid or expired token', includeError)
     if (record.expiresAt.toJSDate() < new Date())
@@ -168,24 +167,30 @@ export class OAuthGuard<
     const tokenService = new TokenService(this.#manager)
     const defaultScopes = this.#manager.config.defaultScopes
 
-    const testClient = await OAuthClient.firstOrCreate(
-      { clientId: '__test_client__' },
-      {
+    const store = this.#manager.store
+    let testClient = await store.findClient('__test_client__')
+    if (!testClient) {
+      testClient = await store.createClient({
         id: crypto.randomUUID(),
         clientId: '__test_client__',
+        clientSecret: null,
         name: 'Test Client',
         redirectUris: ['http://localhost/callback'],
         grantTypes: ['authorization_code'],
         scopes: defaultScopes,
         isPublic: true,
+        isDisabled: false,
         requirePkce: false,
-      }
-    )
+        type: 'public',
+        metadata: null,
+        userId: null,
+      })
+    }
 
     const userId = String((user as any).id ?? (user as any).getId?.() ?? 'test-user')
     const { raw, hash, expiresAt } = tokenService.createAccessToken()
 
-    await OAuthAccessToken.create({
+    await store.createAccessToken({
       id: crypto.randomUUID(),
       tokenHash: hash,
       clientId: testClient.clientId,

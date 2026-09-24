@@ -1,8 +1,11 @@
 import { test } from '@japa/runner'
 import { defineConfig } from '../src/define_config.ts'
+import { stores } from '../src/stores.ts'
 import { SesameManager } from '../src/sesame_manager.ts'
 import { OAuthGuard } from '../src/guard/guard.ts'
-import type { Scope, InferScopes, SesameScopes } from '../src/types.ts'
+import type { Scope, InferScopes, SesameScopes, SesameStore } from '../src/types.ts'
+
+const lucidStoreConfig = { store: stores.lucid() }
 
 /**
  * Type-level tests for the Scope system.
@@ -18,6 +21,7 @@ test.group('Typing | Scope types', () => {
   test('InferScopes extracts scope keys from typeof config', ({ expectTypeOf }) => {
     const config = defineConfig({
       issuer: 'https://example.com',
+      ...lucidStoreConfig,
       scopes: { read: 'Read', write: 'Write' },
       loginPage: '/login',
       consentPage: '/consent',
@@ -37,9 +41,37 @@ test.group('Typing | Scope types', () => {
 })
 
 test.group('Typing | defineConfig', () => {
+  test('store requires a ConfigProvider instance', () => {
+    defineConfig({
+      issuer: 'https://example.com',
+      // @ts-expect-error - plain functions are not ConfigProviders
+      store: () => ({}) as SesameStore,
+      loginPage: '/login',
+      consentPage: '/consent',
+    })
+
+    defineConfig({
+      issuer: 'https://example.com',
+      // @ts-expect-error - raw stores are not ConfigProviders
+      store: {} as SesameStore,
+      loginPage: '/login',
+      consentPage: '/consent',
+    })
+  }).skip()
+
+  test('store is required', () => {
+    // @ts-expect-error - no store is configured
+    defineConfig({
+      issuer: 'https://example.com',
+      loginPage: '/login',
+      consentPage: '/consent',
+    })
+  }).skip()
+
   test('defaultScopes autocompletes from scopes keys', () => {
     defineConfig({
       issuer: 'https://example.com',
+      ...lucidStoreConfig,
       scopes: { read: 'Read', write: 'Write', admin: 'Admin' },
       defaultScopes: ['read', 'write'],
       loginPage: '/login',
@@ -48,6 +80,7 @@ test.group('Typing | defineConfig', () => {
 
     defineConfig({
       issuer: 'https://example.com',
+      ...lucidStoreConfig,
       scopes: { read: 'Read', write: 'Write' },
       // @ts-expect-error - 'invalid' is not a key of scopes
       defaultScopes: ['invalid'],
@@ -59,6 +92,7 @@ test.group('Typing | defineConfig', () => {
   test('return type preserves scopes object via intersection', ({ expectTypeOf }) => {
     const config = defineConfig({
       issuer: 'https://example.com',
+      ...lucidStoreConfig,
       scopes: { read: 'Read', write: 'Write' },
       loginPage: '/login',
       consentPage: '/consent',
@@ -71,6 +105,7 @@ test.group('Typing | defineConfig', () => {
   test('return type is assignable to ResolvedSesameConfig', ({ expectTypeOf }) => {
     const config = defineConfig({
       issuer: 'https://example.com',
+      ...lucidStoreConfig,
       scopes: { read: 'Read' },
       loginPage: '/login',
       consentPage: '/consent',
@@ -82,6 +117,7 @@ test.group('Typing | defineConfig', () => {
   test('scopes defaults to Record<string, string> when omitted', ({ expectTypeOf }) => {
     const config = defineConfig({
       issuer: 'https://example.com',
+      ...lucidStoreConfig,
       loginPage: '/login',
       consentPage: '/consent',
     })
@@ -95,11 +131,13 @@ test.group('Typing | SesameManager', () => {
     const manager = new SesameManager(
       defineConfig({
         issuer: 'https://example.com',
+        ...lucidStoreConfig,
         scopes: { read: 'Read' },
         loginPage: '/login',
         consentPage: '/consent',
       }),
-      {} as any
+      {} as any,
+      {} as SesameStore
     )
 
     // Without augmentation, Scope = string, so any string works
@@ -110,11 +148,13 @@ test.group('Typing | SesameManager', () => {
     const manager = new SesameManager(
       defineConfig({
         issuer: 'https://example.com',
+        ...lucidStoreConfig,
         scopes: { read: 'Read' },
         loginPage: '/login',
         consentPage: '/consent',
       }),
-      {} as any
+      {} as any,
+      {} as SesameStore
     )
 
     expectTypeOf(manager.validateScopes(['x'])).toEqualTypeOf<string[]>()

@@ -4,7 +4,6 @@ import type { Infer } from '@vinejs/vine/types'
 import type { HttpContext } from '@adonisjs/core/http'
 import { SesameManager } from '../sesame_manager.ts'
 import { ClientService } from '../services/client_service.ts'
-import { OAuthClient } from '../models/oauth_client.ts'
 import {
   E_ACCESS_DENIED,
   E_INVALID_CLIENT_METADATA,
@@ -121,7 +120,8 @@ export default class RegisterController {
     }
 
     // Persist the new client
-    await OAuthClient.create({
+    const store = manager.store
+    await store.createClient({
       id: crypto.randomUUID(),
       clientId,
       clientSecret: hashedSecret,

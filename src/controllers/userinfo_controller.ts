@@ -2,7 +2,6 @@ import type { HttpContext } from '@adonisjs/core/http'
 import { SesameManager } from '../sesame_manager.ts'
 import { TokenService } from '../services/token_service.ts'
 import { IdTokenService } from '../services/id_token_service.ts'
-import { OAuthAccessToken } from '../models/oauth_access_token.ts'
 import { E_INSUFFICIENT_SCOPE, E_INVALID_REQUEST, E_INVALID_TOKEN } from '../oauth_error.ts'
 
 /**
@@ -27,7 +26,8 @@ export default class UserinfoController {
     const tokenService = new TokenService(manager)
     const hashed = tokenService.hashToken(rawToken)
 
-    const token = await OAuthAccessToken.query().where('tokenHash', hashed).first()
+    const store = manager.store
+    const token = await store.findAccessToken({ hash: hashed })
     if (!token) throw new E_INVALID_TOKEN('Invalid access token')
     if (token.revokedAt) throw new E_INVALID_TOKEN('Access token has been revoked')
     if (token.expiresAt.toJSDate() < new Date())

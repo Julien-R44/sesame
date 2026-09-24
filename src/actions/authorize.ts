@@ -3,9 +3,7 @@ import string from '@adonisjs/core/helpers/string'
 import type { SesameManager } from '../sesame_manager.ts'
 import { ClientService } from '../services/client_service.ts'
 import { TokenService } from '../services/token_service.ts'
-import { OAuthClient } from '../models/oauth_client.ts'
-import { OAuthConsent } from '../models/oauth_consent.ts'
-import { OAuthPendingAuthorizationRequest } from '../models/oauth_pending_authorization_request.ts'
+import type { OAuthClientRecord } from '../storage/types.ts'
 import { IssueAuthorizationCodeAction } from './issue_authorization_code.ts'
 import { E_INVALID_CLIENT, E_INVALID_REQUEST, E_UNSUPPORTED_RESPONSE_TYPE } from '../oauth_error.ts'
 
@@ -51,7 +49,8 @@ export class AuthorizeAction {
       throw new E_UNSUPPORTED_RESPONSE_TYPE('Only "code" is supported')
     }
 
-    const client = await OAuthClient.query().where('clientId', input.clientId).first()
+    const store = manager.store
+    const client = await store.findClient(input.clientId)
     if (!client) throw new E_INVALID_CLIENT('Client not found')
     if (client.isDisabled) throw new E_INVALID_CLIENT('Client is disabled')
 
@@ -92,7 +91,7 @@ export class AuthorizeAction {
   #validateScopes(
     manager: SesameManager,
     scopes: string[],
-    client: OAuthClient
+    client: OAuthClientRecord
   ): RedirectError | null {
     const invalidScopes = manager.validateScopes(scopes)
     if (invalidScopes.length > 0) {
@@ -154,13 +153,14 @@ export class AuthorizeAction {
   async #resolveConsent(
     manager: SesameManager,
     input: AuthorizeInput & { userId: string },
-    client: OAuthClient,
+    client: OAuthClientRecord,
     scopes: string[]
   ): Promise<AuthorizeResult> {
-    const existingConsent = await OAuthConsent.query()
-      .where('clientId', client.clientId)
-      .where('userId', input.userId)
-      .first()
+    const store = manager.store
+    const existingConsent = await store.findConsent({
+      clientId: client.clientId,
+      userId: input.userId,
+    })
 
     if (existingConsent) {
       const consentedSet = new Set(existingConsent.scopes)
@@ -199,7 +199,8 @@ export class AuthorizeAction {
     const rawToken = tokenService.generateOpaqueToken()
     const ttl = string.seconds.parse(manager.config.authorizationRequestTtl)
 
-    await OAuthPendingAuthorizationRequest.create({
+    const store = manager.store
+    await store.createPendingAuthorizationRequest({
       id: crypto.randomUUID(),
       token: tokenService.hashToken(rawToken),
       userId: input.userId,

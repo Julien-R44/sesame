@@ -17,8 +17,12 @@
     ".": "./build/index.js",
     "./exceptions": "./build/src/oauth_error.js",
     "./types": "./build/src/types.js",
+    "./storage/types": "./build/src/storage/types.js",
+    "./drivers/lucid": "./build/src/storage/drivers/lucid.js",
+    "./drivers/kysely": "./build/src/storage/drivers/kysely.js",
     "./sesame_provider": "./build/providers/sesame_provider.js",
     "./guard": "./build/src/guard/main.js",
+    "./guard/lucid": "./build/src/guard/lucid.js",
     "./scope_middleware": "./build/src/middleware/scope_middleware.js",
     "./any_scope_middleware": "./build/src/middleware/any_scope_middleware.js",
     "./services/main": "./build/services/main.js",
@@ -29,6 +33,7 @@
     "check": "vp check",
     "format": "vp fmt --write .",
     "quick:test": "node --import=@poppinss/ts-exec --enable-source-maps bin/test.ts",
+    "test:sql": "bash bin/test_sql_dialects.sh",
     "test": "c8 npm run quick:test",
     "build": "vp pack && tsc --emitDeclarationOnly --declaration && adonis-kit index build/commands",
     "release": "release-it",
@@ -69,12 +74,17 @@
     "@japa/runner": "^5.3.0",
     "@poppinss/ts-exec": "^1.4.4",
     "@release-it/conventional-changelog": "^11.0.0",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/luxon": "^3.7.1",
     "@types/node": "^25.6.0",
+    "@types/pg": "^8.23.1",
     "@vinejs/vine": "^4.4.0",
     "better-sqlite3": "^12.9.0",
     "c8": "^11.0.0",
     "cross-env": "^10.1.0",
+    "kysely": "^0.29.0",
+    "mysql2": "^3.24.4",
+    "pg": "^8.23.0",
     "release-it": "^20.0.1",
     "taze": "^19.11.0",
     "typescript": "^6.0.3",
@@ -85,13 +95,17 @@
     "@adonisjs/auth": "^10.0.0",
     "@adonisjs/core": "^7.0.0",
     "@adonisjs/lucid": "^21.0.0 || ^22.0.0",
-    "@vinejs/vine": "^4.0.0"
+    "@vinejs/vine": "^4.0.0",
+    "kysely": "^0.29.0"
   },
   "peerDependenciesMeta": {
     "@adonisjs/assembler": {
       "optional": true
     },
-    "@adonisjs/auth": {
+    "@adonisjs/lucid": {
+      "optional": true
+    },
+    "kysely": {
       "optional": true
     }
   },
