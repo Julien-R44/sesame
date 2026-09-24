@@ -20,21 +20,23 @@ When you need identity claims on top of authorization, Sésame supports OpenID C
 
 ## Installation
 
-`@adonisjs/auth` is required, including when you use Kysely without Lucid. If your application does not already have it, run `pnpm add @adonisjs/auth` before installing Sésame.
+`@adonisjs/auth` is required, including when you use Kysely without Lucid. If your Lucid application does not already have Auth configured, run `node ace add @adonisjs/auth --guard=session` first. This registers Auth's provider and initialization middleware in addition to installing the package. Keep your existing Auth setup if it is already configured.
 
-```bash
+```bash title="Terminal"
 node ace add @julr/sesame
 ```
 
 By default, this publishes `config/sesame.ts`, creates six Lucid migrations, and registers the service provider and commands. Make sure `@adonisjs/lucid` is installed in your application, then run the migrations:
 
-```bash
+```bash title="Terminal"
 node ace migration:run
 ```
 
 ### Kysely installation
 
 You can use Sésame in a Kysely application without installing Lucid. The installer publishes a configuration file and a migration, but it does not connect to the database or create tables automatically.
+
+If Auth is not already configured, install `@adonisjs/auth` with `pnpm add @adonisjs/auth`, add `() => import('@adonisjs/auth/auth_provider')` to the `providers` array in `adonisrc.ts`, and add `router.use([() => import('@adonisjs/auth/initialize_auth_middleware')])` to `start/kernel.ts`. Do not run `node ace add @adonisjs/auth` for this path: its bundled installer currently generates a Lucid user model and migration. For the interactive authorization flow, configure `@adonisjs/session` in your application and use a session guard as the default; the OAuth guard authenticates Bearer tokens, not browser login sessions.
 
 ```bash title="Terminal"
 pnpm add kysely
@@ -82,7 +84,7 @@ The installer writes the complete migration to `database/kysely_migrations/creat
 
 If Sésame uses its own migration folder, configure a separate [Kysely migrator](https://kysely-org.github.io/kysely-apidoc/classes/migration.Migrator.html) for `database/kysely_migrations` and call `migrateToLatest()` explicitly. Give that migrator unique `migrationTableName` and `migrationLockTableName` values when your application already has another Kysely migrator on the same database. Commit the generated migration so future Sésame upgrades cannot alter a migration you already applied.
 
-The Kysely driver supports SQLite, PostgreSQL, and MySQL. The default tests cover SQLite; `pnpm test:sql` runs the PostgreSQL and MySQL integration suite in temporary Docker containers. For a custom adapter backed by one of these databases, pass its `dialect` explicitly to `stores.kysely()`.
+The Kysely driver supports SQLite, PostgreSQL, and MySQL. For a custom Kysely dialect backed by one of these databases, pass its `dialect` explicitly to `stores.kysely()`.
 
 Sésame configures one `store` at a time. It must be an AdonisJS `ConfigProvider<SesameStore>`; the service provider resolves it with the application before creating the manager. Choose `stores.lucid()`, `stores.kysely()`, or a custom driver. To add a custom driver, implement `SesameStore` from `@julr/sesame/types` and wrap it with `configProvider.create()`. The store interface exposes OAuth operations rather than generic CRUD queries. Its `exchangeAuthorizationCode`, `rotateRefreshToken`, and `issueTokenPair` methods must use real database transactions; the first two return `false` when another request consumed the credential first.
 
@@ -136,6 +138,7 @@ The `SesameScopes` module augmentation gives you type-safe scope names throughou
 You must register OAuth routes from your `start/routes.ts` file. The OAuth endpoints go inside a prefix group, and the discovery endpoints go at the root level so they remain at `/.well-known/...`.
 
 ```ts title="start/routes.ts"
+import router from '@adonisjs/core/services/router'
 import sesame from '@julr/sesame/services/main'
 
 // OAuth endpoints under /oauth
@@ -184,23 +187,114 @@ The authorization code flow works in three steps. All clients must use PKCE with
 
 ## Authentication Guard
 
-Sésame provides an OAuth guard for `@adonisjs/auth` that verifies opaque Bearer tokens against the database, checks revocation and expiry, and resolves the user model. Configure it in `config/auth.ts`:
+Sésame provides an OAuth guard for `@adonisjs/auth` that verifies opaque Bearer tokens against the database, checks revocation and expiry, and resolves the user. In a Lucid application configured with the session guard, add the OAuth guard while keeping `web` as the default. Sésame uses that default guard to identify the logged-in user during authorization and consent:
 
 ```ts title="config/auth.ts"
 import { defineConfig } from '@adonisjs/auth'
+import { sessionGuard, sessionUserProvider } from '@adonisjs/auth/session'
+import type { InferAuthenticators, InferAuthEvents, Authenticators } from '@adonisjs/auth/types'
 import { oauthGuard } from '@julr/sesame/guard'
 import { oauthUserProvider } from '@julr/sesame/guard/lucid'
 
 const authConfig = defineConfig({
   default: 'web',
   guards: {
-    // ...your other guards
+    web: sessionGuard({
+      useRememberMeTokens: false,
+      provider: sessionUserProvider({ model: () => import('#models/user') }),
+    }),
     oauth: oauthGuard({
       provider: oauthUserProvider({ model: () => import('#models/user') }),
     }),
   },
 })
+
+export default authConfig
+
+declare module '@adonisjs/auth/types' {
+  interface Authenticators extends InferAuthenticators<typeof authConfig> {}
+}
+
+declare module '@adonisjs/core/types' {
+  interface EventsList extends InferAuthEvents<Authenticators> {}
+}
 ```
+
+### Kysely user provider
+
+The Kysely store handles OAuth records, not your application's users. In a Lucid-free app, provide a user lookup for the OAuth guard and OIDC. This example assumes that your existing `appDb` connection has a `users` table with string `id` and `email` columns. Adapt the query and identifier conversion to your schema:
+
+```ts title="app/auth/kysely_oauth_user_provider.ts"
+import { symbols } from '@adonisjs/auth'
+import type { OAuthGuardUser, OAuthUserProviderContract } from '@julr/sesame/guard'
+import { appDb } from '#services/database'
+
+type User = {
+  id: string
+  email: string
+  getOidcClaims(scopes: string[]): Record<string, unknown>
+}
+
+export class KyselyOAuthUserProvider implements OAuthUserProviderContract<User> {
+  declare [symbols.PROVIDER_REAL_USER]: User
+
+  async createUserForGuard(user: User): Promise<OAuthGuardUser<User>> {
+    return { getId: () => user.id, getOriginal: () => user }
+  }
+
+  async findById(identifier: string | number | BigInt): Promise<OAuthGuardUser<User> | null> {
+    const row = await appDb
+      .selectFrom('users')
+      .select(['id', 'email'])
+      .where('id', '=', String(identifier))
+      .executeTakeFirst()
+
+    if (!row) return null
+
+    const user: User = {
+      id: row.id,
+      email: row.email,
+      getOidcClaims(scopes) {
+        return scopes.includes('email') ? { email: row.email } : {}
+      },
+    }
+
+    return this.createUserForGuard(user)
+  }
+}
+
+export const kyselyOAuthUserProvider = new KyselyOAuthUserProvider()
+```
+
+Configure this provider for both the default session guard (browser login) and the OAuth guard (Bearer tokens). This assumes `@adonisjs/session` is installed and configured and your `/login` page signs users into the `web` guard:
+
+```ts title="config/auth.ts"
+import { defineConfig } from '@adonisjs/auth'
+import { sessionGuard } from '@adonisjs/auth/session'
+import type { InferAuthenticators, InferAuthEvents, Authenticators } from '@adonisjs/auth/types'
+import { oauthGuard } from '@julr/sesame/guard'
+import { kyselyOAuthUserProvider } from '../app/auth/kysely_oauth_user_provider.js'
+
+const authConfig = defineConfig({
+  default: 'web',
+  guards: {
+    web: sessionGuard({ useRememberMeTokens: false, provider: kyselyOAuthUserProvider }),
+    oauth: oauthGuard({ provider: kyselyOAuthUserProvider }),
+  },
+})
+
+export default authConfig
+
+declare module '@adonisjs/auth/types' {
+  interface Authenticators extends InferAuthenticators<typeof authConfig> {}
+}
+
+declare module '@adonisjs/core/types' {
+  interface EventsList extends InferAuthEvents<Authenticators> {}
+}
+```
+
+Use the same `kyselyOAuthUserProvider` as `oidcProvider` in `config/sesame.ts` if you enable OIDC. The `getOidcClaims()` method above includes the email claim when the client has the `email` scope.
 
 Then use the guard in your controllers. After authentication, you have access to the user, the granted scopes, and the client ID.
 
@@ -228,11 +322,18 @@ export default class ApiController {
 Two named middleware are available for checking scopes on authenticated requests. Use `scopes` when the client must have **all** listed scopes, and `anyScope` when having **at least one** is sufficient.
 
 ```ts title="start/routes.ts"
+import router from '@adonisjs/core/services/router'
+import { middleware } from '#start/kernel'
+
 // Requires ALL listed scopes
-router.get('/admin', [AdminController]).use(middleware.scopes({ scopes: ['admin', 'write'] }))
+router
+  .get('/admin', async () => ({ ok: true }))
+  .use(middleware.scopes({ scopes: ['read', 'write'] }))
 
 // Requires AT LEAST ONE of the listed scopes
-router.get('/data', [DataController]).use(middleware.anyScope({ scopes: ['read', 'write'] }))
+router
+  .get('/data', async () => ({ ok: true }))
+  .use(middleware.anyScope({ scopes: ['read', 'write'] }))
 ```
 
 Important: these middleware are `TransientToken`-like. If the request carries an OAuth Bearer token, scopes are enforced against that token. If there is no Bearer token but the request is already authenticated through a session/web guard, the middleware lets the request through instead of rejecting on missing OAuth scopes.
@@ -256,12 +357,9 @@ export default class PostsController {
     const guard = auth.use('oauth')
     await guard.authenticate()
 
-    // Check if the token has a specific scope
-    if (guard.hasScope('write')) {
-      return { posts: await Post.all(), canEdit: true }
-    }
+    if (guard.hasScope('write')) return { canEdit: true }
 
-    return { posts: await Post.all(), canEdit: false }
+    return { canEdit: false }
   }
 }
 ```
@@ -280,10 +378,17 @@ The consuming app can call `POST /oauth/revoke` with the `token`, optional `toke
 
 On the server side, you can revoke all tokens for a user at once. This is useful when a user is deleted or deactivated.
 
-```ts
+```ts title="app/controllers/users_controller.ts"
+import type { HttpContext } from '@adonisjs/core/http'
 import sesame from '@julr/sesame/services/main'
 
-await sesame.revokeAllForUser(user.id)
+export default class UsersController {
+  async revokeTokens({ params }: HttpContext) {
+    await sesame.revokeAllForUser(String(params.id))
+
+    return { revoked: true }
+  }
+}
 ```
 
 ### Introspecting tokens
@@ -300,7 +405,7 @@ OIDC is opt-in. You need two things: an RSA key pair (JWK) for signing ID tokens
 
 You need an RSA private key in JWK format. The easiest way is to write it directly to your `.env` file:
 
-```bash
+```bash title="Terminal"
 node ace sesame:key --write-env
 ```
 
@@ -308,7 +413,7 @@ This generates a JWK and adds (or replaces) `OIDC_JWK` in your `.env` file. Neve
 
 You can also output the raw JSON for piping to a secret manager or file:
 
-```bash
+```bash title="Terminal"
 node ace sesame:key --raw > jwk.json
 ```
 
@@ -316,12 +421,13 @@ Or run `node ace sesame:key` without flags to see the key with usage instruction
 
 ### Configuration
 
-Pass the JWK and a user provider to `defineConfig`. The `oidcProvider` uses the same `oauthUserProvider` helper you configure for the auth guard.
+Pass the JWK and a user provider to `defineConfig`. With Lucid, `oidcProvider` can use the same `oauthUserProvider` helper as the auth guard. With Kysely, pass your `KyselyOAuthUserProvider` instead and keep `stores.kysely()` as the store. The example declares `profile` and `email` in `scopes` so the `Scope` type also accepts them in the claims example below; they do not need to be declared for runtime validation.
 
 ```ts title="config/sesame.ts"
 import env from '#start/env'
 import { defineConfig, stores } from '@julr/sesame'
 import { oauthUserProvider } from '@julr/sesame/guard/lucid'
+import type { InferScopes } from '@julr/sesame/types'
 
 const sesameConfig = defineConfig({
   issuer: env.get('APP_URL'),
@@ -331,6 +437,8 @@ const sesameConfig = defineConfig({
   scopes: {
     read: 'Read access',
     write: 'Write access',
+    profile: 'Basic profile information',
+    email: 'Email address',
   },
 
   loginPage: '/login',
@@ -341,13 +449,19 @@ const sesameConfig = defineConfig({
   oidcProvider: oauthUserProvider({ model: () => import('#models/user') }),
   idTokenTtl: '1h',
 })
+
+export default sesameConfig
+
+declare module '@julr/sesame/types' {
+  interface SesameScopes extends InferScopes<typeof sesameConfig> {}
+}
 ```
 
-Both `jwk` and `oidcProvider` must be set for OIDC to be active. If either is missing, the server works as a pure OAuth 2.1 server and OIDC endpoints return 404.
+Both `jwk` and `oidcProvider` must be set for OIDC to be active. If either is missing, the server works as a pure OAuth 2.1 server. OIDC discovery and JWKS return 404; an access token without the `openid` scope cannot retrieve user claims from `/userinfo`.
 
 ### User Claims
 
-When the `openid` scope is granted, Sésame calls `getOidcClaims()` on your User model to populate the `id_token` and `/userinfo` response with user-specific claims. If the method is not implemented, only protocol-level claims (`sub`, `iss`, `aud`, `exp`, `iat`) are included.
+When the `openid` scope is granted, Sésame calls `getOidcClaims()` on the user returned by `oidcProvider` to populate the `id_token` and `/userinfo` response with user-specific claims. Without this method, the ID token still contains its protocol claims (`sub`, `iss`, `aud`, `exp`, `iat`, `at_hash`), while `/userinfo` returns only `sub`.
 
 Implement the `OidcSubject` interface and use the `collectOidcClaims` helper for a type-safe, declarative mapping of scopes to claims:
 
@@ -391,7 +505,7 @@ Three scopes are OIDC-specific: `openid`, `profile`, and `email`. They are recog
 
 When the `openid` scope is present in the authorization code or refresh token exchange, the token response includes an `id_token` field alongside `access_token` and `refresh_token`:
 
-```json
+```json title="Token response"
 {
   "access_token": "oat_...",
   "token_type": "Bearer",
@@ -407,11 +521,11 @@ The `id_token` is a signed JWT containing `iss`, `sub`, `aud`, `iat`, `exp`, `at
 
 The `/userinfo` endpoint (GET and POST) returns claims about the authenticated user. It requires a valid access token with the `openid` scope. The token can be passed as a `Bearer` header or as an `access_token` body parameter.
 
-```bash
+```bash title="Terminal"
 curl -H "Authorization: Bearer oat_..." https://auth.example.com/oauth/userinfo
 ```
 
-```json
+```json title="UserInfo response"
 {
   "sub": "42",
   "name": "Julien Ripouteau",
@@ -427,13 +541,7 @@ The `/jwks` endpoint serves the public key(s) used to sign ID tokens. Relying pa
 
 For machine-to-machine (M2M) authentication, enable the `client_credentials` grant. This allows a confidential client to send `POST /oauth/token` with `grant_type=client_credentials`, its credentials (via Basic auth or POST body), and the requested `scope`. No refresh token is issued.
 
-```ts title="config/sesame.ts"
-const sesameConfig = defineConfig({
-  // ...
-  grantTypes: ['authorization_code', 'refresh_token', 'client_credentials'],
-  clientCredentialsAccessTokenTtl: '2h',
-})
-```
+Add `client_credentials` to `grantTypes` in `config/sesame.ts` and optionally set `clientCredentialsAccessTokenTtl: '2h'` there. Keep your existing store, issuer, and page settings.
 
 User-centric scopes (`openid`, `profile`, `email`, `offline_access`) are rejected for client credentials since they are meaningless in an M2M context. The client must be associated with a user (`userId` on the client record) and must be confidential (not public).
 
@@ -441,13 +549,7 @@ User-centric scopes (`openid`, `profile`, `email`, `offline_access`) are rejecte
 
 Sésame supports RFC 7591 dynamic client registration. Clients send their metadata (`redirect_uris`, `client_name`, `grant_types`, `scope`, `token_endpoint_auth_method`) to `POST /oauth/register` and receive a `client_id` and `client_secret` in return. Set `token_endpoint_auth_method` to `"none"` for public clients (no secret issued). Requested scopes and grant types are validated against your server config.
 
-```ts title="config/sesame.ts"
-const sesameConfig = defineConfig({
-  // ...
-  allowDynamicRegistration: true,
-  allowPublicRegistration: true, // allows unauthenticated registration
-})
-```
+Set `allowDynamicRegistration: true` in `config/sesame.ts`. Also set `allowPublicRegistration: true` only if unauthenticated clients should be able to register.
 
 ## Managing Clients
 
@@ -455,13 +557,13 @@ const sesameConfig = defineConfig({
 
 The `sesame:client` Ace command creates a new OAuth client interactively. It prompts for a name, redirect URIs, and client type, then outputs the generated credentials.
 
-```bash
+```bash title="Terminal"
 node ace sesame:client
 ```
 
 You can also pass flags to skip the prompts:
 
-```bash
+```bash title="Terminal"
 node ace sesame:client --name "My App" --redirect-uris https://app.example.com/callback
 node ace sesame:client --name "SPA" --public --redirect-uris https://spa.example.com/callback
 node ace sesame:client --name "M2M Service" --grant-types client_credentials --user-id 42
@@ -473,7 +575,7 @@ The client secret is displayed once at creation time and cannot be retrieved lat
 
 The `SesameManager` exposes methods for managing clients from your application code. This is useful for admin panels, seeding scripts, or any workflow where you need to create and manage clients without the CLI or dynamic registration.
 
-```ts
+```ts title="database/seeders/oauth_clients_seeder.ts"
 import sesame from '@julr/sesame/services/main'
 
 // Create a confidential client
@@ -496,7 +598,9 @@ const { client: spa } = await sesame.createClient({
 
 To find, list, update, or delete clients:
 
-```ts
+```ts title="database/seeders/oauth_clients_seeder.ts"
+import sesame from '@julr/sesame/services/main'
+
 // Find by public client_id
 const client = await sesame.findClient('a1b2c3...')
 
@@ -517,7 +621,9 @@ await sesame.deleteClient('a1b2c3...')
 
 To rotate a confidential client's secret (e.g. after a suspected leak):
 
-```ts
+```ts title="database/seeders/oauth_clients_seeder.ts"
+import sesame from '@julr/sesame/services/main'
+
 const newSecret = await sesame.rotateClientSecret('a1b2c3...')
 // Returns the new raw secret, or null if the client is public or not found
 ```
@@ -527,9 +633,11 @@ const newSecret = await sesame.rotateClientSecret('a1b2c3...')
 For MCP (Model Context Protocol) servers, you can register per-resource discovery endpoints following RFC 9728. This tells MCP clients which authorization server protects a given resource.
 
 ```ts title="start/routes.ts"
+import sesame from '@julr/sesame/services/main'
+
 sesame.registerProtectedResource({
   resource: '/api/mcp',
-  scopes: ['read:mcp'],
+  scopes: ['read'],
 })
 ```
 
@@ -549,6 +657,7 @@ The OAuth guard emits events during authentication that you can listen to for lo
 
 ```ts title="start/events.ts"
 import emitter from '@adonisjs/core/services/emitter'
+import logger from '@adonisjs/core/services/logger'
 
 emitter.on('oauth_auth:authentication_failed', (event) => {
   logger.warn({ guardName: event.guardName, err: event.error }, 'OAuth authentication failed')
@@ -565,7 +674,7 @@ import User from '#models/user'
 
 test.group('API', () => {
   test('returns user data for authenticated request', async ({ client }) => {
-    const user = await User.find(1)
+    const user = await User.findOrFail(1)
 
     const response = await client.get('/api/me').loginAs(user, 'oauth')
 
@@ -581,18 +690,18 @@ The test client is created with `defaultScopes` from your config. The token is s
 
 Expired and revoked tokens accumulate over time. Purge them with the Ace command:
 
-```bash
+```bash title="Terminal"
 node ace sesame:purge
-node ace sesame:purge --revoked-only
-node ace sesame:purge --expired-only
-node ace sesame:purge --retention-hours=168
+node ace sesame:purge --revoked
+node ace sesame:purge --expired
+node ace sesame:purge --hours=168
 ```
 
-The `--retention-hours` flag (default: 168, i.e. 7 days) controls how long expired tokens are kept for audit purposes before deletion.
+The `--hours` flag (default: 168, i.e. 7 days) controls how long expired tokens are kept for audit purposes before deletion. The programmatic option is named `retentionHours`.
 
 You can also call it programmatically:
 
-```ts
+```ts title="app/services/token_cleanup.ts"
 import sesame from '@julr/sesame/services/main'
 
 const result = await sesame.purgeTokens({ retentionHours: 168 })
