@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import string from '@adonisjs/core/helpers/string'
 import type { SesameManager } from '../sesame_manager.ts'
+import { describeInvalidScopes } from '../invalid_scope_description.ts'
 import type { OAuthClientRecord } from '../storage/types.ts'
 import { TokenService } from '../services/token_service.ts'
 import { ClientService } from '../services/client_service.ts'
@@ -95,7 +96,7 @@ export class ExchangeClientCredentialsAction {
 
     const invalidScopes = manager.validateScopes(requestedScopes)
     if (invalidScopes.length > 0) {
-      throw new E_INVALID_SCOPE(`Invalid scopes: ${invalidScopes.join(', ')}`)
+      throw new E_INVALID_SCOPE(describeInvalidScopes(invalidScopes))
     }
 
     clientService.validateClientScopes(requestedScopes, input.client.scopes)

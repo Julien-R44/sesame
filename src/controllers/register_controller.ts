@@ -3,6 +3,7 @@ import vine from '@vinejs/vine'
 import type { Infer } from '@vinejs/vine/types'
 import type { HttpContext } from '@adonisjs/core/http'
 import { SesameManager } from '../sesame_manager.ts'
+import { describeInvalidScopes } from '../invalid_scope_description.ts'
 import { ClientService } from '../services/client_service.ts'
 import {
   E_ACCESS_DENIED,
@@ -80,8 +81,7 @@ export default class RegisterController {
     const scopes = body.scope ? body.scope.split(' ') : manager.config.defaultScopes
 
     const invalidScopes = manager.validateScopes(scopes)
-    if (invalidScopes.length > 0)
-      throw new E_INVALID_SCOPE(`Unknown scopes: ${invalidScopes.join(', ')}`)
+    if (invalidScopes.length > 0) throw new E_INVALID_SCOPE(describeInvalidScopes(invalidScopes))
 
     if (manager.usesOidcScopes(scopes) && !manager.isOidcEnabled) {
       throw new E_INVALID_SCOPE(

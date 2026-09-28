@@ -92,7 +92,7 @@ test.group('Integration | Refresh Token Grant', (group) => {
           scope: 'profile email',
         }),
       'invalid_scope',
-      ['profile', 'email']
+      ['profile', 'email', 'require the openid scope']
     )
   })
 

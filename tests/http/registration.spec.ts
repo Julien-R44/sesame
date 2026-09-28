@@ -341,7 +341,9 @@ test.group('HTTP | Registration — empty scopes config', (group) => {
 })
 
 test.group('HTTP | Registration — OIDC scope validation', (group) => {
-  const ctx = setupHttpGroup(group, { scopes: { read: 'Read access' } })
+  const ctx = setupHttpGroup(group, {
+    scopes: { read: 'Read access', profile: 'Profile', email: 'Email' },
+  })
 
   test('rejects profile/email without openid', async ({ client }) => {
     const response = await client.post(`${ctx.baseUrl}/oauth/register`).json({
@@ -351,7 +353,11 @@ test.group('HTTP | Registration — OIDC scope validation', (group) => {
     })
 
     response.assertStatus(400)
-    response.assertBodyContains({ error: 'invalid_scope' })
+    response.assertBodyContains({
+      error: 'invalid_scope',
+      error_description:
+        'Invalid scopes: profile, email. OIDC scopes (profile, email) require the openid scope',
+    })
   })
 })
 

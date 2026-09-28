@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import string from '@adonisjs/core/helpers/string'
 import type { SesameManager } from '../sesame_manager.ts'
+import { describeInvalidScopes } from '../invalid_scope_description.ts'
 import { ClientService } from '../services/client_service.ts'
 import { TokenService } from '../services/token_service.ts'
 import type { OAuthClientRecord } from '../storage/types.ts'
@@ -98,7 +99,7 @@ export class AuthorizeAction {
       return {
         type: 'redirect_error',
         error: 'invalid_scope',
-        description: `Invalid scopes: ${invalidScopes.join(', ')}`,
+        description: describeInvalidScopes(invalidScopes),
       }
     }
 

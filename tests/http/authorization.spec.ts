@@ -415,7 +415,39 @@ test.group('HTTP | Authorization Flow', (group) => {
 })
 
 test.group('HTTP | Authorization Flow (openid)', (group) => {
-  const ctx = setupHttpGroup(group, { jwk: { kty: 'RSA' } })
+  const ctx = setupHttpGroup(group, {
+    jwk: { kty: 'RSA' },
+    scopes: { read: 'Read access', profile: 'Profile', email: 'Email' },
+  })
+
+  test('explains that configured profile/email scopes still require openid', async ({
+    client,
+    assert,
+  }) => {
+    await createTestClient({ scopes: ['read', 'profile', 'email'] })
+
+    const response = await client
+      .get(`${ctx.baseUrl}/oauth/authorize`)
+      .qs({
+        client_id: 'test-client',
+        response_type: 'code',
+        redirect_uri: 'https://app.example.com/callback',
+        scope: 'read profile email unknown',
+        state: 'scope-error-state',
+      })
+      .redirects(0)
+
+    response.assertStatus(302)
+    const url = new URL(response.header('location')!)
+
+    assert.equal(url.origin + url.pathname, 'https://app.example.com/callback')
+    assert.equal(url.searchParams.get('state'), 'scope-error-state')
+    assert.equal(url.searchParams.get('error'), 'invalid_scope')
+    assert.equal(
+      url.searchParams.get('error_description'),
+      'Invalid scopes: profile, email, unknown. OIDC scopes (profile, email) require the openid scope'
+    )
+  })
 
   test('rejects openid when JWK is configured without an OIDC provider', async ({
     client,

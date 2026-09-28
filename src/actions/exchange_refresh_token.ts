@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import string from '@adonisjs/core/helpers/string'
 import type { SesameManager } from '../sesame_manager.ts'
+import { describeInvalidScopes } from '../invalid_scope_description.ts'
 import type { OAuthClientRecord, OAuthRefreshTokenRecord } from '../storage/types.ts'
 import { TokenService } from '../services/token_service.ts'
 import { IdTokenService } from '../services/id_token_service.ts'
@@ -222,7 +223,7 @@ export class ExchangeRefreshTokenAction {
 
     const invalidScopes = manager.validateScopes(requested)
     if (invalidScopes.length > 0) {
-      throw new E_INVALID_SCOPE(`Invalid scopes: ${invalidScopes.join(', ')}`)
+      throw new E_INVALID_SCOPE(describeInvalidScopes(invalidScopes))
     }
 
     if (manager.usesOidcScopes(requested) && !manager.isOidcEnabled) {
