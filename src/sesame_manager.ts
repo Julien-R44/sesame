@@ -5,6 +5,7 @@ import {
   OIDC_SCOPES,
   type CreateClientOptions,
   type CreateClientResult,
+  type FindPendingAuthorizationRequestOptions,
   type ResolvedSesameConfig,
   type ResourceServerMetadata,
   type Scope,
@@ -12,8 +13,13 @@ import {
 } from './types.ts'
 import { ClientService } from './services/client_service.ts'
 import { KeyService } from './services/key_service.ts'
+import { TokenService } from './services/token_service.ts'
 import { registerOAuthRoutes, registerWellKnownRoutes as registerWellKnown } from './routes.ts'
-import type { OAuthClientRecord, SesameStore } from './storage/types.ts'
+import type {
+  OAuthClientRecord,
+  OAuthPendingAuthorizationRequestRecord,
+  SesameStore,
+} from './storage/types.ts'
 
 export interface PurgeResult {
   accessTokens: number
@@ -81,6 +87,22 @@ export class SesameManager {
     const guardUser = await this.#config.oidcProvider.findById(userId)
 
     return guardUser?.getOriginal() ?? null
+  }
+
+  /**
+   * Read a pending authorization request without consuming its raw consent token.
+   * Returns null for unknown, expired, consumed, or other users' requests.
+   */
+  async findPendingAuthorizationRequest(
+    options: FindPendingAuthorizationRequestOptions
+  ): Promise<OAuthPendingAuthorizationRequestRecord | null> {
+    const token = new TokenService(this).hashToken(options.token)
+
+    return this.#store.findPendingAuthorizationRequest({
+      token,
+      userId: options.userId,
+      now: DateTime.now(),
+    })
   }
 
   /**

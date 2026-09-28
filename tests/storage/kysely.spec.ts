@@ -156,8 +156,61 @@ test.group('Kysely store | OAuth flows', () => {
         expiresAt: DateTime.now().plus({ minutes: 5 }),
       })
       const request = { token: 'pending-hash', userId: 'user-1', now: DateTime.now() }
+      assert.deepEqual((await store.findPendingAuthorizationRequest(request))?.scopes, ['read'])
+      assert.deepEqual((await store.findPendingAuthorizationRequest(request))?.scopes, ['read'])
       assert.isNotNull(await store.consumePendingAuthorizationRequest(request))
       assert.isNull(await store.consumePendingAuthorizationRequest(request))
+      assert.isNull(await store.findPendingAuthorizationRequest(request))
+    } finally {
+      await db.destroy()
+    }
+  })
+
+  test('reads a pending request from its raw token and decodes string JSON scopes', async ({
+    assert,
+  }) => {
+    const { db, manager } = await createKyselyManager()
+
+    try {
+      const { client } = await manager.createClient({ name: 'Consent App', redirectUris: [] })
+      const token = 'raw-consent-token'
+      const tokenHash = new TokenService(manager).hashToken(token)
+      await manager.store.createPendingAuthorizationRequest({
+        id: crypto.randomUUID(),
+        token: tokenHash,
+        clientId: client.clientId,
+        userId: 'user-1',
+        redirectUri: 'https://app.example.com/callback',
+        scopes: ['read', 'write'],
+        expiresAt: DateTime.now().plus({ minutes: 5 }),
+      })
+      const rawRow = await db
+        .selectFrom('oauth_pending_authorization_requests')
+        .select('scopes')
+        .where('token', '=', tokenHash)
+        .executeTakeFirstOrThrow()
+      assert.isString(rawRow.scopes)
+
+      const request = await manager.findPendingAuthorizationRequest({ token, userId: 'user-1' })
+      assert.deepEqual(request?.scopes, ['read', 'write'])
+      assert.equal(request?.clientId, client.clientId)
+      assert.isNull(request?.state)
+      assert.isNull(request?.nonce)
+      assert.isTrue(DateTime.isDateTime(request?.expiresAt))
+      assert.isNull(await manager.findPendingAuthorizationRequest({ token, userId: 'user-2' }))
+      assert.isNull(
+        await manager.findPendingAuthorizationRequest({ token: 'unknown', userId: 'user-1' })
+      )
+      assert.isNull(
+        await manager.findPendingAuthorizationRequest({ token: tokenHash, userId: 'user-1' })
+      )
+      assert.isNull(
+        await manager.store.findPendingAuthorizationRequest({
+          token: tokenHash,
+          userId: 'user-1',
+          now: request!.expiresAt,
+        })
+      )
     } finally {
       await db.destroy()
     }

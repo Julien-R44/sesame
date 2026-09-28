@@ -9,11 +9,12 @@ import { up, down } from '../../src/storage/migrations/kysely.ts'
 import type { SesameStore } from '../../src/storage/types.ts'
 
 /**
- * These tests use dedicated databases supplied through SESAME_TEST_POSTGRES_URL
- * and SESAME_TEST_MYSQL_URL. Run `pnpm test:sql` to provision both with Docker.
+ * These tests use dedicated databases supplied through SESAME_TEST_POSTGRES_URL,
+ * SESAME_TEST_MYSQL_URL, and SESAME_TEST_MARIADB_URL. Run `pnpm test:sql`
+ * to provision all three with Docker.
  */
 
-type SqlDialect = 'postgres' | 'mysql'
+type SqlDialect = 'postgres' | 'mysql' | 'mariadb'
 
 /**
  * Connect to an isolated database supplied by the integration-test environment.
@@ -118,8 +119,20 @@ async function testConsent(store: SesameStore, clientId: string, assert: Assert)
   })
 
   const request = { token, userId: identity.userId, now: DateTime.now() }
+  const pending = await store.findPendingAuthorizationRequest(request)
+  assert.deepEqual(pending?.scopes, ['read'])
+  assert.equal(pending?.clientId, clientId)
+  assert.isNull(pending?.state)
+  assert.isTrue(DateTime.isDateTime(pending?.expiresAt))
+  assert.deepEqual((await store.findPendingAuthorizationRequest(request))?.scopes, ['read'])
+  assert.isNull(await store.findPendingAuthorizationRequest({ ...request, userId: 'user-2' }))
+  assert.isNull(await store.findPendingAuthorizationRequest({ ...request, token: 'unknown' }))
+  assert.isNull(
+    await store.findPendingAuthorizationRequest({ ...request, now: pending!.expiresAt })
+  )
   assert.isNotNull(await store.consumePendingAuthorizationRequest(request))
   assert.isNull(await store.consumePendingAuthorizationRequest(request))
+  assert.isNull(await store.findPendingAuthorizationRequest(request))
 }
 
 /**
@@ -272,7 +285,7 @@ async function testCleanup(store: SesameStore, clientId: string, assert: Assert)
   assert.isNull(await store.findClient(clientId))
 }
 
-for (const dialect of ['postgres', 'mysql'] as const) {
+for (const dialect of ['postgres', 'mysql', 'mariadb'] as const) {
   const connectionUrl = process.env[`SESAME_TEST_${dialect.toUpperCase()}_URL`]
   const sqlTest = test(`Kysely ${dialect} | migration and OAuth persistence`, async ({
     assert,

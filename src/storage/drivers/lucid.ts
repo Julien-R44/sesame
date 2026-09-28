@@ -20,6 +20,7 @@ import type {
   OAuthConsentRecord,
   OAuthPendingAuthorizationRequestRecord,
   OAuthRefreshTokenRecord,
+  PendingAuthorizationRequestLookupOptions,
   PurgeTokensOptions,
   RotateRefreshTokenOptions,
   SesamePurgeResult,
@@ -403,13 +404,11 @@ export class LucidStore implements SesameStore {
   }
 
   /**
-   * Return a valid pending request only to the process that deletes it.
+   * Read an unexpired pending request for its owner without consuming it.
    */
-  async consumePendingAuthorizationRequest(options: {
-    token: string
-    userId: string
-    now: DateTime
-  }): Promise<OAuthPendingAuthorizationRequestRecord | null> {
+  async findPendingAuthorizationRequest(
+    options: PendingAuthorizationRequestLookupOptions
+  ): Promise<OAuthPendingAuthorizationRequestRecord | null> {
     const row = await this.#query(OAuthPendingAuthorizationRequest)
       .where('token', options.token)
       .where('userId', options.userId)
@@ -417,17 +416,29 @@ export class LucidStore implements SesameStore {
       .first()
     if (!row) return null
 
-    const deleted = this.#affectedRows(
-      await this.#query(OAuthPendingAuthorizationRequest).where('id', row.$attributes.id).delete()
-    )
-    if (deleted !== 1) return null
-
     return this.#record<OAuthPendingAuthorizationRequestRecord>(row, [
       'state',
       'codeChallenge',
       'codeChallengeMethod',
       'nonce',
     ])
+  }
+
+  /**
+   * Return a valid pending request only to the process that deletes it.
+   */
+  async consumePendingAuthorizationRequest(
+    options: PendingAuthorizationRequestLookupOptions
+  ): Promise<OAuthPendingAuthorizationRequestRecord | null> {
+    const request = await this.findPendingAuthorizationRequest(options)
+    if (!request) return null
+
+    const deleted = this.#affectedRows(
+      await this.#query(OAuthPendingAuthorizationRequest).where('id', request.id).delete()
+    )
+    if (deleted !== 1) return null
+
+    return request
   }
 
   /**

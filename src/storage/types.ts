@@ -145,6 +145,15 @@ export interface PurgeTokensOptions {
 }
 
 /**
+ * Look up an owner's unexpired pending request using its stored token hash.
+ */
+export interface PendingAuthorizationRequestLookupOptions {
+  token: string
+  userId: string
+  now: DateTime
+}
+
+/**
  * OAuth-specific persistence operations. Callers never build database predicates.
  * Conditional exchanges and rotations return false when another request won.
  */
@@ -182,11 +191,12 @@ export interface SesameStore {
   grantConsent(options: { clientId: string; userId: string; scopes: string[] }): Promise<void>
 
   createPendingAuthorizationRequest(data: CreatePendingAuthorizationRequestRecord): Promise<void>
-  consumePendingAuthorizationRequest(options: {
-    token: string
-    userId: string
-    now: DateTime
-  }): Promise<OAuthPendingAuthorizationRequestRecord | null>
+  findPendingAuthorizationRequest(
+    options: PendingAuthorizationRequestLookupOptions
+  ): Promise<OAuthPendingAuthorizationRequestRecord | null>
+  consumePendingAuthorizationRequest(
+    options: PendingAuthorizationRequestLookupOptions
+  ): Promise<OAuthPendingAuthorizationRequestRecord | null>
 
   issueTokenPair(options: IssueTokenPairOptions): Promise<void>
   rotateRefreshToken(options: RotateRefreshTokenOptions): Promise<boolean>

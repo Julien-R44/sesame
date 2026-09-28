@@ -14,6 +14,7 @@ import type {
   OAuthConsentRecord,
   OAuthPendingAuthorizationRequestRecord,
   OAuthRefreshTokenRecord,
+  PendingAuthorizationRequestLookupOptions,
   PurgeTokensOptions,
   RotateRefreshTokenOptions,
   SesamePurgeResult,
@@ -585,30 +586,43 @@ export class KyselyStore implements SesameStore {
   }
 
   /**
+   * Read an unexpired pending request for its owner without consuming it.
+   */
+  async findPendingAuthorizationRequest(
+    options: PendingAuthorizationRequestLookupOptions
+  ): Promise<OAuthPendingAuthorizationRequestRecord | null> {
+    const row = await this.#db
+      .selectFrom(tables.pendingAuthorizationRequests.name)
+      .selectAll()
+      .where('token', '=', options.token)
+      .where('user_id', '=', options.userId)
+      .where(
+        'expires_at',
+        '>',
+        encodeValue(options.now, 'expiresAt', tables.pendingAuthorizationRequests, this.#dialect)
+      )
+      .executeTakeFirst()
+    if (!row) return null
+
+    return decodeRow<OAuthPendingAuthorizationRequestRecord>(
+      row,
+      tables.pendingAuthorizationRequests
+    )
+  }
+
+  /**
    * Delete and return an unexpired pending request exactly once.
    */
-  async consumePendingAuthorizationRequest(options: {
-    token: string
-    userId: string
-    now: DateTime
-  }): Promise<OAuthPendingAuthorizationRequestRecord | null> {
+  async consumePendingAuthorizationRequest(
+    options: PendingAuthorizationRequestLookupOptions
+  ): Promise<OAuthPendingAuthorizationRequestRecord | null> {
     return this.#transaction(async (store) => {
-      const row = await store.#db
-        .selectFrom(tables.pendingAuthorizationRequests.name)
-        .selectAll()
-        .where('token', '=', options.token)
-        .where('user_id', '=', options.userId)
-        .where(
-          'expires_at',
-          '>',
-          encodeValue(options.now, 'expiresAt', tables.pendingAuthorizationRequests, this.#dialect)
-        )
-        .executeTakeFirst()
-      if (!row) return null
+      const request = await store.findPendingAuthorizationRequest(options)
+      if (!request) return null
 
       const deleted = await store.#db
         .deleteFrom(tables.pendingAuthorizationRequests.name)
-        .where('id', '=', row.id as string)
+        .where('id', '=', request.id)
         .where(
           'expires_at',
           '>',
@@ -617,10 +631,7 @@ export class KyselyStore implements SesameStore {
         .executeTakeFirst()
       if (Number(deleted.numDeletedRows ?? 0) !== 1) return null
 
-      return decodeRow<OAuthPendingAuthorizationRequestRecord>(
-        row,
-        tables.pendingAuthorizationRequests
-      )
+      return request
     })
   }
 

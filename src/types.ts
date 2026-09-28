@@ -138,6 +138,14 @@ export function collectOidcClaims(
 export type GrantType = 'authorization_code' | 'refresh_token' | 'client_credentials'
 
 /**
+ * Read a pending authorization request using its raw token and authenticated owner.
+ */
+export interface FindPendingAuthorizationRequestOptions {
+  token: string
+  userId: string
+}
+
+/**
  * Options for creating an OAuth client programmatically.
  */
 export interface CreateClientOptions {
