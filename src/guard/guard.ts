@@ -7,7 +7,13 @@ import type { AuthClientResponse, GuardContract } from '@adonisjs/auth/types'
 import type { Scope } from '../types.ts'
 import type { SesameManager } from '../sesame_manager.ts'
 import { TokenService } from '../services/token_service.ts'
-import type { OAuthGuardEvents, OAuthUserProviderContract } from './types.ts'
+import { buildBearerChallenge, mergeScopes } from '../bearer_challenge.ts'
+import { E_INSUFFICIENT_SCOPE } from '../oauth_error.ts'
+import type {
+  OAuthAuthenticateOptions,
+  OAuthGuardEvents,
+  OAuthUserProviderContract,
+} from './types.ts'
 
 /**
  * OAuth 2.0 guard for `@adonisjs/auth`.
@@ -37,6 +43,7 @@ export class OAuthGuard<
   #userProvider: UserProvider
   #manager: SesameManager
   #resource?: string
+  #challengeScopes: Scope[] = []
 
   constructor(
     name: string,
@@ -62,14 +69,28 @@ export class OAuthGuard<
     return token
   }
 
-  #authenticationFailed(description: string, options?: { includeError?: boolean }) {
-    const suffix = this.#resource ?? ''
-    const resourceMetadataUrl = `${this.#manager.config.issuer}/.well-known/oauth-protected-resource${suffix}`
+  /**
+   * Scopes advertised in the 401 challenge: the resource scopes merged with
+   * the route scopes. A route accepting any scope adds nothing when the
+   * resource scopes already satisfy it.
+   */
+  #resolveChallengeScopes(options?: OAuthAuthenticateOptions): Scope[] {
+    const resourceScopes = this.#manager.getProtectedResourceScopes(this.#resource)
+    const routeScopes = options?.scopes ?? []
 
-    let header = `Bearer resource_metadata="${resourceMetadataUrl}"`
-    if (options?.includeError) {
-      header += `, error="invalid_token", error_description="${description}"`
-    }
+    const satisfiedByResource = routeScopes.some((scope) => resourceScopes.includes(scope))
+    if (options?.match === 'any' && satisfiedByResource) return resourceScopes
+
+    return mergeScopes(resourceScopes, routeScopes) as Scope[]
+  }
+
+  #authenticationFailed(description: string, options?: { includeError?: boolean }) {
+    const header = buildBearerChallenge({
+      resourceMetadata: this.resourceMetadataUrl,
+      scopes: this.#challengeScopes,
+      error: options?.includeError ? 'invalid_token' : undefined,
+      errorDescription: options?.includeError ? description : undefined,
+    })
 
     this.#ctx.response.header('WWW-Authenticate', header)
 
@@ -86,6 +107,14 @@ export class OAuthGuard<
     return error
   }
 
+  /**
+   * Protected resource metadata URL (RFC 9728) of the resource
+   * protected by this guard.
+   */
+  get resourceMetadataUrl(): string {
+    return `${this.#manager.config.issuer}/.well-known/oauth-protected-resource${this.#resource ?? ''}`
+  }
+
   getUserOrFail(): UserProvider[typeof symbols.PROVIDER_REAL_USER] {
     if (!this.user) {
       throw new errors.E_UNAUTHORIZED_ACCESS('Unauthorized access', {
@@ -96,10 +125,17 @@ export class OAuthGuard<
     return this.user
   }
 
-  async authenticate(): Promise<UserProvider[typeof symbols.PROVIDER_REAL_USER]> {
+  /**
+   * Authenticate the request with its Bearer token. Scopes passed in
+   * `options` are advertised in the 401 challenge on failure.
+   */
+  async authenticate(
+    options?: OAuthAuthenticateOptions
+  ): Promise<UserProvider[typeof symbols.PROVIDER_REAL_USER]> {
     if (this.authenticationAttempted) return this.getUserOrFail()
 
     this.authenticationAttempted = true
+    this.#challengeScopes = this.#resolveChallengeScopes(options)
     void this.#emitter.emit('oauth_auth:authentication_attempted', {
       ctx: this.#ctx,
       guardName: this.#name,
@@ -152,6 +188,19 @@ export class OAuthGuard<
 
   hasAnyScope(...scopes: Scope[]): boolean {
     return scopes.some((s) => this.scopes.includes(s))
+  }
+
+  /**
+   * Build the 403 error for a token missing required scopes. The challenge
+   * lists the granted scopes plus the required ones, so a client stepping
+   * up its authorization does not lose what it already has.
+   */
+  insufficientScopeError(requiredScopes: Scope[]) {
+    const error = new E_INSUFFICIENT_SCOPE(requiredScopes)
+    error.challengeScopes = mergeScopes(this.scopes, requiredScopes)
+    error.resourceMetadata = this.resourceMetadataUrl
+
+    return error
   }
 
   /**

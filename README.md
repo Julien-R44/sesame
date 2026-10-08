@@ -349,6 +349,26 @@ Use these middleware on routes that are allowed to accept either:
 
 If you want to require OAuth scopes strictly, authenticate with `auth.use('oauth').authenticate()` in your controller or route pipeline and check scopes on that guard explicitly.
 
+### Scope challenges
+
+When a request is rejected, the `WWW-Authenticate` header tells the client which scopes to request (RFC 6750, MCP authorization spec):
+
+- **401** (missing, invalid, or expired token): `scope` lists the scopes declared for the guard's resource with `registerProtectedResource()` plus the scopes required by the route middleware. A route using `anyScope` adds nothing when the resource scopes already satisfy it. When both lists are empty, `scope` is omitted and clients fall back to `scopes_supported` from the protected resource metadata.
+- **403** (`insufficient_scope`): `scope` lists the scopes already granted to the token plus the required ones, so a client re-authorizing with that list does not lose its current permissions. The header also carries `resource_metadata`.
+
+```http
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer resource_metadata="https://app.example.com/.well-known/oauth-protected-resource/mcp", scope="read"
+```
+
+To advertise route scopes when calling the guard yourself, pass them to `authenticate()`:
+
+```ts
+await auth.use('oauth').authenticate({ scopes: ['read', 'write'] })
+```
+
+To reject with a 403 challenge from your own code, throw `guard.insufficientScopeError(['write'])`.
+
 ### Programmatic Scope Checking
 
 You can also check scopes directly in your controller logic using `hasScope()` and `hasAnyScope()` on the guard instance. This is useful when you need conditional behavior based on scopes rather than a hard reject.
@@ -646,6 +666,8 @@ sesame.registerProtectedResource({
 ```
 
 This creates a `/.well-known/oauth-protected-resource/api/mcp` endpoint. MCP clients that support the latest spec will discover this automatically.
+
+Point the OAuth guard at the same resource with `oauthGuard({ provider, resource: '/api/mcp' })`. Its 401 responses then reference this metadata URL and advertise the declared `scopes` in the `WWW-Authenticate` header (see [Scope challenges](#scope-challenges)).
 
 MCP clients typically need to self-register, so you will want to enable dynamic client registration with public access (see the [Dynamic Client Registration](#dynamic-client-registration) section above).
 

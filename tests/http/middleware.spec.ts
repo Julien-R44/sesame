@@ -70,7 +70,7 @@ test.group('HTTP | ScopeMiddleware', (group) => {
     response.assertBodyContains({ ok: true })
   })
 
-  test('WWW-Authenticate header contains scope names on 403', async ({ client }) => {
+  test('WWW-Authenticate on 403 lists granted and required scopes', async ({ client }) => {
     await createTestClient()
     const { raw } = await createTestAccessToken({ scopes: ['read'] })
 
@@ -79,8 +79,30 @@ test.group('HTTP | ScopeMiddleware', (group) => {
     response.assertStatus(403)
     response.assertHeader(
       'www-authenticate',
-      'Bearer error="insufficient_scope", error_description="The token does not have the required scope(s)", scope="admin"'
+      'Bearer resource_metadata="https://auth.example.com/.well-known/oauth-protected-resource", scope="read admin", error="insufficient_scope", error_description="The token does not have the required scope(s)"'
     )
+  })
+
+  test('WWW-Authenticate on 401 lists the route scopes', async ({ client }) => {
+    const response = await client.get(`${ctx.baseUrl}/test/read-write`)
+
+    response.assertStatus(401)
+    response.assertHeader(
+      'www-authenticate',
+      'Bearer resource_metadata="https://auth.example.com/.well-known/oauth-protected-resource", scope="read write"'
+    )
+  })
+
+  test('WWW-Authenticate on 401 keeps the route scopes for an invalid token', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client.get(`${ctx.baseUrl}/test/read-write`).bearerToken('invalid')
+
+    response.assertStatus(401)
+    const header = response.header('www-authenticate')
+    assert.include(header, 'scope="read write"')
+    assert.include(header, 'error="invalid_token"')
   })
 
   test('session-authenticated user bypasses scope check without Bearer token', async ({
@@ -132,6 +154,26 @@ test.group('HTTP | AnyScopeMiddleware', (group) => {
 
     response.assertStatus(403)
     response.assertBodyContains({ error: 'insufficient_scope' })
+  })
+
+  test('WWW-Authenticate on 401 lists every accepted scope', async ({ client }) => {
+    const response = await client.get(`${ctx.baseUrl}/test/any-admin-delete`)
+
+    response.assertStatus(401)
+    response.assertHeader(
+      'www-authenticate',
+      'Bearer resource_metadata="https://auth.example.com/.well-known/oauth-protected-resource", scope="admin delete"'
+    )
+  })
+
+  test('WWW-Authenticate on 403 lists granted and accepted scopes', async ({ client, assert }) => {
+    await createTestClient()
+    const { raw } = await createTestAccessToken({ scopes: ['read'] })
+
+    const response = await client.get(`${ctx.baseUrl}/test/any-admin-delete`).bearerToken(raw)
+
+    response.assertStatus(403)
+    assert.include(response.header('www-authenticate'), 'scope="read admin delete"')
   })
 
   test('passes when token has at least one listed scope', async ({ client }) => {

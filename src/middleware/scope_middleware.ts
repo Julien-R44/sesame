@@ -4,7 +4,6 @@ import type { HttpContext } from '@adonisjs/core/http'
 import type { NextFn } from '@adonisjs/core/types/http'
 import type { Scope } from '../types.ts'
 import type { OAuthGuard } from '../guard/guard.ts'
-import { E_INSUFFICIENT_SCOPE } from '../oauth_error.ts'
 
 /**
  * Scope middleware requires ALL listed scopes on the authenticated
@@ -16,17 +15,18 @@ import { E_INSUFFICIENT_SCOPE } from '../oauth_error.ts'
 export default class ScopeMiddleware {
   async handle(ctx: HttpContext, next: NextFn, options: { scopes: Scope[] }) {
     const guard = ctx.auth.use('oauth') as OAuthGuard<any>
+    const challenge = { scopes: options.scopes, match: 'all' } as const
 
     // Fast path: OAuth guard already ran and succeeded
     if (guard.isAuthenticated) {
-      if (!guard.hasScope(...options.scopes)) throw new E_INSUFFICIENT_SCOPE(options.scopes)
+      if (!guard.hasScope(...options.scopes)) throw guard.insufficientScopeError(options.scopes)
       return next()
     }
 
     // Bearer token present → OAuth flow with scope enforcement
     if (ctx.request.header('authorization')) {
-      await guard.authenticate()
-      if (!guard.hasScope(...options.scopes)) throw new E_INSUFFICIENT_SCOPE(options.scopes)
+      await guard.authenticate(challenge)
+      if (!guard.hasScope(...options.scopes)) throw guard.insufficientScopeError(options.scopes)
       return next()
     }
 
@@ -34,6 +34,6 @@ export default class ScopeMiddleware {
     if (await ctx.auth.check()) return next()
 
     // No auth at all → 401 with WWW-Authenticate
-    await guard.authenticate()
+    await guard.authenticate(challenge)
   }
 }
