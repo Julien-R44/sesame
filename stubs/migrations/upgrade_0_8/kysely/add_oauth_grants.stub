@@ -1,5 +1,5 @@
 {{{
-  exports({ to: app.makePath('database/kysely_migrations/upgrade_0_8_add_oauth_grants.ts') })
+  exports({ to: app.makePath('database/kysely_migrations/sesame_v000800_add_oauth_grants.ts') })
 }}}
 import { MysqlAdapter, type Kysely } from 'kysely'
 

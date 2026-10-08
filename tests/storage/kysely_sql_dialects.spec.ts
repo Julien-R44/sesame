@@ -8,7 +8,7 @@ import { kyselyStore } from '../../src/storage/drivers/kysely.ts'
 import { up, down } from '../../src/storage/migrations/kysely.ts'
 import type { SesameStore } from '../../src/storage/types.ts'
 import { testGrantRecords, testGrantRevocation } from './grant_store_contract.ts'
-import * as kyselyUpgrade from '../../src/storage/migrations/kysely_upgrade_0_8_add_oauth_grants.ts'
+import * as kyselyUpgrade from '../../src/storage/migrations/sesame_v000800_add_oauth_grants.ts'
 import * as kyselyV07 from '../fixtures/migrations_0_7/kysely.ts'
 
 /**

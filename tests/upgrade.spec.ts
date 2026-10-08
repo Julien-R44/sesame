@@ -25,7 +25,7 @@ import { kyselyStore } from '../src/storage/drivers/kysely.ts'
 import type { SesameStore } from '../src/storage/types.ts'
 import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
 import { OAuthRefreshToken } from '../src/models/oauth_refresh_token.ts'
-import * as kyselyUpgrade from '../src/storage/migrations/kysely_upgrade_0_8_add_oauth_grants.ts'
+import * as kyselyUpgrade from '../src/storage/migrations/sesame_v000800_add_oauth_grants.ts'
 import * as kyselyV07 from './fixtures/migrations_0_7/kysely.ts'
 
 const STUBS_ROOT = fileURLToPath(new URL('../stubs/', import.meta.url))
@@ -132,15 +132,15 @@ test.group('sesame:upgrade command', () => {
   })
 
   test('publishes the Kysely upgrade migrations', async ({ assert, cleanup }) => {
-    const { command, root } = await runUpgradeCommand(['0.8', '--store=kysely'], cleanup)
+    const { command, root } = await runUpgradeCommand(['0.8.0', '--store=kysely'], cleanup)
 
     assert.equal(command.exitCode, 0)
     const contents = await readFile(
-      join(root, 'database/kysely_migrations/upgrade_0_8_add_oauth_grants.ts'),
+      join(root, 'database/kysely_migrations/sesame_v000800_add_oauth_grants.ts'),
       'utf8'
     )
     const source = await readFile(
-      new URL('../src/storage/migrations/kysely_upgrade_0_8_add_oauth_grants.ts', import.meta.url),
+      new URL('../src/storage/migrations/sesame_v000800_add_oauth_grants.ts', import.meta.url),
       'utf8'
     )
     assert.equal(contents.trimEnd(), source.trimEnd())
@@ -153,6 +153,9 @@ test.group('sesame:upgrade command', () => {
 
     const unknownStore = await runUpgradeCommand(['0.8', '--store=prisma'], cleanup)
     assert.equal(unknownStore.command.exitCode, 1)
+
+    const malformed = await runUpgradeCommand(['../0.8'], cleanup)
+    assert.equal(malformed.command.exitCode, 1)
   })
 })
 
