@@ -822,7 +822,7 @@ await sesame.updateClient('https://claude.ai/oauth/claude-code-client-metadata',
 })
 ```
 
-Turning `clientIdMetadataDocuments` off rejects every URL `client_id` on all endpoints, even clients already stored. Access tokens that were already issued stay valid until they expire. Call `sesame.deleteClient(url)` to delete a client together with its tokens.
+Turning `clientIdMetadataDocuments` off rejects every URL `client_id` on all endpoints (authorize, consent, token, introspection, revocation, client info), even clients already stored. Removing a host from `allowedHosts` does the same for that host's clients. Access tokens that were already issued stay valid until they expire. Call `sesame.deleteClient(url)` to delete a client together with its tokens.
 
 ### Consent screen
 

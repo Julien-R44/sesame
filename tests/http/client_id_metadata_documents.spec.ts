@@ -9,6 +9,8 @@ import { ClientMetadataDocumentFetcher } from '../../src/client_id_metadata_docu
 import { OAuthClient } from '../../src/models/oauth_client.ts'
 import { lucidStore } from '../../src/storage/drivers/lucid.ts'
 import { caseInsensitiveClientStore } from '../helpers/store_overrides.ts'
+import { createManager } from '../helpers/app.ts'
+import { TokenService } from '../../src/services/token_service.ts'
 
 const CLAUDE_CODE_ID = 'https://claude.ai/oauth/claude-code-client-metadata'
 const VSCODE_ID = 'https://vscode.dev/oauth/client-metadata.json'
@@ -422,6 +424,61 @@ test.group('HTTP | Client ID Metadata Documents (allowedHosts)', (group) => {
     response.assertStatus(401)
     assert.include(response.body().error_description, 'host is not allowed')
     assert.lengthOf(fetcher.calls, 0)
+  })
+
+  test('rejects a stored client whose host was removed at the token endpoint', async ({
+    client,
+  }) => {
+    await createTestClient({ clientId: VSCODE_ID, clientSecret: null, isPublic: true })
+
+    const response = await client.post(`${ctx.baseUrl}/oauth/token`).form({
+      grant_type: 'refresh_token',
+      client_id: VSCODE_ID,
+      refresh_token: 'whatever',
+    })
+
+    response.assertStatus(401)
+    response.assertBodyContains({ error_description: 'Client ID host is not allowed' })
+  })
+
+  test('rejects a pending consent for a host removed from the list', async ({ client }) => {
+    await createTestClient({
+      clientId: VSCODE_ID,
+      clientSecret: null,
+      isPublic: true,
+      redirectUris: ['https://vscode.dev/redirect'],
+    })
+    const manager = createManager()
+    await manager.store.createPendingAuthorizationRequest({
+      id: crypto.randomUUID(),
+      token: new TokenService(manager).hashToken('pending-token'),
+      userId: 'user-1',
+      clientId: VSCODE_ID,
+      redirectUri: 'https://vscode.dev/redirect',
+      scopes: ['read'],
+      codeChallenge: 'challenge',
+      codeChallengeMethod: 'S256',
+      expiresAt: DateTime.now().plus({ minutes: 5 }),
+    })
+
+    const response = await client
+      .post(`${ctx.baseUrl}/oauth/consent`)
+      .json({ accept: true, auth_token: 'pending-token' })
+      .header('X-Test-User-Id', 'user-1')
+      .redirects(0)
+
+    response.assertStatus(401)
+    response.assertBodyContains({ error_description: 'Client ID host is not allowed' })
+  })
+
+  test('rejects client-info for a host not in the list', async ({ client }) => {
+    await createTestClient({ clientId: VSCODE_ID })
+
+    const response = await client
+      .get(`${ctx.baseUrl}/oauth/client-info`)
+      .qs({ client_id: VSCODE_ID })
+
+    response.assertStatus(401)
   })
 })
 
