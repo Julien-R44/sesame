@@ -420,8 +420,9 @@ export default class ApiController {
     const tokenId = guard.accessToken!.id // e.g. '0b6f…' (access token record id)
     const grantId = guard.grantId // undefined for client_credentials tokens
     const context = guard.context // e.g. { teamMemberId: 12, projectIds: [3] } or null
+    const audience = guard.audience // e.g. 'https://app.com/api/mcp', or null
 
-    return { user, scopes, clientId, tokenId, grantId, context }
+    return { user, scopes, clientId, tokenId, grantId, context, audience }
   }
 }
 ```
@@ -571,7 +572,7 @@ export default class ConnectedAppsController {
 
 ### Introspecting tokens
 
-Resource servers can verify a token's state by calling `POST /oauth/introspect` with the `token`, optional `token_type_hint`, and client credentials. The response is `{ "active": true, "token_type": "Bearer", "client_id": "...", "sub": "...", "scope": "...", ... }` for valid tokens, or `{ "active": false }` for invalid, expired, or revoked tokens. This is useful when a separate service needs to validate tokens without sharing database access.
+Resource servers can verify a token's state by calling `POST /oauth/introspect` with the `token`, optional `token_type_hint`, and client credentials. The response is `{ "active": true, "token_type": "Bearer", "client_id": "...", "sub": "...", "scope": "...", ... }` for valid tokens, or `{ "active": false }` for invalid, expired, or revoked tokens. Tokens bound to a resource also include it as `aud` (see [Resource indicators](#resource-indicators-and-token-audience)). This is useful when a separate service needs to validate tokens without sharing database access.
 
 ## OpenID Connect (OIDC)
 
@@ -823,7 +824,37 @@ sesame.registerProtectedResource({
 
 This creates a `/.well-known/oauth-protected-resource/api/mcp` endpoint. MCP clients that support the latest spec will discover this automatically.
 
-Point the OAuth guard at the same resource with `oauthGuard({ provider, resource: '/api/mcp' })`. Its 401 responses then reference this metadata URL and advertise the declared `scopes` in the `WWW-Authenticate` header (see [Scope challenges](#scope-challenges)).
+Declare the same path as `resource` on the guard that protects your MCP routes. Without it, the guard does not check the token audience, and a token issued for another resource of your application is accepted:
+
+```ts title="config/auth.ts"
+mcp: oauthGuard({
+  provider: oauthUserProvider({ model: () => import('#models/user') }),
+  resource: '/api/mcp',
+}),
+```
+
+The guard also points MCP clients to `/.well-known/oauth-protected-resource/api/mcp` in its `WWW-Authenticate` 401 responses and advertises the declared `scopes` there (see [Scope challenges](#scope-challenges)), so clients request tokens for that resource.
+
+### Resource indicators and token audience
+
+MCP clients send a `resource` parameter ([RFC 8707](https://datatracker.ietf.org/doc/html/rfc8707)) to `/oauth/authorize` and `/oauth/token` to name the server they will call. Sésame binds the issued tokens to that resource:
+
+- The resource must be an absolute `http(s)` URI without a fragment. It is mapped to the most specific resource served by Sésame: the issuer itself, or a path registered with `registerProtectedResource()`. For example, `https://app.com/api/mcp/` and `https://app.com/api/mcp/tools` both map to `https://app.com/api/mcp`. Any other value, a resource on another origin, or a repeated `resource` parameter is rejected with an `invalid_target` error.
+- The authorization code, the access token, and the refresh token store the resource. A refresh keeps it, and requesting another resource at the token endpoint than the one granted is rejected with `invalid_target`.
+- Requests without `resource` (regular OAuth clients, older MCP clients) still work and produce tokens that are not bound to any resource. Tokens issued before the upgrade are also unbound; the first refresh that sends a `resource` binds the new tokens to it.
+- The consent page receives the resolved `resource` query parameter, and `sesame.findPendingAuthorizationRequest()` exposes it as `resource`, so you can show which server the client wants to access.
+
+A guard with a `resource` rejects tokens bound to another resource with a `401 invalid_token`. Unbound tokens are accepted by default for backward compatibility. Set `requireAudience: true` to reject them as well, as the MCP specification requires once all your clients send `resource`:
+
+```ts title="config/auth.ts"
+mcp: oauthGuard({
+  provider: oauthUserProvider({ model: () => import('#models/user') }),
+  resource: '/api/mcp',
+  requireAudience: true,
+}),
+```
+
+After authentication, `guard.audience` contains the resource the token is bound to, or `null`. Guards without `resource` never check the audience. In tests, `loginAs()` binds its token to the guard's resource.
 
 MCP clients typically need to self-register, so you will want to enable dynamic client registration with public access (see the [Dynamic Client Registration](#dynamic-client-registration) section above).
 
