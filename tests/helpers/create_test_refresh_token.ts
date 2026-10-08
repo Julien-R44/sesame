@@ -27,6 +27,7 @@ export async function createTestRefreshToken(options?: {
   expiresAt?: DateTime
   revokedAt?: DateTime | null
   grantId?: string | null
+  resource?: string | null
 }) {
   const manager = options?.manager ?? createManager()
   const tokenService = new TokenService(manager)
@@ -50,6 +51,7 @@ export async function createTestRefreshToken(options?: {
     userId: options?.userId ?? 'user-1',
     grantId,
     scopes: options?.scopes ?? ['read', 'write', 'offline_access'],
+    resource: options?.resource ?? null,
     expiresAt: DateTime.now().plus({ hours: 1 }),
   })
 
@@ -64,6 +66,7 @@ export async function createTestRefreshToken(options?: {
     scopes: options?.scopes ?? ['read', 'write', 'offline_access'],
     expiresAt: options?.expiresAt ?? DateTime.now().plus({ days: 30 }),
     revokedAt: options?.revokedAt ?? null,
+    resource: options?.resource ?? null,
   })
 
   return { rawRefreshToken, accessTokenId, accessTokenHash, grantId, manager }

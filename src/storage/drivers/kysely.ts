@@ -72,21 +72,28 @@ const tables = {
     name: 'oauth_access_tokens',
     json: ['scopes'],
     dates: ['expiresAt', 'revokedAt', 'createdAt', 'updatedAt'],
-    nullable: ['userId', 'grantId', 'revokedAt'],
+    nullable: ['userId', 'grantId', 'revokedAt', 'resource'],
     updatedAt: true,
   },
   refreshTokens: {
     name: 'oauth_refresh_tokens',
     json: ['scopes'],
     dates: ['expiresAt', 'revokedAt', 'createdAt', 'updatedAt'],
-    nullable: ['grantId', 'revokedAt'],
+    nullable: ['grantId', 'revokedAt', 'resource'],
     updatedAt: true,
   },
   authorizationCodes: {
     name: 'oauth_authorization_codes',
     json: ['scopes'],
     dates: ['expiresAt', 'consumedAt', 'createdAt', 'updatedAt'],
-    nullable: ['grantId', 'codeChallenge', 'codeChallengeMethod', 'nonce', 'consumedAt'],
+    nullable: [
+      'grantId',
+      'codeChallenge',
+      'codeChallengeMethod',
+      'nonce',
+      'consumedAt',
+      'resource',
+    ],
     updatedAt: true,
   },
   grants: {
@@ -100,7 +107,7 @@ const tables = {
     name: 'oauth_pending_authorization_requests',
     json: ['scopes'],
     dates: ['expiresAt', 'createdAt'],
-    nullable: ['state', 'codeChallenge', 'codeChallengeMethod', 'nonce'],
+    nullable: ['state', 'codeChallenge', 'codeChallengeMethod', 'nonce', 'resource'],
   },
 } satisfies Record<string, TableShape>
 

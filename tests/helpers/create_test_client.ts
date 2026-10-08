@@ -56,6 +56,7 @@ export async function createTestAuthCode(options: {
   codeChallenge?: string
   codeChallengeMethod?: string
   grantId?: string | null
+  resource?: string | null
 }) {
   const tokenService = new TokenService(createManager())
   const grantId =
@@ -80,6 +81,7 @@ export async function createTestAuthCode(options: {
     redirectUri: options.redirectUri,
     codeChallenge: options.codeChallenge ?? null,
     codeChallengeMethod: options.codeChallengeMethod ?? null,
+    resource: options.resource ?? null,
     expiresAt: DateTime.now().plus({ minutes: 10 }),
   })
 }

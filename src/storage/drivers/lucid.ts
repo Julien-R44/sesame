@@ -338,7 +338,12 @@ export class LucidStore implements SesameStore {
     const token = await query.first()
     if (!token) return null
 
-    const record = this.#record<OAuthAccessTokenRecord>(token, ['userId', 'grantId', 'revokedAt'])
+    const record = this.#record<OAuthAccessTokenRecord>(token, [
+      'userId',
+      'grantId',
+      'revokedAt',
+      'resource',
+    ])
 
     return { ...record, grant: this.#joinedGrant(token.$extras) }
   }
@@ -379,7 +384,9 @@ export class LucidStore implements SesameStore {
       .where('clientId', options.clientId)
       .first()
 
-    return token ? this.#record<OAuthRefreshTokenRecord>(token, ['grantId', 'revokedAt']) : null
+    return token
+      ? this.#record<OAuthRefreshTokenRecord>(token, ['grantId', 'revokedAt', 'resource'])
+      : null
   }
 
   /**
@@ -449,6 +456,7 @@ export class LucidStore implements SesameStore {
           'codeChallengeMethod',
           'nonce',
           'consumedAt',
+          'resource',
         ])
       : null
   }
@@ -600,6 +608,7 @@ export class LucidStore implements SesameStore {
       'codeChallenge',
       'codeChallengeMethod',
       'nonce',
+      'resource',
     ])
   }
 

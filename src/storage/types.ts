@@ -49,6 +49,10 @@ export interface OAuthAccessTokenRecord {
   userId: string | null
   grantId: string | null
   scopes: string[]
+  /**
+   * Resource indicator (RFC 8707) the record is bound to, or null when unbound.
+   */
+  resource: string | null
   expiresAt: DateTime
   revokedAt: DateTime | null
   createdAt: DateTime
@@ -63,6 +67,10 @@ export interface OAuthRefreshTokenRecord {
   userId: string
   grantId: string | null
   scopes: string[]
+  /**
+   * Resource indicator (RFC 8707) the record is bound to, or null when unbound.
+   */
+  resource: string | null
   expiresAt: DateTime
   revokedAt: DateTime | null
   createdAt: DateTime
@@ -81,6 +89,10 @@ export interface OAuthAuthorizationCodeRecord {
   codeChallengeMethod: string | null
   nonce: string | null
   consumedAt: DateTime | null
+  /**
+   * Resource indicator (RFC 8707) the record is bound to, or null when unbound.
+   */
+  resource: string | null
   expiresAt: DateTime
   createdAt: DateTime
   updatedAt: DateTime
@@ -105,6 +117,10 @@ export interface OAuthPendingAuthorizationRequestRecord {
   codeChallenge: string | null
   codeChallengeMethod: string | null
   nonce: string | null
+  /**
+   * Resource indicator (RFC 8707) the record is bound to, or null when unbound.
+   */
+  resource: string | null
   expiresAt: DateTime
   createdAt: DateTime
 }

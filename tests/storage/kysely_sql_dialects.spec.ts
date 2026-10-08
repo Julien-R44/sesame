@@ -99,6 +99,7 @@ async function testConsent(store: SesameStore, clientId: string, assert: Assert)
     ...identity,
     redirectUri: 'https://app.example.com/callback',
     scopes: ['read'],
+    resource: 'https://auth.example.com/mcp',
     expiresAt: DateTime.now().plus({ minutes: 5 }),
   })
 
@@ -107,6 +108,7 @@ async function testConsent(store: SesameStore, clientId: string, assert: Assert)
   assert.deepEqual(pending?.scopes, ['read'])
   assert.equal(pending?.clientId, clientId)
   assert.isNull(pending?.state)
+  assert.equal(pending?.resource, 'https://auth.example.com/mcp')
   assert.isTrue(DateTime.isDateTime(pending?.expiresAt))
   assert.deepEqual((await store.findPendingAuthorizationRequest(request))?.scopes, ['read'])
   assert.isNull(await store.findPendingAuthorizationRequest({ ...request, userId: 'user-2' }))
@@ -139,7 +141,9 @@ async function testTokenExchange(store: SesameStore, clientId: string, assert: A
     redirectUri: 'https://app.example.com/callback',
     expiresAt: DateTime.now().plus({ minutes: 5 }),
   })
-  assert.equal((await store.findAuthorizationCode({ code, clientId }))?.id, codeId)
+  const storedCode = await store.findAuthorizationCode({ code, clientId })
+  assert.equal(storedCode?.id, codeId)
+  assert.isNull(storedCode?.resource)
 
   const exchange = {
     codeId,
@@ -150,6 +154,7 @@ async function testTokenExchange(store: SesameStore, clientId: string, assert: A
       clientId,
       userId: 'user-1',
       scopes: ['read'],
+      resource: 'https://auth.example.com/mcp',
       expiresAt: DateTime.now().plus({ hours: 1 }),
     },
     refreshToken: {
@@ -159,12 +164,19 @@ async function testTokenExchange(store: SesameStore, clientId: string, assert: A
       clientId,
       userId: 'user-1',
       scopes: ['read'],
+      resource: 'https://auth.example.com/mcp',
       expiresAt: DateTime.now().plus({ days: 1 }),
     },
   }
   assert.isTrue(await store.exchangeAuthorizationCode(exchange))
   assert.isFalse(await store.exchangeAuthorizationCode(exchange))
-  assert.isTrue(DateTime.isDateTime((await store.findAccessToken({ hash: accessHash }))?.expiresAt))
+  const issued = await store.findAccessToken({ hash: accessHash })
+  assert.isTrue(DateTime.isDateTime(issued?.expiresAt))
+  assert.equal(issued?.resource, 'https://auth.example.com/mcp')
+  assert.equal(
+    (await store.findRefreshToken({ hash: refreshHash, clientId }))?.resource,
+    'https://auth.example.com/mcp'
+  )
 
   const newAccessTokenId = crypto.randomUUID()
   const newAccessHash = `access-${crypto.randomUUID()}`

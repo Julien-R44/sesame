@@ -25,6 +25,8 @@ import { assertGrantContext, isGrantId } from './services/grant_service.ts'
 import { KeyService } from './services/key_service.ts'
 import { TokenService } from './services/token_service.ts'
 import { registerOAuthRoutes, registerWellKnownRoutes as registerWellKnown } from './routes.ts'
+import { matchResourceIndicator, normalizeResourceIndicator } from './resource_indicators.ts'
+import { E_INVALID_TARGET } from './oauth_error.ts'
 import type {
   OAuthClientRecord,
   OAuthGrantRecord,
@@ -51,13 +53,35 @@ export class SesameManager {
   #router: Router
   #keyService: KeyService | null
   #store: SesameStore
-  #protectedResourceScopes = new Map<string, Scope[]>()
+  /**
+   * Protected resources served by this application (RFC 8707 / RFC 9728),
+   * keyed by canonical resource identifier, with the scopes they advertise.
+   * The issuer root is always registered.
+   */
+  #resources = new Map<string, Scope[]>()
 
   constructor(config: ResolvedSesameConfig, router: Router, store: SesameStore) {
     this.#config = config
     this.#router = router
     this.#store = store
     this.#keyService = config.jwk ? new KeyService(config.jwk) : null
+    this.#resources.set(this.resourceIdentifier(), [])
+  }
+
+  /**
+   * Extract the single resource value from a raw request parameter.
+   * Repeated parameters are parsed as arrays by AdonisJS.
+   */
+  #singleResourceValue(value: unknown): string | null {
+    if (Array.isArray(value) && value.length > 1) {
+      throw new E_INVALID_TARGET('Only one resource parameter is supported')
+    }
+
+    const resource = Array.isArray(value) ? value[0] : value
+    if (resource === undefined || resource === null || resource === '') return null
+    if (typeof resource !== 'string') throw new E_INVALID_TARGET('Invalid resource parameter')
+
+    return resource
   }
 
   #publicClient(client: OAuthClientRecord): OAuthClientRecord {
@@ -105,7 +129,7 @@ export class SesameManager {
   getProtectedResourceScopes(resource?: string): Scope[] {
     if (!resource) return []
 
-    return this.#protectedResourceScopes.get(resource) ?? []
+    return this.#resources.get(this.resourceIdentifier(resource)) ?? []
   }
 
   get isOidcEnabled(): boolean {
@@ -158,6 +182,46 @@ export class SesameManager {
    */
   async denyAuthorization(options: DenyAuthorizationOptions): Promise<AuthorizationDecision> {
     return new CompleteAuthorizationAction().deny(this, options)
+  }
+
+  /**
+   * Canonical resource identifier of a path served by this application.
+   * Without a path, returns the issuer itself (the root protected resource).
+   *
+   * @see https://datatracker.ietf.org/doc/html/rfc8707#section-2
+   */
+  resourceIdentifier(path?: string): string {
+    const resource = `${this.#config.issuer}${path ?? ''}`
+
+    return normalizeResourceIndicator(resource) ?? resource
+  }
+
+  /**
+   * Resolve a raw `resource` request parameter (RFC 8707) to a registered
+   * resource identifier. Returns null when the parameter is absent, and
+   * throws `invalid_target` when it is repeated, malformed, or not served
+   * by this authorization server.
+   *
+   * @see https://datatracker.ietf.org/doc/html/rfc8707#section-2
+   */
+  resolveResource(value: unknown): string | null {
+    const resource = this.#singleResourceValue(value)
+    if (!resource) return null
+
+    if (!normalizeResourceIndicator(resource)) {
+      throw new E_INVALID_TARGET(
+        'The resource parameter must be an absolute http(s) URI without a fragment'
+      )
+    }
+
+    const matched = matchResourceIndicator({ value: resource, resources: this.#resources.keys() })
+    if (!matched) {
+      throw new E_INVALID_TARGET(
+        'The requested resource is not served by this authorization server'
+      )
+    }
+
+    return matched
   }
 
   /**
@@ -500,10 +564,15 @@ export class SesameManager {
    * for a specific resource path (RFC 9728). Useful for MCP
    * servers that need per-resource discovery.
    *
+   * The resource also becomes a valid `resource` parameter (RFC 8707).
+   * Tokens requested for it are bound to it, and only guards declaring
+   * the same `resource` accept them.
+   *
    * @see https://datatracker.ietf.org/doc/html/rfc9728
+   * @see https://datatracker.ietf.org/doc/html/rfc8707
    */
   registerProtectedResource(options: { resource: string; scopes?: Scope[] }) {
-    if (options.scopes) this.#protectedResourceScopes.set(options.resource, options.scopes)
+    this.#resources.set(this.resourceIdentifier(options.resource), options.scopes ?? [])
 
     const wellKnownPath = `/.well-known/oauth-protected-resource${options.resource}`
 

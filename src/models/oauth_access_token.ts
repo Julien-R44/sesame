@@ -32,6 +32,9 @@ export class OAuthAccessToken extends BaseModel {
   @json()
   declare scopes: string[]
 
+  @column()
+  declare resource: string | null
+
   @column.dateTime()
   declare expiresAt: DateTime
 

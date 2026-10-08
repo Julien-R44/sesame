@@ -15,6 +15,7 @@ export interface AuthorizationCodeInput {
   codeChallengeMethod?: string
   nonce?: string
   context?: GrantContext | null
+  resource?: string | null
 }
 
 /**
@@ -63,6 +64,7 @@ export class IssueAuthorizationCodeAction {
         codeChallenge: input.codeChallenge ?? null,
         codeChallengeMethod: input.codeChallengeMethod ?? null,
         nonce: input.nonce ?? null,
+        resource: input.resource ?? null,
         expiresAt,
       })
     })

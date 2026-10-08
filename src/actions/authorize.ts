@@ -8,7 +8,12 @@ import { TokenService } from '../services/token_service.ts'
 import type { OAuthClientRecord } from '../storage/types.ts'
 import { IssueAuthorizationCodeAction } from './issue_authorization_code.ts'
 import { rejectDeletedClient } from '../storage/foreign_key_violation.ts'
-import { E_INVALID_CLIENT, E_INVALID_REQUEST, E_UNSUPPORTED_RESPONSE_TYPE } from '../oauth_error.ts'
+import {
+  E_INVALID_CLIENT,
+  E_INVALID_REQUEST,
+  E_UNSUPPORTED_RESPONSE_TYPE,
+  OAuthError,
+} from '../oauth_error.ts'
 
 export interface AuthorizeInput {
   clientId: string
@@ -21,12 +26,17 @@ export interface AuthorizeInput {
   nonce?: string
   prompt?: string
   userId?: string
+
+  /**
+   * Raw `resource` parameter (RFC 8707). A string, or an array when repeated.
+   */
+  resource?: unknown
 }
 
 export type AuthorizeResult =
   | { type: 'redirect_error'; error: string; description: string }
   | { type: 'login_required' }
-  | { type: 'consent_required'; authToken: string; scopes: string[] }
+  | { type: 'consent_required'; authToken: string; scopes: string[]; resource: string | null }
   | { type: 'authorized'; code: string }
 
 type RedirectError = AuthorizeResult & { type: 'redirect_error' }
@@ -36,11 +46,16 @@ type RedirectError = AuthorizeResult & { type: 'redirect_error' }
  */
 interface ResolveConsentOptions {
   manager: SesameManager
-  input: AuthorizeInput & { userId: string }
+  input: ValidatedAuthorizeInput
   client: OAuthClientRecord
   scopes: string[]
   prompts: Set<string>
 }
+
+/**
+ * Authorization request validated up to the consent decision.
+ */
+type ValidatedAuthorizeInput = AuthorizeInput & { userId: string; resource: string | null }
 
 /**
  * Handles the OAuth 2.0 authorization request business logic.
@@ -82,6 +97,9 @@ export class AuthorizeAction {
       }
     }
 
+    const resolved = this.#resolveResource(manager, input.resource)
+    if ('type' in resolved) return resolved
+
     const requestedScopes = [
       ...new Set(input.scope ? input.scope.split(' ') : manager.config.defaultScopes),
     ]
@@ -100,11 +118,29 @@ export class AuthorizeAction {
 
     return this.#resolveConsent({
       manager,
-      input: { ...input, userId: input.userId },
+      input: { ...input, userId: input.userId, resource: resolved.resource },
       client,
       scopes: requestedScopes,
       prompts,
     })
+  }
+
+  /**
+   * Resolve the requested resource (RFC 8707) to a registered resource.
+   * Returns an `invalid_target` redirect error for malformed, repeated,
+   * or foreign resources.
+   */
+  #resolveResource(
+    manager: SesameManager,
+    value: unknown
+  ): { resource: string | null } | RedirectError {
+    try {
+      return { resource: manager.resolveResource(value) }
+    } catch (err) {
+      if (!(err instanceof OAuthError)) throw err
+
+      return { type: 'redirect_error', error: err.oauthCode, description: err.message }
+    }
   }
 
   /**
@@ -246,6 +282,7 @@ export class AuthorizeAction {
         codeChallenge: options.input.codeChallenge,
         codeChallengeMethod: options.input.codeChallengeMethod,
         nonce: options.input.nonce,
+        resource: options.input.resource,
       })
 
       return { type: 'authorized', code }
@@ -266,7 +303,12 @@ export class AuthorizeAction {
       options.scopes
     )
 
-    return { type: 'consent_required', authToken, scopes: options.scopes }
+    return {
+      type: 'consent_required',
+      authToken,
+      scopes: options.scopes,
+      resource: options.input.resource,
+    }
   }
 
   /**
@@ -275,7 +317,7 @@ export class AuthorizeAction {
    */
   async #createPendingRequest(
     manager: SesameManager,
-    input: AuthorizeInput & { userId: string },
+    input: ValidatedAuthorizeInput,
     clientId: string,
     scopes: string[]
   ): Promise<string> {
@@ -296,6 +338,7 @@ export class AuthorizeAction {
         codeChallenge: input.codeChallenge ?? null,
         codeChallengeMethod: input.codeChallengeMethod ?? null,
         nonce: input.nonce ?? null,
+        resource: input.resource,
         expiresAt: DateTime.now().plus({ seconds: ttl }),
       })
     )

@@ -69,17 +69,20 @@ export default class TokenController {
           code: body.code,
           redirectUri: body.redirect_uri,
           codeVerifier: body.code_verifier,
+          resource: body.resource,
         }),
       refresh_token: () =>
         new ExchangeRefreshTokenAction().execute(manager, {
           client,
           refreshToken: body.refresh_token,
           scope: body.scope,
+          resource: body.resource,
         }),
       client_credentials: () =>
         new ExchangeClientCredentialsAction().execute(manager, {
           client,
           scope: body.scope,
+          resource: body.resource,
         }),
     }
 

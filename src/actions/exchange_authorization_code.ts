@@ -9,6 +9,7 @@ import { IdTokenService } from '../services/id_token_service.ts'
 import { ClientService } from '../services/client_service.ts'
 import { markFirstAuthorization } from '../storage/unused_clients.ts'
 import { GrantService, type ResolvedTokenGrant } from '../services/grant_service.ts'
+import { resolveGrantResource } from '../resource_indicators.ts'
 import { E_INVALID_CLIENT, E_INVALID_GRANT, E_INVALID_REQUEST } from '../oauth_error.ts'
 
 /**
@@ -28,6 +29,11 @@ export interface ExchangeAuthorizationCodeInput {
   code: string
   redirectUri: string
   codeVerifier: string
+
+  /**
+   * Raw `resource` parameter (RFC 8707). A string, or an array when repeated.
+   */
+  resource?: unknown
 }
 
 /**
@@ -39,6 +45,7 @@ interface CodeExchange {
   accessToken: { raw: string; hash: string; expiresAt: Date }
   refreshToken: { raw: string; hash: string; expiresAt: DateTime } | null
   grant: ResolvedTokenGrant
+  resource: string | null
 }
 
 /**
@@ -71,6 +78,11 @@ export class ExchangeAuthorizationCodeAction {
     await this.#verifyPkce(manager, input.codeVerifier, authCode)
 
     clientService.validateClientScopes(authCode.scopes, input.client.scopes)
+
+    const resource = resolveGrantResource({
+      requested: manager.resolveResource(input.resource),
+      granted: authCode.resource ?? null,
+    })
 
     const grantService = new GrantService(manager)
     await grantService.assertActive(authCode.grantId)
@@ -105,6 +117,7 @@ export class ExchangeAuthorizationCodeAction {
       accessToken,
       refreshToken,
       grant,
+      resource,
     })
 
     const ttlSeconds = string.seconds.parse(manager.config.accessTokenTtl)
@@ -252,7 +265,7 @@ export class ExchangeAuthorizationCodeAction {
    * grant inside a single transaction.
    */
   async #atomicExchange(manager: SesameManager, exchange: CodeExchange) {
-    const { authCode, client, accessToken, refreshToken, grant } = exchange
+    const { authCode, client, accessToken, refreshToken, grant, resource } = exchange
     const store = manager.store
     const accessTokenId = crypto.randomUUID()
     const exchanged = await store.exchangeAuthorizationCode({
@@ -266,6 +279,7 @@ export class ExchangeAuthorizationCodeAction {
         userId: authCode.userId,
         grantId: grant.grantId,
         scopes: authCode.scopes,
+        resource,
         expiresAt: DateTime.fromJSDate(accessToken.expiresAt),
       },
       refreshToken: refreshToken
@@ -277,6 +291,7 @@ export class ExchangeAuthorizationCodeAction {
             userId: authCode.userId,
             grantId: grant.grantId,
             scopes: authCode.scopes,
+            resource,
             expiresAt: refreshToken.expiresAt,
           }
         : null,

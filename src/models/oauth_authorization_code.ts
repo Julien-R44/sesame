@@ -51,6 +51,9 @@ export class OAuthAuthorizationCode extends BaseModel {
   @column()
   declare nonce: string | null
 
+  @column()
+  declare resource: string | null
+
   @column.dateTime()
   declare consumedAt: DateTime | null
 
