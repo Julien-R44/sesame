@@ -32,7 +32,7 @@ async function createKyselyManager() {
       consentPage: '/consent',
       store: stores.kysely({ connection: db }),
     }),
-    {} as any,
+    { get: () => {} } as any,
     kyselyStore({ db })
   )
 
@@ -443,6 +443,74 @@ test.group('Kysely store | OAuth flows', () => {
       await manager.revokeAllForUser('user-1')
       const revokedGuard = new OAuthGuard('oauth', ctx, createFakeEmitter(), provider, manager)
       await assert.rejects(() => revokedGuard.authenticate())
+    } finally {
+      await db.destroy()
+    }
+  })
+})
+
+test.group('Kysely store | Resource indicators', () => {
+  test('binds tokens to a resource across code exchange, refresh, and guard', async ({
+    assert,
+  }) => {
+    const { db, manager } = await createKyselyManager()
+    manager.registerProtectedResource({ resource: '/mcp' })
+    const resource = 'https://auth.example.com/mcp'
+
+    try {
+      const { client } = await manager.createClient({
+        name: 'MCP App',
+        redirectUris: ['https://app.example.com/callback'],
+        scopes: ['read'],
+        grantTypes: ['authorization_code', 'refresh_token'],
+        isPublic: true,
+      })
+      const tokenService = new TokenService(manager)
+      const rawCode = tokenService.generateOpaqueToken()
+      const { codeVerifier, codeChallenge } = createPkce()
+      await manager.store.createAuthorizationCode({
+        id: crypto.randomUUID(),
+        code: tokenService.hashToken(rawCode),
+        clientId: client.clientId,
+        userId: 'user-1',
+        scopes: ['read'],
+        redirectUri: 'https://app.example.com/callback',
+        codeChallenge,
+        codeChallengeMethod: 'S256',
+        resource,
+        expiresAt: DateTime.now().plus({ minutes: 10 }),
+      })
+
+      const exchanged = await new ExchangeAuthorizationCodeAction().execute(manager, {
+        client,
+        code: rawCode,
+        redirectUri: 'https://app.example.com/callback',
+        codeVerifier,
+        resource,
+      })
+      const refreshed = await new ExchangeRefreshTokenAction().execute(manager, {
+        client,
+        refreshToken: exchanged.refresh_token!,
+      })
+      const accessToken = await manager.store.findAccessToken({
+        hash: tokenService.hashToken(refreshed.access_token),
+      })
+      assert.equal(accessToken?.resource, resource)
+
+      const request = new RequestFactory().merge({ url: '/' }).create()
+      request.request.headers.authorization = `Bearer ${refreshed.access_token}`
+      const ctx = new HttpContextFactory().merge({ request }).create()
+      const provider = new FakeUserProvider([{ id: 'user-1', name: 'MCP User' }])
+      const mcpGuard = new OAuthGuard('mcp', ctx, createFakeEmitter(), provider, manager, {
+        resource: '/mcp',
+      })
+      const otherGuard = new OAuthGuard('other', ctx, createFakeEmitter(), provider, manager, {
+        resource: '/other',
+      })
+
+      assert.isTrue(await mcpGuard.check())
+      assert.equal(mcpGuard.audience, resource)
+      assert.isFalse(await otherGuard.check())
     } finally {
       await db.destroy()
     }

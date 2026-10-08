@@ -16,6 +16,7 @@ import type {
   OAuthAuthenticateOptions,
   OAuthGuardAccessToken,
   OAuthGuardEvents,
+  OAuthGuardOptions,
   OAuthUserProviderContract,
 } from './types.ts'
 
@@ -26,6 +27,9 @@ import type {
  * checks revocation and expiry of the token and its grant,
  * loads the real User model via the provider, and exposes
  * OAuth-specific data (scopes, clientId, grantId, context).
+ *
+ * When configured with a `resource`, also verifies that the token was
+ * issued for that resource (RFC 8707 audience).
  */
 export class OAuthGuard<
   UserProvider extends OAuthUserProviderContract<unknown>,
@@ -59,6 +63,12 @@ export class OAuthGuard<
    */
   context: GrantContext | null = null
 
+  /**
+   * Resource indicator (RFC 8707) the authenticated token is bound to,
+   * or null when the token is not bound to a resource.
+   */
+  audience: string | null = null
+
   #name: string
   #ctx: HttpContext
   #emitter: EmitterLike<OAuthGuardEvents<UserProvider[typeof symbols.PROVIDER_REAL_USER]>>
@@ -67,6 +77,7 @@ export class OAuthGuard<
   #resource?: string
   #challengeScopes: Scope[] = []
   #failure?: { description: string; includeError: boolean }
+  #requireAudience: boolean
 
   constructor(
     name: string,
@@ -74,14 +85,28 @@ export class OAuthGuard<
     emitter: EmitterLike<OAuthGuardEvents<UserProvider[typeof symbols.PROVIDER_REAL_USER]>>,
     userProvider: UserProvider,
     manager: SesameManager,
-    resource?: string
+    options?: OAuthGuardOptions
   ) {
     this.#name = name
     this.#ctx = ctx
     this.#emitter = emitter
     this.#userProvider = userProvider
     this.#manager = manager
-    this.#resource = resource
+    this.#resource = options?.resource
+    this.#requireAudience = options?.requireAudience ?? false
+  }
+
+  /**
+   * Check that the token was issued for the resource this guard protects.
+   * Guards without a `resource` accept tokens bound to any resource.
+   *
+   * @see https://datatracker.ietf.org/doc/html/rfc8707#section-2
+   */
+  #hasValidAudience(record: OAuthAccessTokenWithGrantRecord): boolean {
+    if (this.#resource === undefined) return true
+    if (!record.resource) return !this.#requireAudience
+
+    return record.resource === this.#manager.resourceIdentifier(this.#resource)
   }
 
   /**
@@ -99,6 +124,7 @@ export class OAuthGuard<
       createdAt: record.createdAt,
       grantId: record.grantId,
       context: record.grant?.context ?? null,
+      resource: record.resource ?? null,
     }
   }
 
@@ -231,6 +257,9 @@ export class OAuthGuard<
     }
 
     if (!record.userId) throw this.#authenticationFailed('Invalid or expired token', includeError)
+    if (!this.#hasValidAudience(record)) {
+      throw this.#authenticationFailed('Token audience mismatch', includeError)
+    }
 
     const providerUser = await this.#userProvider.findById(record.userId)
     if (!providerUser) throw this.#authenticationFailed('Invalid or expired token', includeError)
@@ -242,6 +271,7 @@ export class OAuthGuard<
     this.clientId = this.accessToken.clientId
     this.grantId = this.accessToken.grantId ?? undefined
     this.context = this.accessToken.context
+    this.audience = this.accessToken.resource
 
     void this.#emitter.emit('oauth_auth:authentication_succeeded', {
       ctx: this.#ctx,
@@ -346,6 +376,8 @@ export class OAuthGuard<
       userId,
       grantId,
       scopes,
+      resource:
+        this.#resource === undefined ? null : this.#manager.resourceIdentifier(this.#resource),
       expiresAt: DateTime.fromJSDate(expiresAt),
     })
 

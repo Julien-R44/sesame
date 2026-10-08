@@ -218,6 +218,7 @@ test.group('OAuthGuard | Unit', (group) => {
       'expiresAt',
       'grantId',
       'id',
+      'resource',
       'scopes',
       'userId',
     ])
@@ -288,7 +289,9 @@ test.group('OAuthGuard | WWW-Authenticate scope', (group) => {
 
     const ctx = new HttpContextFactory().merge({ request }).create()
     const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
-    const guard = new OAuthGuard('oauth', ctx, createFakeEmitter(), provider, manager, '/mcp')
+    const guard = new OAuthGuard('oauth', ctx, createFakeEmitter(), provider, manager, {
+      resource: '/mcp',
+    })
 
     return { guard, ctx }
   }
