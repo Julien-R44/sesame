@@ -1,0 +1,31 @@
+import { defineConfig } from 'tsdown'
+
+export default defineConfig({
+  entry: [
+    './index.ts',
+    './src/types.ts',
+    './src/oauth_error.ts',
+    './configure.ts',
+    './providers/sesame_provider.ts',
+    './services/main.ts',
+    './src/guard/main.ts',
+    './src/guard/lucid.ts',
+    './src/storage/types.ts',
+    './src/storage/drivers/lucid.ts',
+    './src/storage/drivers/kysely.ts',
+    './commands/sesame_client.ts',
+    './commands/sesame_key.ts',
+    './commands/sesame_purge.ts',
+    './src/middleware/scope_middleware.ts',
+    './src/middleware/any_scope_middleware.ts',
+  ],
+  outDir: './build',
+  clean: true,
+  minify: 'dce-only',
+  fixedExtension: false,
+  dts: false,
+  treeshake: false,
+  sourcemap: false,
+  target: 'esnext',
+  copy: ['stubs'],
+})

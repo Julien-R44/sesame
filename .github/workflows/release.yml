@@ -18,14 +18,17 @@ jobs:
   release:
     needs: checks
     runs-on: ubuntu-latest
+    env:
+      HUSKY: '0'
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: voidzero-dev/setup-vp@v1
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '24'
-          cache: true
+          cache: pnpm
       - name: git config
         run: |
           git config user.name "${GITHUB_ACTOR}"
@@ -34,7 +37,7 @@ jobs:
         run: npm config set //registry.npmjs.org/:_authToken $NPM_TOKEN
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-      - run: vp install
+      - run: pnpm install --frozen-lockfile
       - name: Release
         run: pnpm run release -- --ci ${{ inputs.version }}
         env:

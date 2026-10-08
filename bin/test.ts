@@ -10,4 +10,4 @@ configure({
   plugins: [assert(), expectTypeOf(), apiClient()],
 })
 
-run()
+await run()

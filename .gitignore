@@ -14,3 +14,4 @@ package-lock.json
 opensrc/
 AGENTS.md
 CLAUDE.md
+.husky/_

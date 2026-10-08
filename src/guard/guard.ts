@@ -77,7 +77,7 @@ export class OAuthGuard<
       guardDriverName: this.driverName,
     })
 
-    this.#emitter.emit('oauth_auth:authentication_failed', {
+    void this.#emitter.emit('oauth_auth:authentication_failed', {
       ctx: this.#ctx,
       guardName: this.#name,
       error,
@@ -100,7 +100,7 @@ export class OAuthGuard<
     if (this.authenticationAttempted) return this.getUserOrFail()
 
     this.authenticationAttempted = true
-    this.#emitter.emit('oauth_auth:authentication_attempted', {
+    void this.#emitter.emit('oauth_auth:authentication_attempted', {
       ctx: this.#ctx,
       guardName: this.#name,
     })
@@ -127,7 +127,7 @@ export class OAuthGuard<
     this.scopes = record.scopes as Scope[]
     this.clientId = record.clientId
 
-    this.#emitter.emit('oauth_auth:authentication_succeeded', {
+    void this.#emitter.emit('oauth_auth:authentication_succeeded', {
       ctx: this.#ctx,
       guardName: this.#name,
       user: this.user,
