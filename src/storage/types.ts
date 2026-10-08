@@ -145,6 +145,14 @@ export interface PurgeTokensOptions {
 }
 
 /**
+ * Select dynamically registered clients created before `createdBefore`
+ * that have no token, authorization code, consent, or pending request.
+ */
+export interface PurgeUnusedClientsOptions {
+  createdBefore: DateTime
+}
+
+/**
  * Look up an owner's unexpired pending request using its stored token hash.
  */
 export interface PendingAuthorizationRequestLookupOptions {
@@ -202,4 +210,5 @@ export interface SesameStore {
   rotateRefreshToken(options: RotateRefreshTokenOptions): Promise<boolean>
   revokeAllForUser(options: { userId: string; now: DateTime }): Promise<void>
   purgeTokens(options: PurgeTokensOptions): Promise<SesamePurgeResult>
+  purgeUnusedClients(options: PurgeUnusedClientsOptions): Promise<number>
 }

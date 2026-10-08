@@ -1,6 +1,14 @@
-import { MysqlAdapter, PostgresAdapter, SqliteAdapter, type Kysely, type Transaction } from 'kysely'
+import {
+  MysqlAdapter,
+  PostgresAdapter,
+  SqliteAdapter,
+  type ExpressionBuilder,
+  type Kysely,
+  type Transaction,
+} from 'kysely'
 import { DateTime } from 'luxon'
 import { retryConsentConflict } from '../consent_retry.js'
+import { CLIENT_USAGE_TABLES, chunkClientIds, isDynamicallyRegistered } from '../unused_clients.js'
 import type {
   CreateAccessTokenRecord,
   CreateAuthorizationCodeRecord,
@@ -16,6 +24,7 @@ import type {
   OAuthRefreshTokenRecord,
   PendingAuthorizationRequestLookupOptions,
   PurgeTokensOptions,
+  PurgeUnusedClientsOptions,
   RotateRefreshTokenOptions,
   SesamePurgeResult,
   SesameStore,
@@ -170,6 +179,24 @@ function decodeRow<T>(row: Row, shape: TableShape): T {
       return [field, decodeValue(value, field, shape)]
     })
   ) as T
+}
+
+/**
+ * Match clients referenced by no token, code, consent, or pending request.
+ */
+function isUnusedClient(eb: ExpressionBuilder<any, any>) {
+  return eb.and(
+    CLIENT_USAGE_TABLES.map((table) =>
+      eb.not(
+        eb.exists(
+          eb
+            .selectFrom(table)
+            .select(eb.lit(1).as('used'))
+            .whereRef(`${table}.client_id`, '=', `${tables.clients.name}.client_id`)
+        )
+      )
+    )
+  )
 }
 
 /**
@@ -802,6 +829,47 @@ export class KyselyStore implements SesameStore {
       result.pendingRequests = Number(pending.numDeletedRows ?? 0)
 
       return result
+    })
+  }
+
+  /**
+   * Delete dynamically registered clients that were never used.
+   */
+  async purgeUnusedClients(options: PurgeUnusedClientsOptions): Promise<number> {
+    return this.#transaction(async (store) => {
+      const db = store.#db
+      const createdBefore = encodeValue(
+        options.createdBefore,
+        'createdAt',
+        tables.clients,
+        this.#dialect
+      )
+
+      const candidates = await db
+        .selectFrom(tables.clients.name)
+        .select(['client_id', 'metadata'])
+        .where('created_at', '<', createdBefore)
+        .where(isUnusedClient)
+        .execute()
+
+      const clientIds = candidates
+        .map((row: Row) =>
+          decodeRow<Pick<OAuthClientRecord, 'clientId' | 'metadata'>>(row, tables.clients)
+        )
+        .filter((client) => isDynamicallyRegistered(client.metadata))
+        .map((client) => client.clientId)
+
+      let deleted = 0
+      for (const chunk of chunkClientIds(clientIds)) {
+        const result = await db
+          .deleteFrom(tables.clients.name)
+          .where('client_id', 'in', chunk)
+          .where(isUnusedClient)
+          .executeTakeFirst()
+        deleted += Number(result.numDeletedRows ?? 0)
+      }
+
+      return deleted
     })
   }
 }

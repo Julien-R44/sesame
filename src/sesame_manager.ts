@@ -215,6 +215,21 @@ export class SesameManager {
   }
 
   /**
+   * Delete dynamically registered clients that were never used: created more
+   * than `olderThanDays` days ago (default 30) and without any token,
+   * authorization code, consent, or pending authorization request.
+   *
+   * Clients created with `createClient()` are never deleted. Returns the
+   * number of deleted clients.
+   */
+  async purgeUnusedClients(options?: { olderThanDays?: number }): Promise<number> {
+    const olderThanDays = options?.olderThanDays ?? 30
+    const createdBefore = DateTime.now().minus({ days: olderThanDays })
+
+    return this.#store.purgeUnusedClients({ createdBefore })
+  }
+
+  /**
    * Create a new OAuth client programmatically.
    * Returns the client and the raw secret (only available at creation time).
    */

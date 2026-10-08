@@ -285,6 +285,45 @@ async function testCleanup(store: SesameStore, clientId: string, assert: Assert)
   assert.isNull(await store.findClient(clientId))
 }
 
+/**
+ * Purge dynamic clients without usage while keeping manual and used ones.
+ */
+async function testUnusedClientPurge(store: SesameStore, assert: Assert) {
+  const old = DateTime.now().minus({ days: 40 })
+  const suffix = crypto.randomUUID()
+  const createClient = (clientId: string, metadata: Record<string, any> | null) =>
+    store.createClient({
+      id: crypto.randomUUID(),
+      clientId: `${clientId}-${suffix}`,
+      name: clientId,
+      redirectUris: [],
+      scopes: ['read'],
+      grantTypes: ['authorization_code'],
+      isPublic: true,
+      isDisabled: false,
+      requirePkce: true,
+      metadata,
+      createdAt: old,
+      updatedAt: old,
+    })
+
+  await createClient('dynamic-unused', { registration: 'dynamic' })
+  await createClient('manual-unused', null)
+  const used = await createClient('dynamic-used', { registration: 'dynamic' })
+  await store.grantConsent({ clientId: used.clientId, userId: 'user-1', scopes: ['read'] })
+
+  const deleted = await store.purgeUnusedClients({
+    createdBefore: DateTime.now().minus({ days: 30 }),
+  })
+
+  assert.equal(deleted, 1)
+  assert.isNull(await store.findClient(`dynamic-unused-${suffix}`))
+  assert.isNotNull(await store.findClient(`manual-unused-${suffix}`))
+  assert.isNotNull(await store.findClient(used.clientId))
+  await store.deleteClient(`manual-unused-${suffix}`)
+  await store.deleteClient(used.clientId)
+}
+
 for (const dialect of ['postgres', 'mysql', 'mariadb'] as const) {
   const connectionUrl = process.env[`SESAME_TEST_${dialect.toUpperCase()}_URL`]
   const sqlTest = test(`Kysely ${dialect} | migration and OAuth persistence`, async ({
@@ -299,6 +338,7 @@ for (const dialect of ['postgres', 'mysql', 'mariadb'] as const) {
       await testConsent(store, clientId, assert)
       await testTokenExchange(store, clientId, assert)
       await testCleanup(store, clientId, assert)
+      await testUnusedClientPurge(store, assert)
       await down(db)
     } finally {
       await db.destroy()
