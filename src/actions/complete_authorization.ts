@@ -6,6 +6,7 @@ import { describeInvalidScopes } from '../invalid_scope_description.ts'
 import { IssueAuthorizationCodeAction } from './issue_authorization_code.ts'
 import { assertGrantContext } from '../services/grant_service.ts'
 import { isRedirectUriAllowed } from '../redirect_uri.ts'
+import { assertClientIdMetadataDocumentsEnabled } from '../client_id_metadata_documents/client_id_url.ts'
 import {
   E_INVALID_CLIENT,
   E_INVALID_GRANT,
@@ -107,6 +108,11 @@ export class CompleteAuthorizationAction {
       now: DateTime.now(),
     })
     if (!pendingRequest) throw new E_INVALID_GRANT('Authorization request not found or expired')
+
+    assertClientIdMetadataDocumentsEnabled({
+      clientId: pendingRequest.clientId,
+      config: manager.config,
+    })
 
     const client = await store.findClient(pendingRequest.clientId)
     if (!client) throw new E_INVALID_CLIENT('Client not found')

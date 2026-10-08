@@ -336,6 +336,54 @@ export interface CreateClientResult {
 }
 
 /**
+ * Options for Client ID Metadata Documents (CIMD), where the `client_id`
+ * is an HTTPS URL pointing to a JSON document describing the client.
+ *
+ * @see https://datatracker.ietf.org/doc/draft-ietf-oauth-client-id-metadata-document/
+ */
+export interface ClientIdMetadataDocumentsConfig {
+  /**
+   * Hosts allowed to serve client metadata documents. Accepts exact
+   * hosts (`claude.ai`) or a leftmost wildcard (`*.example.com`, which
+   * does not match `example.com` itself).
+   *
+   * When omitted, any public HTTPS host is accepted.
+   */
+  allowedHosts?: string[]
+
+  /**
+   * Bounds applied to the cache lifetime advertised by the document
+   * response (`Cache-Control: max-age` or `Expires`). Responses without
+   * freshness information, or with `no-store` / `no-cache`, use `minTtl`.
+   *
+   * Defaults to `{ minTtl: '5m', maxTtl: '24h' }`.
+   */
+  cache?: { minTtl?: string; maxTtl?: string }
+
+  /**
+   * Maximum time spent fetching a document (connection, headers and body).
+   * Defaults to `'5s'`.
+   */
+  fetchTimeout?: string
+
+  /**
+   * Maximum document size in bytes. Defaults to `5120` (5 KB, as
+   * recommended by the specification).
+   */
+  maxResponseSize?: number
+}
+
+/**
+ * Client ID Metadata Documents options with defaults applied.
+ */
+export interface ResolvedClientIdMetadataDocumentsConfig {
+  allowedHosts: string[] | null
+  cache: { minTtl: string; maxTtl: string }
+  fetchTimeout: string
+  maxResponseSize: number
+}
+
+/**
  * User-facing configuration interface for Sésame.
  *
  * Provides all options needed to set up the OAuth 2.1 authorization
@@ -450,6 +498,16 @@ export interface SesameConfig {
   allowPublicRegistration?: boolean
 
   /**
+   * Accept HTTPS URLs as `client_id` and resolve them by fetching their
+   * Client ID Metadata Document (recommended by the MCP specification).
+   * Pass `true` for defaults or an object to customize the policy.
+   * Defaults to `false`.
+   *
+   * @see https://datatracker.ietf.org/doc/draft-ietf-oauth-client-id-metadata-document/
+   */
+  clientIdMetadataDocuments?: boolean | ClientIdMetadataDocumentsConfig
+
+  /**
    * JWK (JSON Web Key) for signing ID tokens.
    * Must be an RSA private key in JWK format.
    * Required together with `oidcProvider` when OIDC scopes (openid) are used.
@@ -494,6 +552,7 @@ export interface ResolvedSesameConfig {
   consentPage: string | ((ctx: HttpContext, params: URLSearchParams) => string)
   allowDynamicRegistration: boolean
   allowPublicRegistration: boolean
+  clientIdMetadataDocuments: ResolvedClientIdMetadataDocumentsConfig | null
   jwk?: JWK
   oidcProvider?: OAuthUserProviderContract<unknown>
   idTokenTtl: string
@@ -524,6 +583,7 @@ export interface AuthServerMetadata {
   code_challenge_methods_supported: string[]
   authorization_response_iss_parameter_supported: boolean
   prompt_values_supported: string[]
+  client_id_metadata_document_supported?: boolean
 }
 
 /**

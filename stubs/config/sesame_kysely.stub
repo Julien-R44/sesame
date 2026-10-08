@@ -26,6 +26,8 @@ const sesameConfig = defineConfig({
   consentPage: '/oauth/consent',
   allowDynamicRegistration: false,
   allowPublicRegistration: false,
+  // Accept HTTPS URLs as client_id (Client ID Metadata Documents, used by MCP clients)
+  clientIdMetadataDocuments: false,
 })
 
 export default sesameConfig
