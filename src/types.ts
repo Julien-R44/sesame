@@ -27,6 +27,17 @@ export interface SesameScopes {}
 export type Scope = keyof SesameScopes extends never ? string : keyof SesameScopes & string
 
 /**
+ * Standard scopes accepted without being declared in the config
+ * `scopes` map: the OIDC scopes and `offline_access`.
+ */
+export type BuiltinScope = 'openid' | 'profile' | 'email' | 'offline_access'
+
+/**
+ * Any scope a client can be granted: configured scopes plus built-in ones.
+ */
+export type GrantableScope = Scope | BuiltinScope
+
+/**
  * Extract scope keys from a config object returned by `defineConfig`.
  * Use with `declare module` to propagate type-safe scopes globally.
  */
@@ -163,7 +174,7 @@ export interface ApproveAuthorizationOptions {
    * Scopes granted by the user. Must be a non-empty subset of the
    * requested scopes. Defaults to every requested scope.
    */
-  scopes?: Scope[]
+  scopes?: GrantableScope[]
 }
 
 /**
@@ -199,7 +210,7 @@ export interface AuthorizationDecision {
   /**
    * Scopes granted to the client. Empty when the request was denied.
    */
-  scopes: string[]
+  scopes: GrantableScope[]
 }
 
 /**

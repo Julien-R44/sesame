@@ -4,6 +4,7 @@ import vine from '@vinejs/vine'
 import type { HttpContext } from '@adonisjs/core/http'
 import { SesameManager } from '../sesame_manager.ts'
 import { E_INVALID_REQUEST } from '../oauth_error.ts'
+import type { GrantableScope } from '../types.ts'
 
 /**
  * Handles user consent submission for the OAuth authorization flow.
@@ -26,7 +27,7 @@ export default class ConsentController {
    * Parse the optional `scope` field. Accepts a space-delimited
    * string or an array of strings (e.g. repeated form checkboxes).
    */
-  #parseScopes(value: unknown): string[] | undefined {
+  #parseScopes(value: unknown): GrantableScope[] | undefined {
     if (value === undefined || value === null) return undefined
 
     const values = Array.isArray(value) ? value : [value]
@@ -34,7 +35,9 @@ export default class ConsentController {
       throw new E_INVALID_REQUEST('Invalid parameter: scope')
     }
 
-    return values.flatMap((item: string) => item.split(' ')).filter(Boolean)
+    const scopes = values.flatMap((item: string) => item.split(' ')).filter(Boolean)
+
+    return scopes as GrantableScope[]
   }
 
   /**
