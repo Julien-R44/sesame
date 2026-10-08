@@ -425,6 +425,7 @@ export interface AuthServerMetadata {
   revocation_endpoint_auth_methods_supported?: string[]
   code_challenge_methods_supported: string[]
   authorization_response_iss_parameter_supported: boolean
+  prompt_values_supported: string[]
 }
 
 /**

@@ -1,6 +1,7 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import { SesameManager } from '../sesame_manager.ts'
 import { E_SERVER_ERROR } from '../oauth_error.ts'
+import { SUPPORTED_PROMPT_VALUES } from '../prompt.ts'
 import { BUILTIN_SCOPES, type AuthServerMetadata, type ResourceServerMetadata } from '../types.ts'
 
 type RouterLike = {
@@ -116,6 +117,7 @@ export default class MetadataController {
       ],
       code_challenge_methods_supported: ['S256'],
       authorization_response_iss_parameter_supported: true,
+      prompt_values_supported: [...SUPPORTED_PROMPT_VALUES],
     }
   }
 
