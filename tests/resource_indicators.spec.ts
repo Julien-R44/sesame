@@ -60,6 +60,23 @@ test.group('Resource indicators | normalizeResourceIndicator', () => {
     assert.isNull(normalizeResourceIndicator('https://auth.example.com/mcp?#'))
   })
 
+  test('rejects whitespace, control characters, and backslashes', ({ assert }) => {
+    const values = [
+      'https://auth.example.com/m\tcp',
+      'https://auth.example.com/m\ncp',
+      'https://auth.example.com/m\rcp',
+      'https://auth.example.com/m cp',
+      ' https://auth.example.com/mcp',
+      'https://auth.example.com\\mcp',
+      'https://auth.example.com/m\u0000cp',
+      'https://auth.example.com/m\u007fcp',
+      'https://auth.example.com/m\u00a0cp',
+    ]
+
+    for (const value of values)
+      assert.isNull(normalizeResourceIndicator(value), JSON.stringify(value))
+  })
+
   test('rejects credentials', ({ assert }) => {
     assert.isNull(normalizeResourceIndicator('https://user:pass@auth.example.com/mcp'))
   })
@@ -177,6 +194,11 @@ test.group('Resource indicators | SesameManager.resolveResource', () => {
       async () => manager.resolveResource('https://auth.example.com/mcp#x'),
       'invalid_target',
       'absolute http(s) URI'
+    )
+    await assertOAuthError(
+      assert,
+      async () => manager.resolveResource('https://auth.example.com/m\tcp'),
+      'invalid_target'
     )
     await assertOAuthError(
       assert,

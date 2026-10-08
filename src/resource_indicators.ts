@@ -1,6 +1,7 @@
 import { E_INVALID_TARGET } from './oauth_error.ts'
 
 const SUPPORTED_PROTOCOLS = new Set(['http:', 'https:'])
+const WHITESPACE_OR_BACKSLASH = /[\s\\]/
 
 /**
  * Options for matching a requested resource against registered resources.
@@ -19,9 +20,26 @@ export interface ResolveGrantResourceOptions {
 }
 
 /**
+ * Detect characters that the WHATWG URL parser silently strips or rewrites
+ * (control characters, whitespace, backslashes), so `https://app.com/m\tcp`
+ * is rejected instead of being repaired into `https://app.com/mcp`.
+ */
+function hasUnsafeCharacters(value: string): boolean {
+  if (WHITESPACE_OR_BACKSLASH.test(value)) return true
+
+  for (let index = 0; index < value.length; index++) {
+    const code = value.charCodeAt(index)
+    if (code < 0x20 || code === 0x7f) return true
+  }
+
+  return false
+}
+
+/**
  * Normalize a resource indicator (RFC 8707 §2) to its canonical form.
  *
- * The value must be an absolute http(s) URI without fragment or credentials.
+ * The value must be an absolute http(s) URI without fragment, credentials,
+ * whitespace, control characters, or backslashes.
  * Scheme and host are lowercased, default ports are dropped, and a single
  * trailing slash is removed so `https://app.com/` and `https://app.com` match.
  * Returns null when the value is not a valid resource indicator.
@@ -30,6 +48,7 @@ export interface ResolveGrantResourceOptions {
  */
 export function normalizeResourceIndicator(value: string): string | null {
   if (value.includes('#')) return null
+  if (hasUnsafeCharacters(value)) return null
 
   const url = URL.parse(value)
   if (!url) return null
