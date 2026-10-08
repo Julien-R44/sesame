@@ -15,7 +15,7 @@ import { SesameManager } from '../src/sesame_manager.ts'
  */
 export default class SesamePurge extends BaseCommand {
   static commandName = 'sesame:purge'
-  static description = 'Purge revoked and/or expired tokens and authorization codes'
+  static description = 'Purge revoked and/or expired tokens, authorization codes, and grants'
 
   static options: CommandOptions = {
     startApp: true,
@@ -64,12 +64,18 @@ export default class SesamePurge extends BaseCommand {
       ? await manager.purgeUnusedClients({ olderThanDays: this.clientDays })
       : 0
 
-    const total = result.accessTokens + result.refreshTokens + result.authorizationCodes + clients
+    const total =
+      result.accessTokens +
+      result.refreshTokens +
+      result.authorizationCodes +
+      result.grants +
+      clients
 
     if (result.accessTokens > 0) this.logger.info(`  Access tokens: ${result.accessTokens}`)
     if (result.refreshTokens > 0) this.logger.info(`  Refresh tokens: ${result.refreshTokens}`)
     if (result.authorizationCodes > 0)
       this.logger.info(`  Authorization codes: ${result.authorizationCodes}`)
+    if (result.grants > 0) this.logger.info(`  Grants: ${result.grants}`)
     if (clients > 0) this.logger.info(`  Unused clients: ${clients}`)
 
     this.logger.success(`Purged ${total} record(s).`)

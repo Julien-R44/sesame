@@ -5,40 +5,12 @@ import { OAuthClient } from '../src/models/oauth_client.ts'
 import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
 import { OAuthRefreshToken } from '../src/models/oauth_refresh_token.ts'
 import { OAuthAuthorizationCode } from '../src/models/oauth_authorization_code.ts'
-import { OAuthConsent } from '../src/models/oauth_consent.ts'
+import { OAuthGrant } from '../src/models/oauth_grant.ts'
+import { createTestGrant } from './helpers/create_test_grant.ts'
 import { OAuthPendingAuthorizationRequest } from '../src/models/oauth_pending_authorization_request.ts'
 import { ClientService } from '../src/services/client_service.ts'
 import { TokenService } from '../src/services/token_service.ts'
 import { DateTime } from 'luxon'
-
-test.group('Integration | Consent storage', (group) => {
-  setupIntegrationGroup(group)
-
-  test('merges concurrent first-time approvals', async ({ assert }) => {
-    const manager = createManager()
-    const client = await createTestClient()
-    const identity = { clientId: client.clientId, userId: 'consent-user' }
-
-    await Promise.all([
-      manager.store.grantConsent({ ...identity, scopes: ['read'] }),
-      manager.store.grantConsent({ ...identity, scopes: ['write'] }),
-    ])
-
-    assert.sameMembers((await manager.store.findConsent(identity))!.scopes, ['read', 'write'])
-
-    await Promise.all([
-      manager.store.grantConsent({ ...identity, scopes: ['profile'] }),
-      manager.store.grantConsent({ ...identity, scopes: ['email'] }),
-    ])
-
-    assert.sameMembers((await manager.store.findConsent(identity))!.scopes, [
-      'read',
-      'write',
-      'profile',
-      'email',
-    ])
-  })
-})
 
 test.group('Integration | Client CRUD | createClient', (group) => {
   setupIntegrationGroup(group)
@@ -317,7 +289,7 @@ test.group('Integration | Client CRUD | deleteClient', (group) => {
     })
 
     // Create consent
-    await OAuthConsent.create({
+    await createTestGrant({
       id: crypto.randomUUID(),
       clientId: client.clientId,
       userId: 'user-1',
@@ -343,7 +315,7 @@ test.group('Integration | Client CRUD | deleteClient', (group) => {
     assert.lengthOf(await OAuthAccessToken.query().where('clientId', client.clientId), 0)
     assert.lengthOf(await OAuthRefreshToken.query().where('clientId', client.clientId), 0)
     assert.lengthOf(await OAuthAuthorizationCode.query().where('clientId', client.clientId), 0)
-    assert.lengthOf(await OAuthConsent.query().where('clientId', client.clientId), 0)
+    assert.lengthOf(await OAuthGrant.query().where('clientId', client.clientId), 0)
     assert.lengthOf(
       await OAuthPendingAuthorizationRequest.query().where('clientId', client.clientId),
       0

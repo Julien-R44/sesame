@@ -2,7 +2,7 @@ import type { HttpContext } from '@adonisjs/core/http'
 import type { ConfigProvider } from '@adonisjs/core/types'
 import type { JWK } from 'jose'
 import type { OAuthUserProviderContract } from './guard/types.ts'
-import type { OAuthClientRecord, SesameStore } from './storage/types.ts'
+import type { OAuthClientRecord, OAuthGrantRecord, SesameStore } from './storage/types.ts'
 
 export type * from './storage/types.ts'
 
@@ -36,6 +36,30 @@ export type BuiltinScope = 'openid' | 'profile' | 'email' | 'offline_access'
  * Any scope a client can be granted: configured scopes plus built-in ones.
  */
 export type GrantableScope = Scope | BuiltinScope
+
+/**
+ * Augment this interface to type the application context stored on
+ * grants and exposed by the OAuth guard.
+ *
+ * @example
+ * ```ts
+ * declare module '@julr/sesame/types' {
+ *   interface SesameGrantContext {
+ *     teamMemberId: number
+ *   }
+ * }
+ * ```
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-interface
+export interface SesameGrantContext {}
+
+/**
+ * Resolved grant context type. Narrows to `SesameGrantContext` when
+ * augmented, otherwise any plain JSON object.
+ */
+export type GrantContext = keyof SesameGrantContext extends never
+  ? Record<string, unknown>
+  : SesameGrantContext
 
 /**
  * Extract scope keys from a config object returned by `defineConfig`.
@@ -175,6 +199,52 @@ export interface ApproveAuthorizationOptions {
    * requested scopes. Defaults to every requested scope.
    */
   scopes?: GrantableScope[]
+
+  /**
+   * Application context stored on the grant and exposed by the OAuth
+   * guard. A grant with a context never skips the consent page.
+   */
+  context?: GrantContext | null
+}
+
+/**
+ * List the active grants of a user, optionally for one client.
+ */
+export interface ListGrantsOptions {
+  userId: string
+  clientId?: string
+}
+
+/**
+ * Active grant returned by `listGrants()`, with its public client.
+ */
+export interface SesameGrant extends OAuthGrantRecord {
+  client: OAuthClientRecord
+}
+
+/**
+ * Revoke one grant. When `userId` is set, the grant must belong to it.
+ */
+export interface RevokeGrantOptions {
+  grantId: string
+  userId?: string
+}
+
+/**
+ * Revoke every grant of a user, optionally for one client.
+ */
+export interface RevokeGrantsOptions {
+  userId: string
+  clientId?: string
+}
+
+/**
+ * Replace the context of a grant. When `userId` is set, the grant must belong to it.
+ */
+export interface UpdateGrantOptions {
+  grantId: string
+  context: GrantContext | null
+  userId?: string
 }
 
 /**

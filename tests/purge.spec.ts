@@ -4,7 +4,7 @@ import { AceFactory } from '@adonisjs/core/factories'
 import SesamePurge from '../commands/sesame_purge.ts'
 import { SesameManager } from '../src/sesame_manager.ts'
 import { OAuthClient } from '../src/models/oauth_client.ts'
-import { OAuthConsent } from '../src/models/oauth_consent.ts'
+import { OAuthGrant } from '../src/models/oauth_grant.ts'
 import { createManager, setupIntegrationGroup } from './helpers/app.ts'
 import { createTestClient } from './helpers/create_test_client.ts'
 import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
@@ -66,7 +66,9 @@ test.group('SesameManager | purgeTokens', (group) => {
     ])
   })
 
-  test('purges revoked access tokens and refresh tokens', async ({ assert }) => {
+  test('purges revoked access tokens and refresh tokens revoked beyond retention', async ({
+    assert,
+  }) => {
     const client = await createTestClient()
     const manager = createManager()
     const tokenService = new TokenService(manager)
@@ -98,6 +100,18 @@ test.group('SesameManager | purgeTokens', (group) => {
       userId: 'user-1',
       scopes: ['read'],
       expiresAt: DateTime.now().plus({ days: 30 }),
+      revokedAt: DateTime.now().minus({ days: 8 }),
+    })
+
+    // Recently rotated: kept so a replay is still detected
+    await OAuthRefreshToken.create({
+      id: crypto.randomUUID(),
+      token: tokenService.hashToken('recently-revoked-rt'),
+      accessTokenId: crypto.randomUUID(),
+      clientId: client.clientId,
+      userId: 'user-1',
+      scopes: ['read'],
+      expiresAt: DateTime.now().plus({ days: 30 }),
       revokedAt: DateTime.now().minus({ hours: 1 }),
     })
 
@@ -122,8 +136,10 @@ test.group('SesameManager | purgeTokens', (group) => {
     assert.equal(accessTokens[0].tokenHash, tokenService.hashToken('active-at'))
 
     const refreshTokens = await OAuthRefreshToken.query()
-    assert.lengthOf(refreshTokens, 1)
-    assert.equal(refreshTokens[0].token, tokenService.hashToken('active-rt'))
+    assert.sameMembers(
+      refreshTokens.map((token) => token.token),
+      [tokenService.hashToken('recently-revoked-rt'), tokenService.hashToken('active-rt')]
+    )
   })
 
   test('purges expired authorization codes', async ({ assert }) => {
@@ -345,7 +361,7 @@ test.group('SesameManager | purgeUnusedClients', (group) => {
     await createOldClient('with-access-token', dynamicMetadata)
     await createOldClient('with-refresh-token', dynamicMetadata)
     await createOldClient('with-code', dynamicMetadata)
-    await createOldClient('with-consent', dynamicMetadata)
+    await createOldClient('with-grant', dynamicMetadata)
     await createOldClient('with-pending', dynamicMetadata)
 
     await OAuthAccessToken.create({
@@ -374,11 +390,12 @@ test.group('SesameManager | purgeUnusedClients', (group) => {
       redirectUri: 'https://app.example.com/callback',
       expiresAt,
     })
-    await OAuthConsent.create({
+    await OAuthGrant.create({
       id: crypto.randomUUID(),
-      clientId: 'with-consent',
+      clientId: 'with-grant',
       userId: 'user-1',
       scopes: ['read'],
+      expiresAt,
     })
     await OAuthPendingAuthorizationRequest.create({
       id: crypto.randomUUID(),
@@ -413,8 +430,9 @@ test.group('SesameManager | purgeUnusedClients', (group) => {
     await manager.revokeAllForUser('user-1')
     await manager.purgeTokens()
 
+    // Revoked refresh tokens are kept for the retention period (replay detection)
     assert.lengthOf(await OAuthAccessToken.query(), 0)
-    assert.lengthOf(await OAuthRefreshToken.query(), 0)
+    assert.lengthOf(await OAuthRefreshToken.query().whereNull('revokedAt'), 0)
     assert.equal(await manager.purgeUnusedClients(), 0)
 
     const stored = await manager.findClient('mcp-client')

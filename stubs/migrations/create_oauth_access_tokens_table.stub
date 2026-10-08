@@ -12,6 +12,7 @@ export default class extends BaseSchema {
       table.string('token_hash').unique().notNullable()
       table.string('client_id').notNullable().references('client_id').inTable('oauth_clients').onDelete('CASCADE')
       table.string('user_id').nullable()
+      table.uuid('grant_id').nullable().index()
       table.json('scopes').notNullable()
       table.timestamp('expires_at').notNullable()
       table.timestamp('revoked_at').nullable()

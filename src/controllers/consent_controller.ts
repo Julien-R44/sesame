@@ -13,8 +13,10 @@ import type { GrantableScope } from '../types.ts'
  * `denyAuthorization()`. An optional `scope` field (space-delimited
  * string or array) grants a subset of the requested scopes.
  *
- * Consent records are persisted so that returning users are not
- * prompted again for previously approved scopes.
+ * Each approval creates a grant without context, so returning users
+ * are not prompted again for previously approved scopes. The context
+ * is never read from the request body: only `approveAuthorization()`
+ * called from application code can set it.
  *
  * @see https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.1
  */

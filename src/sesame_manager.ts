@@ -9,6 +9,11 @@ import {
   type DenyAuthorizationOptions,
   type CreateClientResult,
   type FindPendingAuthorizationRequestOptions,
+  type ListGrantsOptions,
+  type RevokeGrantOptions,
+  type RevokeGrantsOptions,
+  type SesameGrant,
+  type UpdateGrantOptions,
   type ResolvedSesameConfig,
   type ResourceServerMetadata,
   type Scope,
@@ -16,11 +21,13 @@ import {
 } from './types.ts'
 import { ClientService } from './services/client_service.ts'
 import { CompleteAuthorizationAction } from './actions/complete_authorization.ts'
+import { assertGrantContext } from './services/grant_service.ts'
 import { KeyService } from './services/key_service.ts'
 import { TokenService } from './services/token_service.ts'
 import { registerOAuthRoutes, registerWellKnownRoutes as registerWellKnown } from './routes.ts'
 import type {
   OAuthClientRecord,
+  OAuthGrantRecord,
   OAuthPendingAuthorizationRequestRecord,
   SesameStore,
 } from './storage/types.ts'
@@ -30,6 +37,7 @@ export interface PurgeResult {
   refreshTokens: number
   authorizationCodes: number
   pendingRequests: number
+  grants: number
 }
 
 /**
@@ -61,6 +69,17 @@ export class SesameManager {
     })
 
     return publicClient
+  }
+
+  /**
+   * Load a grant, optionally only when it belongs to the given user.
+   */
+  async #findOwnedGrant(options: { grantId: string; userId?: string }) {
+    const grant = await this.#store.findGrant(options.grantId)
+    if (!grant) return null
+    if (options.userId !== undefined && grant.userId !== options.userId) return null
+
+    return grant
   }
 
   get config() {
@@ -207,7 +226,7 @@ export class SesameManager {
    * Call this when a user is deleted or deactivated to ensure
    * none of their tokens remain usable. Revokes access tokens
    * and refresh tokens, and deletes authorization codes and
-   * consent records.
+   * grants.
    */
   async revokeAllForUser(userId: string): Promise<void> {
     const now = DateTime.now()
@@ -217,11 +236,84 @@ export class SesameManager {
   }
 
   /**
-   * Purge revoked and/or expired tokens and authorization codes.
+   * List the active grants of a user, newest first, each with its
+   * public client. A user may hold several grants for one client
+   * (each authorization creates one), so group by `clientId` to
+   * build a "connected applications" page.
    *
-   * Returns the total number of deleted records. Expired tokens are
-   * retained for `retentionHours` (default 168 = 7 days) to allow
-   * for debugging and audit trails.
+   * @example
+   * ```ts
+   * const grants = await sesame.listGrants({ userId: String(user.id) })
+   * const apps = Object.groupBy(grants, (grant) => grant.clientId)
+   * ```
+   */
+  async listGrants(options: ListGrantsOptions): Promise<SesameGrant[]> {
+    const grants = await this.#store.listGrants({ ...options, activeAt: DateTime.now() })
+    const clientIds = [...new Set(grants.map((grant) => grant.clientId))]
+    const clients = await Promise.all(clientIds.map((clientId) => this.#store.findClient(clientId)))
+    const clientsById = new Map(
+      clients.flatMap((client) => (client ? [[client.clientId, this.#publicClient(client)]] : []))
+    )
+
+    return grants.flatMap((grant) => {
+      const client = clientsById.get(grant.clientId)
+
+      return client ? [{ ...grant, client }] : []
+    })
+  }
+
+  /**
+   * Find a grant by its identifier, including expired ones.
+   */
+  async findGrant(grantId: string): Promise<OAuthGrantRecord | null> {
+    return this.#store.findGrant(grantId)
+  }
+
+  /**
+   * Revoke a grant: every code, access token, and refresh token
+   * issued from it stops working. Pass `userId` to only revoke a
+   * grant owned by that user. Returns false when nothing was revoked.
+   */
+  async revokeGrant(options: RevokeGrantOptions): Promise<boolean> {
+    const grant = await this.#findOwnedGrant(options)
+    if (!grant) return false
+
+    return this.#store.revokeGrant({ id: grant.id, now: DateTime.now() })
+  }
+
+  /**
+   * Revoke every grant of a user, or only those of one client
+   * ("disconnect this application"). Returns the number of revoked grants.
+   */
+  async revokeGrants(options: RevokeGrantsOptions): Promise<number> {
+    return this.#store.revokeGrants({ ...options, now: DateTime.now() })
+  }
+
+  /**
+   * Replace the application context of a grant. The OAuth guard reads
+   * it on every request, so the change applies immediately. Pass
+   * `userId` to only update a grant owned by that user. Returns the
+   * updated grant, or null when not found.
+   */
+  async updateGrant(options: UpdateGrantOptions): Promise<OAuthGrantRecord | null> {
+    assertGrantContext(options.context)
+
+    const grant = await this.#findOwnedGrant(options)
+    if (!grant) return null
+
+    await this.#store.updateGrant({ id: grant.id, data: { context: options.context } })
+
+    return this.#store.findGrant(grant.id)
+  }
+
+  /**
+   * Purge revoked and/or expired tokens, authorization codes, and grants.
+   *
+   * Returns the number of deleted records per table. Expired records and
+   * revoked refresh tokens are retained for `retentionHours` (default
+   * 168 = 7 days): rotated refresh tokens must outlive their rotation for
+   * replay detection to keep working. Revoked access tokens are purged
+   * immediately.
    */
   async purgeTokens(options?: {
     revokedOnly?: boolean
@@ -338,7 +430,7 @@ export class SesameManager {
   }
 
   /**
-   * Delete a client and all its associated tokens, codes, and consents.
+   * Delete a client and all its associated tokens, codes, and grants.
    * Returns true if the client was found and deleted.
    */
   async deleteClient(clientId: string): Promise<boolean> {

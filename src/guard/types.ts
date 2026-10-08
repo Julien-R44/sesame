@@ -2,7 +2,7 @@ import type { DateTime } from 'luxon'
 import type { HttpContext } from '@adonisjs/core/http'
 import type { Exception } from '@adonisjs/core/exceptions'
 import { symbols } from '@adonisjs/auth'
-import type { Scope } from '../types.ts'
+import type { GrantContext, Scope } from '../types.ts'
 
 /**
  * Guard user adapter between the user provider and the guard.
@@ -26,6 +26,17 @@ export interface OAuthGuardAccessToken {
   scopes: Scope[]
   expiresAt: DateTime
   createdAt: DateTime
+
+  /**
+   * Grant the token was issued from. Null for client_credentials tokens
+   * and tokens issued before grants existed.
+   */
+  grantId: string | null
+
+  /**
+   * Application context stored on the grant, read on every request.
+   */
+  context: GrantContext | null
 }
 
 /**
@@ -51,6 +62,16 @@ export interface OAuthUserProviderContract<RealUser> {
   [symbols.PROVIDER_REAL_USER]: RealUser
   createUserForGuard(user: RealUser): Promise<OAuthGuardUser<RealUser>>
   findById(identifier: string | number | BigInt): Promise<OAuthGuardUser<RealUser> | null>
+}
+
+/**
+ * Options of `loginAs(user, options)` in tests, forwarded to
+ * `authenticateAsClient`. Defaults to the configured default scopes
+ * and no context.
+ */
+export interface OAuthAuthenticateAsClientOptions {
+  scopes?: Scope[]
+  context?: GrantContext | null
 }
 
 /**

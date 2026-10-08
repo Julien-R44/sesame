@@ -213,12 +213,16 @@ test.group('OAuthGuard | Unit', (group) => {
     const token = guard.accessToken!
     assert.deepEqual(Object.keys(token).sort(), [
       'clientId',
+      'context',
       'createdAt',
       'expiresAt',
+      'grantId',
       'id',
       'scopes',
       'userId',
     ])
+    assert.isNull(token.grantId)
+    assert.isNull(token.context)
     assert.equal(token.id, id)
     assert.equal(token.clientId, 'test-client')
     assert.equal(token.userId, 'user-1')

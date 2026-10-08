@@ -4,7 +4,7 @@ import { TokenService } from '../services/token_service.ts'
 import { buildClientRedirectUrl } from '../client_redirect_url.ts'
 import { describeInvalidScopes } from '../invalid_scope_description.ts'
 import { IssueAuthorizationCodeAction } from './issue_authorization_code.ts'
-import { rejectDeletedClient } from '../storage/foreign_key_violation.ts'
+import { assertGrantContext } from '../services/grant_service.ts'
 import {
   E_INVALID_CLIENT,
   E_INVALID_GRANT,
@@ -127,13 +127,16 @@ export class CompleteAuthorizationAction {
   }
 
   /**
-   * Approve the request: persist consent for the granted scopes,
-   * issue an authorization code, and return the client redirect URL.
+   * Approve the request: create a grant for the granted scopes and
+   * context, issue its authorization code, and return the client
+   * redirect URL.
    */
   async approve(
     manager: SesameManager,
     options: ApproveAuthorizationOptions
   ): Promise<AuthorizationDecision> {
+    assertGrantContext(options.context)
+
     const lookup = this.#lookup(manager, options)
     const pending = await this.#findPendingRequest(manager, lookup)
     const scopes = this.#resolveGrantedScopes({
@@ -144,10 +147,6 @@ export class CompleteAuthorizationAction {
 
     const { pendingRequest, client } = await this.#consume(manager, lookup)
 
-    await rejectDeletedClient(() =>
-      manager.store.grantConsent({ clientId: client.clientId, userId: options.userId, scopes })
-    )
-
     const code = await new IssueAuthorizationCodeAction().execute(manager, {
       client,
       userId: options.userId,
@@ -156,6 +155,7 @@ export class CompleteAuthorizationAction {
       codeChallenge: pendingRequest.codeChallenge ?? undefined,
       codeChallengeMethod: pendingRequest.codeChallengeMethod ?? undefined,
       nonce: pendingRequest.nonce ?? undefined,
+      context: options.context ?? null,
     })
 
     const redirectUrl = buildClientRedirectUrl({
@@ -170,7 +170,7 @@ export class CompleteAuthorizationAction {
 
   /**
    * Deny the request and return the client redirect URL carrying
-   * `access_denied`. Existing consent is left untouched.
+   * `access_denied`. Existing grants are left untouched.
    */
   async deny(
     manager: SesameManager,

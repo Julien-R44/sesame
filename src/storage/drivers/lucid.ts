@@ -1,24 +1,26 @@
 import { DateTime } from 'luxon'
 import { BaseModel } from '@adonisjs/lucid/orm'
-import { retryConsentConflict } from '../consent_retry.js'
 import { CLIENT_USAGE_TABLES, chunkClientIds, isPurgeableClient } from '../unused_clients.js'
 import { OAuthAccessToken } from '../../models/oauth_access_token.js'
 import { OAuthAuthorizationCode } from '../../models/oauth_authorization_code.js'
 import { OAuthClient } from '../../models/oauth_client.js'
-import { OAuthConsent } from '../../models/oauth_consent.js'
+import { OAuthGrant } from '../../models/oauth_grant.js'
 import { OAuthPendingAuthorizationRequest } from '../../models/oauth_pending_authorization_request.js'
 import { OAuthRefreshToken } from '../../models/oauth_refresh_token.js'
 import type {
   CreateAccessTokenRecord,
   CreateAuthorizationCodeRecord,
   CreateClientRecord,
+  CreateGrantRecord,
   CreatePendingAuthorizationRequestRecord,
   ExchangeAuthorizationCodeOptions,
   IssueTokenPairOptions,
+  ListStoredGrantsOptions,
   OAuthAccessTokenRecord,
+  OAuthAccessTokenWithGrantRecord,
   OAuthAuthorizationCodeRecord,
   OAuthClientRecord,
-  OAuthConsentRecord,
+  OAuthGrantRecord,
   OAuthPendingAuthorizationRequestRecord,
   OAuthRefreshTokenRecord,
   PendingAuthorizationRequestLookupOptions,
@@ -27,8 +29,25 @@ import type {
   RotateRefreshTokenOptions,
   SesamePurgeResult,
   SesameStore,
+  TokenGrantWrite,
   UpdateClientRecord,
+  UpdateGrantRecord,
 } from '../types.js'
+
+/**
+ * Grant columns selected alongside an access token, prefixed to avoid clashes.
+ */
+const GRANT_COLUMNS = [
+  'id',
+  'client_id',
+  'user_id',
+  'scopes',
+  'context',
+  'expires_at',
+  'created_at',
+  'updated_at',
+]
+const GRANT_PREFIX = 'grant__'
 
 /**
  * Persist OAuth records through the application's Lucid connection.
@@ -92,7 +111,7 @@ export class LucidStore implements SesameStore {
   }
 
   /**
-   * Query clients referenced by no token, code, consent, or pending request.
+   * Query clients referenced by no token, code, grant, or pending request.
    */
   #unusedClientsQuery() {
     const query = this.#query(OAuthClient)
@@ -106,6 +125,62 @@ export class LucidStore implements SesameStore {
     }
 
     return query
+  }
+
+  /**
+   * Normalize a Lucid grant to the store's plain-record contract.
+   */
+  #grantRecord(grant: InstanceType<typeof BaseModel>): OAuthGrantRecord {
+    return this.#record<OAuthGrantRecord>(grant, ['context'])
+  }
+
+  /**
+   * Rebuild the grant selected alongside an access token, if any.
+   */
+  #joinedGrant(extras: Record<string, unknown>): OAuthGrantRecord | null {
+    if (extras[`${GRANT_PREFIX}id`] === null || extras[`${GRANT_PREFIX}id`] === undefined) {
+      return null
+    }
+
+    const row = Object.fromEntries(
+      GRANT_COLUMNS.map((column) => [column, extras[`${GRANT_PREFIX}${column}`]])
+    )
+    const grant = OAuthGrant.$createFromAdapterResult(row)
+
+    return grant ? this.#grantRecord(grant) : null
+  }
+
+  /**
+   * Extend or create the grant written alongside a token issuance.
+   */
+  async #applyGrantWrite(write?: TokenGrantWrite): Promise<void> {
+    if (!write) return
+    if (write.type === 'create') {
+      await OAuthGrant.create(write.grant, { client: this.#client })
+      return
+    }
+
+    await this.#query(OAuthGrant).where('id', write.id).update({
+      expiresAt: write.expiresAt.toSQL(),
+      updatedAt: DateTime.now().toSQL(),
+    })
+  }
+
+  /**
+   * Delete grants with their codes and refresh tokens and revoke their
+   * access tokens. Must run inside a transaction.
+   */
+  async #revokeGrantIds(ids: string[], now: DateTime): Promise<number> {
+    if (ids.length === 0) return 0
+
+    await this.#query(OAuthRefreshToken).whereIn('grantId', ids).delete()
+    await this.#query(OAuthAuthorizationCode).whereIn('grantId', ids).delete()
+    await this.#query(OAuthAccessToken)
+      .whereIn('grantId', ids)
+      .whereNull('revokedAt')
+      .update({ revokedAt: now.toSQL(), updatedAt: now.toSQL() })
+
+    return this.#affectedRows(await this.#query(OAuthGrant).whereIn('id', ids).delete())
   }
 
   /**
@@ -190,7 +265,7 @@ export class LucidStore implements SesameStore {
       await store.#query(OAuthAccessToken).where('clientId', clientId).delete()
       await store.#query(OAuthAuthorizationCode).where('clientId', clientId).delete()
       await store.#query(OAuthPendingAuthorizationRequest).where('clientId', clientId).delete()
-      await store.#query(OAuthConsent).where('clientId', clientId).delete()
+      await store.#query(OAuthGrant).where('clientId', clientId).delete()
 
       const count = this.#affectedRows(
         await store.#query(OAuthClient).where('id', client.id).delete()
@@ -201,18 +276,29 @@ export class LucidStore implements SesameStore {
   }
 
   /**
-   * Look up an access-token hash, optionally limited to one client.
+   * Look up an access-token hash with its grant in one query,
+   * optionally limited to one client.
    */
   async findAccessToken(options: {
     hash: string
     clientId?: string
-  }): Promise<OAuthAccessTokenRecord | null> {
-    const query = this.#query(OAuthAccessToken).where('tokenHash', options.hash)
-    if (options.clientId) query.where('clientId', options.clientId)
+  }): Promise<OAuthAccessTokenWithGrantRecord | null> {
+    const table = OAuthAccessToken.table
+    const query = this.#query(OAuthAccessToken)
+      .leftJoin(`${OAuthGrant.table} as g`, 'g.id', `${table}.grant_id`)
+      .select(
+        `${table}.*`,
+        ...GRANT_COLUMNS.map((column) => `g.${column} as ${GRANT_PREFIX}${column}`)
+      )
+      .where(`${table}.token_hash`, options.hash)
+    if (options.clientId) query.where(`${table}.client_id`, options.clientId)
 
     const token = await query.first()
+    if (!token) return null
 
-    return token ? this.#record<OAuthAccessTokenRecord>(token, ['userId', 'revokedAt']) : null
+    const record = this.#record<OAuthAccessTokenRecord>(token, ['userId', 'grantId', 'revokedAt'])
+
+    return { ...record, grant: this.#joinedGrant(token.$extras) }
   }
 
   /**
@@ -251,7 +337,7 @@ export class LucidStore implements SesameStore {
       .where('clientId', options.clientId)
       .first()
 
-    return token ? this.#record<OAuthRefreshTokenRecord>(token, ['revokedAt']) : null
+    return token ? this.#record<OAuthRefreshTokenRecord>(token, ['grantId', 'revokedAt']) : null
   }
 
   /**
@@ -280,9 +366,9 @@ export class LucidStore implements SesameStore {
   }
 
   /**
-   * Invalidate a client's token family after refresh-token replay.
+   * Invalidate a client's grant-less token family after refresh-token replay.
    */
-  async revokeTokenFamily(options: {
+  async revokeLegacyTokenFamily(options: {
     clientId: string
     userId: string
     now: DateTime
@@ -291,10 +377,12 @@ export class LucidStore implements SesameStore {
       await store.#query(OAuthRefreshToken)
         .where('clientId', options.clientId)
         .where('userId', options.userId)
+        .whereNull('grantId')
         .delete()
       await store.#query(OAuthAccessToken)
         .where('clientId', options.clientId)
         .where('userId', options.userId)
+        .whereNull('grantId')
         .whereNull('revokedAt')
         .update({ revokedAt: options.now.toSQL(), updatedAt: options.now.toSQL() })
     })
@@ -314,9 +402,11 @@ export class LucidStore implements SesameStore {
 
     return code
       ? this.#record<OAuthAuthorizationCodeRecord>(code, [
+          'grantId',
           'codeChallenge',
           'codeChallengeMethod',
           'nonce',
+          'consumedAt',
         ])
       : null
   }
@@ -340,11 +430,18 @@ export class LucidStore implements SesameStore {
    */
   async exchangeAuthorizationCode(options: ExchangeAuthorizationCodeOptions): Promise<boolean> {
     return this.#transaction(async (store) => {
-      const deleted = this.#affectedRows(
-        await store.#query(OAuthAuthorizationCode).where('id', options.codeId).delete()
+      const consumed = this.#affectedRows(
+        await store.#query(OAuthAuthorizationCode)
+          .where('id', options.codeId)
+          .whereNull('consumedAt')
+          .update({
+            consumedAt: options.consumedAt.toSQL(),
+            updatedAt: options.consumedAt.toSQL(),
+          })
       )
-      if (deleted !== 1) return false
+      if (consumed !== 1) return false
 
+      await store.#applyGrantWrite(options.grant)
       await store.createAccessToken(options.accessToken)
       if (options.refreshToken) {
         await OAuthRefreshToken.create(options.refreshToken, { client: store.#client })
@@ -355,59 +452,78 @@ export class LucidStore implements SesameStore {
   }
 
   /**
-   * Find a user's current consent for a client.
+   * Insert a new grant.
    */
-  async findConsent(options: {
-    clientId: string
-    userId: string
-  }): Promise<OAuthConsentRecord | null> {
-    const consent = await this.#query(OAuthConsent)
-      .where('clientId', options.clientId)
-      .where('userId', options.userId)
-      .first()
-
-    return consent ? this.#record<OAuthConsentRecord>(consent) : null
+  async createGrant(data: CreateGrantRecord): Promise<void> {
+    await OAuthGrant.create(data, this.#client ? { client: this.#client } : undefined)
   }
 
   /**
-   * Merge newly approved scopes into the user's consent.
+   * Find a grant by its identifier.
    */
-  async grantConsent(options: {
-    clientId: string
-    userId: string
-    scopes: string[]
-  }): Promise<void> {
-    await retryConsentConflict(() =>
-      this.#transaction(async (store) => {
-        const row = await store.#query(OAuthConsent)
-          .where('clientId', options.clientId)
-          .where('userId', options.userId)
-          .forUpdate()
-          .first()
+  async findGrant(id: string): Promise<OAuthGrantRecord | null> {
+    const grant = await this.#query(OAuthGrant).where('id', id).first()
 
-        if (row) {
-          const existing = this.#record<OAuthConsentRecord>(row)
-          const scopes = [...new Set([...existing.scopes, ...options.scopes])]
-          await store.#query(OAuthConsent)
-            .where('id', existing.id)
-            .update({
-              scopes: JSON.stringify(scopes),
-              updatedAt: DateTime.now().toSQL(),
-            })
-          return
-        }
+    return grant ? this.#grantRecord(grant) : null
+  }
 
-        await OAuthConsent.create(
-          {
-            id: crypto.randomUUID(),
-            clientId: options.clientId,
-            userId: options.userId,
-            scopes: options.scopes,
-          },
-          { client: store.#client }
-        )
-      })
+  /**
+   * List a user's grants newest first, optionally for one client or only active ones.
+   */
+  async listGrants(options: ListStoredGrantsOptions): Promise<OAuthGrantRecord[]> {
+    const query = this.#query(OAuthGrant)
+      .where('userId', options.userId)
+      .orderBy('createdAt', 'desc')
+    if (options.clientId) query.where('clientId', options.clientId)
+    if (options.activeAt) query.where('expiresAt', '>', options.activeAt.toSQL()!)
+
+    const grants = await query
+
+    return grants.map((grant) => this.#grantRecord(grant))
+  }
+
+  /**
+   * Update the mutable fields of a grant.
+   */
+  async updateGrant(options: { id: string; data: UpdateGrantRecord }): Promise<void> {
+    if (options.data.context === undefined) return
+
+    const context = options.data.context === null ? null : JSON.stringify(options.data.context)
+    await this.#query(OAuthGrant)
+      .where('id', options.id)
+      .update({ context, updatedAt: DateTime.now().toSQL() })
+  }
+
+  /**
+   * Revoke a grant and its whole token family atomically.
+   */
+  async revokeGrant(options: { id: string; now: DateTime }): Promise<boolean> {
+    const count = await this.#transaction((store) =>
+      store.#revokeGrantIds([options.id], options.now)
     )
+
+    return count > 0
+  }
+
+  /**
+   * Revoke every grant of a user, optionally for one client.
+   */
+  async revokeGrants(options: {
+    userId: string
+    clientId?: string
+    now: DateTime
+  }): Promise<number> {
+    return this.#transaction(async (store) => {
+      const query = store.#query(OAuthGrant).select('id').where('userId', options.userId)
+      if (options.clientId) query.where('clientId', options.clientId)
+
+      const grants = await query
+
+      return store.#revokeGrantIds(
+        grants.map((grant) => String(grant.$attributes.id)),
+        options.now
+      )
+    })
   }
 
   /**
@@ -465,6 +581,7 @@ export class LucidStore implements SesameStore {
    */
   async issueTokenPair(options: IssueTokenPairOptions): Promise<void> {
     await this.#transaction(async (store) => {
+      await store.#applyGrantWrite(options.grant)
       await store.createAccessToken(options.accessToken)
       await OAuthRefreshToken.create(options.refreshToken, { client: store.#client })
     })
@@ -487,6 +604,7 @@ export class LucidStore implements SesameStore {
         .where('id', options.oldAccessTokenId)
         .whereNull('revokedAt')
         .update({ revokedAt: options.revokedAt.toSQL(), updatedAt: options.revokedAt.toSQL() })
+      await store.#applyGrantWrite(options.grant)
       await store.createAccessToken(options.accessToken)
       await OAuthRefreshToken.create(options.refreshToken, { client: store.#client })
 
@@ -495,7 +613,7 @@ export class LucidStore implements SesameStore {
   }
 
   /**
-   * Revoke a user's tokens and remove their short-lived OAuth records.
+   * Revoke a user's tokens and remove their grants and short-lived OAuth records.
    */
   async revokeAllForUser(options: { userId: string; now: DateTime }): Promise<void> {
     await this.#transaction(async (store) => {
@@ -509,7 +627,7 @@ export class LucidStore implements SesameStore {
         .update({ revokedAt: options.now.toSQL(), updatedAt: options.now.toSQL() })
       await store.#query(OAuthAuthorizationCode).where('userId', options.userId).delete()
       await store.#query(OAuthPendingAuthorizationRequest).where('userId', options.userId).delete()
-      await store.#query(OAuthConsent).where('userId', options.userId).delete()
+      await store.#query(OAuthGrant).where('userId', options.userId).delete()
     })
   }
 
@@ -523,6 +641,7 @@ export class LucidStore implements SesameStore {
         refreshTokens: 0,
         authorizationCodes: 0,
         pendingRequests: 0,
+        grants: 0,
       }
 
       if (options.purgeRevoked) {
@@ -530,7 +649,9 @@ export class LucidStore implements SesameStore {
           await store.#query(OAuthAccessToken).whereNotNull('revokedAt').delete()
         )
         counts.refreshTokens += this.#affectedRows(
-          await store.#query(OAuthRefreshToken).whereNotNull('revokedAt').delete()
+          await store.#query(OAuthRefreshToken)
+            .where('revokedAt', '<', options.cutoff.toSQL()!)
+            .delete()
         )
       }
 
@@ -551,6 +672,9 @@ export class LucidStore implements SesameStore {
           await store.#query(OAuthAuthorizationCode)
             .where('expiresAt', '<', options.cutoff.toSQL()!)
             .delete()
+        )
+        counts.grants += this.#affectedRows(
+          await store.#query(OAuthGrant).where('expiresAt', '<', options.cutoff.toSQL()!).delete()
         )
       }
 
@@ -603,7 +727,7 @@ export {
   OAuthAccessToken,
   OAuthAuthorizationCode,
   OAuthClient,
-  OAuthConsent,
+  OAuthGrant,
   OAuthPendingAuthorizationRequest,
   OAuthRefreshToken,
 }

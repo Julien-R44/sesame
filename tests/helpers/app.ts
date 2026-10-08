@@ -16,7 +16,7 @@ import { OAuthClient } from '../../src/models/oauth_client.ts'
 import { OAuthAuthorizationCode } from '../../src/models/oauth_authorization_code.ts'
 import { OAuthAccessToken } from '../../src/models/oauth_access_token.ts'
 import { OAuthRefreshToken } from '../../src/models/oauth_refresh_token.ts'
-import { OAuthConsent } from '../../src/models/oauth_consent.ts'
+import { OAuthGrant } from '../../src/models/oauth_grant.ts'
 import { OAuthPendingAuthorizationRequest } from '../../src/models/oauth_pending_authorization_request.ts'
 
 const BASE_URL = new URL('./', import.meta.url)
@@ -229,7 +229,7 @@ function cleanModels() {
     await OAuthRefreshToken.query().delete()
     await OAuthAccessToken.query().delete()
     await OAuthAuthorizationCode.query().delete()
-    await OAuthConsent.query().delete()
+    await OAuthGrant.query().delete()
     await OAuthClient.query().delete()
   }
 }

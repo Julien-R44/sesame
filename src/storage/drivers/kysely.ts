@@ -7,19 +7,21 @@ import {
   type Transaction,
 } from 'kysely'
 import { DateTime } from 'luxon'
-import { retryConsentConflict } from '../consent_retry.js'
 import { CLIENT_USAGE_TABLES, chunkClientIds, isPurgeableClient } from '../unused_clients.js'
 import type {
   CreateAccessTokenRecord,
   CreateAuthorizationCodeRecord,
   CreateClientRecord,
+  CreateGrantRecord,
   CreatePendingAuthorizationRequestRecord,
   ExchangeAuthorizationCodeOptions,
   IssueTokenPairOptions,
+  ListStoredGrantsOptions,
   OAuthAccessTokenRecord,
+  OAuthAccessTokenWithGrantRecord,
   OAuthAuthorizationCodeRecord,
   OAuthClientRecord,
-  OAuthConsentRecord,
+  OAuthGrantRecord,
   OAuthPendingAuthorizationRequestRecord,
   OAuthRefreshTokenRecord,
   PendingAuthorizationRequestLookupOptions,
@@ -28,7 +30,9 @@ import type {
   RotateRefreshTokenOptions,
   SesamePurgeResult,
   SesameStore,
+  TokenGrantWrite,
   UpdateClientRecord,
+  UpdateGrantRecord,
 } from '../types.js'
 
 export type KyselyDialect = 'sqlite' | 'postgres' | 'mysql'
@@ -66,27 +70,28 @@ const tables = {
     name: 'oauth_access_tokens',
     json: ['scopes'],
     dates: ['expiresAt', 'revokedAt', 'createdAt', 'updatedAt'],
-    nullable: ['userId', 'revokedAt'],
+    nullable: ['userId', 'grantId', 'revokedAt'],
     updatedAt: true,
   },
   refreshTokens: {
     name: 'oauth_refresh_tokens',
     json: ['scopes'],
     dates: ['expiresAt', 'revokedAt', 'createdAt', 'updatedAt'],
-    nullable: ['revokedAt'],
+    nullable: ['grantId', 'revokedAt'],
     updatedAt: true,
   },
   authorizationCodes: {
     name: 'oauth_authorization_codes',
     json: ['scopes'],
-    dates: ['expiresAt', 'createdAt', 'updatedAt'],
-    nullable: ['codeChallenge', 'codeChallengeMethod', 'nonce'],
+    dates: ['expiresAt', 'consumedAt', 'createdAt', 'updatedAt'],
+    nullable: ['grantId', 'codeChallenge', 'codeChallengeMethod', 'nonce', 'consumedAt'],
     updatedAt: true,
   },
-  consents: {
-    name: 'oauth_consents',
-    json: ['scopes'],
-    dates: ['createdAt', 'updatedAt'],
+  grants: {
+    name: 'oauth_grants',
+    json: ['scopes', 'context'],
+    dates: ['expiresAt', 'createdAt', 'updatedAt'],
+    nullable: ['context'],
     updatedAt: true,
   },
   pendingAuthorizationRequests: {
@@ -96,6 +101,21 @@ const tables = {
     nullable: ['state', 'codeChallenge', 'codeChallengeMethod', 'nonce'],
   },
 } satisfies Record<string, TableShape>
+
+/**
+ * Grant columns selected alongside an access token, prefixed to avoid clashes.
+ */
+const GRANT_COLUMNS = [
+  'id',
+  'client_id',
+  'user_id',
+  'scopes',
+  'context',
+  'expires_at',
+  'created_at',
+  'updated_at',
+]
+const GRANT_PREFIX = 'grant__'
 
 /**
  * Translate record fields to database column names.
@@ -182,7 +202,7 @@ function decodeRow<T>(row: Row, shape: TableShape): T {
 }
 
 /**
- * Match clients referenced by no token, code, consent, or pending request.
+ * Match clients referenced by no token, code, grant, or pending request.
  */
 function isUnusedClient(eb: ExpressionBuilder<any, any>) {
   return eb.and(
@@ -197,6 +217,23 @@ function isUnusedClient(eb: ExpressionBuilder<any, any>) {
       )
     )
   )
+}
+
+/**
+ * Split an access token row joined with its grant into both records.
+ */
+function decodeTokenWithGrant(row: Row): OAuthAccessTokenWithGrantRecord {
+  const tokenRow: Row = {}
+  const grantRow: Row = {}
+  for (const [column, value] of Object.entries(row)) {
+    if (column.startsWith(GRANT_PREFIX)) grantRow[column.slice(GRANT_PREFIX.length)] = value
+    else tokenRow[column] = value
+  }
+
+  const token = decodeRow<OAuthAccessTokenRecord>(tokenRow, tables.accessTokens)
+  if (grantRow.id === null || grantRow.id === undefined) return { ...token, grant: null }
+
+  return { ...token, grant: decodeRow<OAuthGrantRecord>(grantRow, tables.grants) }
 }
 
 /**
@@ -252,6 +289,55 @@ export class KyselyStore implements SesameStore {
     return (this.#db as Kysely<any>).transaction().execute(async (trx) => {
       return operation(new KyselyStore(trx, this.#dialect, true))
     })
+  }
+
+  /**
+   * Extend or create the grant written alongside a token issuance.
+   */
+  async #applyGrantWrite(write?: TokenGrantWrite): Promise<void> {
+    if (!write) return
+    if (write.type === 'create') {
+      await this.#db
+        .insertInto(tables.grants.name)
+        .values(this.#newRow(write.grant, tables.grants))
+        .execute()
+      return
+    }
+
+    await this.#db
+      .updateTable(tables.grants.name)
+      .set(
+        encodeRow(
+          { expiresAt: write.expiresAt, updatedAt: DateTime.now() },
+          tables.grants,
+          this.#dialect
+        )
+      )
+      .where('id', '=', write.id)
+      .execute()
+  }
+
+  /**
+   * Delete grants with their codes and refresh tokens and revoke their
+   * access tokens. Must run inside a transaction.
+   */
+  async #revokeGrantIds(ids: string[], now: DateTime): Promise<number> {
+    if (ids.length === 0) return 0
+
+    await this.#db.deleteFrom(tables.refreshTokens.name).where('grant_id', 'in', ids).execute()
+    await this.#db.deleteFrom(tables.authorizationCodes.name).where('grant_id', 'in', ids).execute()
+    await this.#db
+      .updateTable(tables.accessTokens.name)
+      .set(encodeRow({ revokedAt: now, updatedAt: now }, tables.accessTokens, this.#dialect))
+      .where('grant_id', 'in', ids)
+      .where('revoked_at', 'is', null)
+      .execute()
+    const result = await this.#db
+      .deleteFrom(tables.grants.name)
+      .where('id', 'in', ids)
+      .executeTakeFirst()
+
+    return Number(result.numDeletedRows ?? 0)
   }
 
   /**
@@ -339,7 +425,7 @@ export class KyselyStore implements SesameStore {
         .deleteFrom(tables.pendingAuthorizationRequests.name)
         .where('client_id', '=', clientId)
         .execute()
-      await db.deleteFrom(tables.consents.name).where('client_id', '=', clientId).execute()
+      await db.deleteFrom(tables.grants.name).where('client_id', '=', clientId).execute()
       const result = await db
         .deleteFrom(tables.clients.name)
         .where('client_id', '=', clientId)
@@ -350,20 +436,23 @@ export class KyselyStore implements SesameStore {
   }
 
   /**
-   * Find an access token by its hash, optionally restricted to a client.
+   * Find an access token and its grant by the token hash in one query,
+   * optionally restricted to a client.
    */
   async findAccessToken(options: {
     hash: string
     clientId?: string
-  }): Promise<OAuthAccessTokenRecord | null> {
+  }): Promise<OAuthAccessTokenWithGrantRecord | null> {
     let query = this.#db
-      .selectFrom(tables.accessTokens.name)
-      .selectAll()
-      .where('token_hash', '=', options.hash)
-    if (options.clientId) query = query.where('client_id', '=', options.clientId)
+      .selectFrom(`${tables.accessTokens.name} as t`)
+      .leftJoin(`${tables.grants.name} as g`, 'g.id', 't.grant_id')
+      .selectAll('t')
+      .select(GRANT_COLUMNS.map((column) => `g.${column} as ${GRANT_PREFIX}${column}`) as any)
+      .where('t.token_hash', '=', options.hash)
+    if (options.clientId) query = query.where('t.client_id', '=', options.clientId)
 
     const row = await query.executeTakeFirst()
-    return row ? decodeRow<OAuthAccessTokenRecord>(row, tables.accessTokens) : null
+    return row ? decodeTokenWithGrant(row as Row) : null
   }
 
   /**
@@ -459,9 +548,9 @@ export class KyselyStore implements SesameStore {
   }
 
   /**
-   * Delete refresh tokens and revoke access tokens after replay detection.
+   * Delete refresh tokens and revoke access tokens without a grant after replay detection.
    */
-  async revokeTokenFamily(options: {
+  async revokeLegacyTokenFamily(options: {
     clientId: string
     userId: string
     now: DateTime
@@ -471,6 +560,7 @@ export class KyselyStore implements SesameStore {
         .deleteFrom(tables.refreshTokens.name)
         .where('client_id', '=', options.clientId)
         .where('user_id', '=', options.userId)
+        .where('grant_id', 'is', null)
         .execute()
       await store.#db
         .updateTable(tables.accessTokens.name)
@@ -483,6 +573,7 @@ export class KyselyStore implements SesameStore {
         )
         .where('client_id', '=', options.clientId)
         .where('user_id', '=', options.userId)
+        .where('grant_id', 'is', null)
         .where('revoked_at', 'is', null)
         .execute()
     })
@@ -527,12 +618,21 @@ export class KyselyStore implements SesameStore {
    */
   async exchangeAuthorizationCode(options: ExchangeAuthorizationCodeOptions): Promise<boolean> {
     return this.#transaction(async (store) => {
-      const deleted = await store.#db
-        .deleteFrom(tables.authorizationCodes.name)
+      const consumed = await store.#db
+        .updateTable(tables.authorizationCodes.name)
+        .set(
+          encodeRow(
+            { consumedAt: options.consumedAt, updatedAt: options.consumedAt },
+            tables.authorizationCodes,
+            this.#dialect
+          )
+        )
         .where('id', '=', options.codeId)
+        .where('consumed_at', 'is', null)
         .executeTakeFirst()
-      if (Number(deleted.numDeletedRows ?? 0) !== 1) return false
+      if (Number(consumed.numUpdatedRows ?? 0) !== 1) return false
 
+      await store.#applyGrantWrite(options.grant)
       await store.createAccessToken(options.accessToken)
       if (options.refreshToken) {
         await store.#db
@@ -546,58 +646,95 @@ export class KyselyStore implements SesameStore {
   }
 
   /**
-   * Find scopes consented to by a user for a client.
+   * Persist a new grant.
    */
-  async findConsent(options: {
-    clientId: string
-    userId: string
-  }): Promise<OAuthConsentRecord | null> {
-    const row = await this.#db
-      .selectFrom(tables.consents.name)
-      .selectAll()
-      .where('client_id', '=', options.clientId)
-      .where('user_id', '=', options.userId)
-      .executeTakeFirst()
-
-    return row ? decodeRow<OAuthConsentRecord>(row, tables.consents) : null
+  async createGrant(data: CreateGrantRecord): Promise<void> {
+    await this.#db
+      .insertInto(tables.grants.name)
+      .values(this.#newRow(data, tables.grants))
+      .execute()
   }
 
   /**
-   * Merge newly granted scopes into the user's existing consent.
+   * Find a grant by its identifier.
    */
-  async grantConsent(options: {
-    clientId: string
-    userId: string
-    scopes: string[]
-  }): Promise<void> {
-    await retryConsentConflict(() =>
-      this.#transaction(async (store) => {
-        const query = store.#db
-          .selectFrom(tables.consents.name)
-          .selectAll()
-          .where('client_id', '=', options.clientId)
-          .where('user_id', '=', options.userId)
-        const row = await (
-          this.#dialect === 'sqlite' ? query : query.forUpdate()
-        ).executeTakeFirst()
+  async findGrant(id: string): Promise<OAuthGrantRecord | null> {
+    const row = await this.#db
+      .selectFrom(tables.grants.name)
+      .selectAll()
+      .where('id', '=', id)
+      .executeTakeFirst()
 
-        if (row) {
-          const existing = decodeRow<OAuthConsentRecord>(row, tables.consents)
-          const scopes = [...new Set([...existing.scopes, ...options.scopes])]
-          await store.#db
-            .updateTable(tables.consents.name)
-            .set(encodeRow({ scopes, updatedAt: DateTime.now() }, tables.consents, this.#dialect))
-            .where('id', '=', existing.id)
-            .execute()
-          return
-        }
+    return row ? decodeRow<OAuthGrantRecord>(row, tables.grants) : null
+  }
 
-        await store.#db
-          .insertInto(tables.consents.name)
-          .values(store.#newRow({ id: crypto.randomUUID(), ...options }, tables.consents))
-          .execute()
-      })
+  /**
+   * List a user's grants newest first, optionally for one client or only active ones.
+   */
+  async listGrants(options: ListStoredGrantsOptions): Promise<OAuthGrantRecord[]> {
+    let query = this.#db
+      .selectFrom(tables.grants.name)
+      .selectAll()
+      .where('user_id', '=', options.userId)
+    if (options.clientId) query = query.where('client_id', '=', options.clientId)
+    if (options.activeAt) {
+      query = query.where(
+        'expires_at',
+        '>',
+        encodeValue(options.activeAt, 'expiresAt', tables.grants, this.#dialect)
+      )
+    }
+
+    const rows = await query.orderBy('created_at', 'desc').execute()
+    return rows.map((row: Row) => decodeRow<OAuthGrantRecord>(row, tables.grants))
+  }
+
+  /**
+   * Update the mutable fields of a grant.
+   */
+  async updateGrant(options: { id: string; data: UpdateGrantRecord }): Promise<void> {
+    if (!Object.keys(options.data).length) return
+
+    await this.#db
+      .updateTable(tables.grants.name)
+      .set(encodeRow({ ...options.data, updatedAt: DateTime.now() }, tables.grants, this.#dialect))
+      .where('id', '=', options.id)
+      .execute()
+  }
+
+  /**
+   * Revoke a grant and its whole token family atomically.
+   */
+  async revokeGrant(options: { id: string; now: DateTime }): Promise<boolean> {
+    const count = await this.#transaction((store) =>
+      store.#revokeGrantIds([options.id], options.now)
     )
+
+    return count > 0
+  }
+
+  /**
+   * Revoke every grant of a user, optionally for one client.
+   */
+  async revokeGrants(options: {
+    userId: string
+    clientId?: string
+    now: DateTime
+  }): Promise<number> {
+    return this.#transaction(async (store) => {
+      let query = store.#db
+        .selectFrom(tables.grants.name)
+        .select('id')
+        .where('user_id', '=', options.userId)
+      if (options.clientId) query = query.where('client_id', '=', options.clientId)
+
+      const rows = await query.execute()
+
+      return store.#revokeGrantIds(
+        rows.map((row: Row) => String(row.id)),
+        options.now
+      )
+    })
   }
 
   /**
@@ -667,6 +804,7 @@ export class KyselyStore implements SesameStore {
    */
   async issueTokenPair(options: IssueTokenPairOptions): Promise<void> {
     await this.#transaction(async (store) => {
+      await store.#applyGrantWrite(options.grant)
       await store.createAccessToken(options.accessToken)
       await store.#db
         .insertInto(tables.refreshTokens.name)
@@ -706,6 +844,7 @@ export class KyselyStore implements SesameStore {
         .where('id', '=', options.oldAccessTokenId)
         .where('revoked_at', 'is', null)
         .execute()
+      await store.#applyGrantWrite(options.grant)
       await store.createAccessToken(options.accessToken)
       await store.#db
         .insertInto(tables.refreshTokens.name)
@@ -717,7 +856,7 @@ export class KyselyStore implements SesameStore {
   }
 
   /**
-   * Revoke tokens and discard codes and consents for a deleted user.
+   * Revoke tokens and discard codes and grants for a deleted user.
    */
   async revokeAllForUser(options: { userId: string; now: DateTime }): Promise<void> {
     await this.#transaction(async (store) => {
@@ -753,10 +892,7 @@ export class KyselyStore implements SesameStore {
         .deleteFrom(tables.pendingAuthorizationRequests.name)
         .where('user_id', '=', options.userId)
         .execute()
-      await store.#db
-        .deleteFrom(tables.consents.name)
-        .where('user_id', '=', options.userId)
-        .execute()
+      await store.#db.deleteFrom(tables.grants.name).where('user_id', '=', options.userId).execute()
     })
   }
 
@@ -770,6 +906,7 @@ export class KyselyStore implements SesameStore {
         refreshTokens: 0,
         authorizationCodes: 0,
         pendingRequests: 0,
+        grants: 0,
       }
       const db = store.#db
 
@@ -780,7 +917,11 @@ export class KyselyStore implements SesameStore {
           .executeTakeFirst()
         const refresh = await db
           .deleteFrom(tables.refreshTokens.name)
-          .where('revoked_at', 'is not', null)
+          .where(
+            'revoked_at',
+            '<',
+            encodeValue(options.cutoff, 'revokedAt', tables.refreshTokens, this.#dialect)
+          )
           .executeTakeFirst()
         result.accessTokens += Number(access.numDeletedRows ?? 0)
         result.refreshTokens += Number(refresh.numDeletedRows ?? 0)
@@ -815,7 +956,16 @@ export class KyselyStore implements SesameStore {
           .executeTakeFirst()
         result.accessTokens += Number(access.numDeletedRows ?? 0)
         result.refreshTokens += Number(refresh.numDeletedRows ?? 0)
+        const grants = await db
+          .deleteFrom(tables.grants.name)
+          .where(
+            'expires_at',
+            '<',
+            encodeValue(options.cutoff, 'expiresAt', tables.grants, this.#dialect)
+          )
+          .executeTakeFirst()
         result.authorizationCodes += Number(codes.numDeletedRows ?? 0)
+        result.grants += Number(grants.numDeletedRows ?? 0)
       }
 
       const pending = await db

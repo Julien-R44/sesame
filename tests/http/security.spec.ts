@@ -4,7 +4,7 @@ import { createPkce } from '../helpers/create_pkce.ts'
 import { OAuthClient } from '../../src/models/oauth_client.ts'
 import { OAuthAuthorizationCode } from '../../src/models/oauth_authorization_code.ts'
 import { OAuthAccessToken } from '../../src/models/oauth_access_token.ts'
-import { OAuthConsent } from '../../src/models/oauth_consent.ts'
+import { createTestGrant } from '../helpers/create_test_grant.ts'
 import { ClientService } from '../../src/services/client_service.ts'
 
 test.group('HTTP | Security | Scope validation bypass (C1+C2)', (group) => {
@@ -30,7 +30,7 @@ test.group('HTTP | Security | Scope validation bypass (C1+C2)', (group) => {
       userId: null,
     })
 
-    await OAuthConsent.create({
+    await createTestGrant({
       id: crypto.randomUUID(),
       clientId: 'bypass-client',
       userId: 'user-1',

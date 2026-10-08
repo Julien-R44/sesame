@@ -3,7 +3,7 @@ import type { ApiClient } from '@japa/api-client'
 import { setupHttpGroup } from '../helpers/app.ts'
 import { createTestClient } from '../helpers/create_test_client.ts'
 import { createPkce } from '../helpers/create_pkce.ts'
-import { OAuthConsent } from '../../src/models/oauth_consent.ts'
+import { createTestGrant } from '../helpers/create_test_grant.ts'
 import { OAuthPendingAuthorizationRequest } from '../../src/models/oauth_pending_authorization_request.ts'
 
 const { codeChallenge } = createPkce('prompt-verifier')
@@ -50,7 +50,7 @@ async function authorizeWithPrompt(options: AuthorizeWithPromptOptions) {
  * Store a consent covering the `read` scope for user-1.
  */
 async function grantReadConsent() {
-  await OAuthConsent.create({
+  await createTestGrant({
     id: crypto.randomUUID(),
     clientId: 'test-client',
     userId: 'user-1',

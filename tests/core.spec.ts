@@ -6,7 +6,8 @@ import { createPkce } from './helpers/create_pkce.ts'
 import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
 import { OAuthRefreshToken } from '../src/models/oauth_refresh_token.ts'
 import { OAuthAuthorizationCode } from '../src/models/oauth_authorization_code.ts'
-import { OAuthConsent } from '../src/models/oauth_consent.ts'
+import { OAuthGrant } from '../src/models/oauth_grant.ts'
+import { createTestGrant } from './helpers/create_test_grant.ts'
 import { OAuthPendingAuthorizationRequest } from '../src/models/oauth_pending_authorization_request.ts'
 import { TokenService } from '../src/services/token_service.ts'
 import { OAuthError, E_INVALID_CLIENT } from '../src/oauth_error.ts'
@@ -118,7 +119,7 @@ test.group('Integration | revokeAllForUser', (group) => {
       expiresAt: DateTime.now().plus({ minutes: 10 }),
     })
 
-    await OAuthConsent.create({
+    await createTestGrant({
       id: crypto.randomUUID(),
       clientId: client.clientId,
       userId: 'user-1',
@@ -138,7 +139,7 @@ test.group('Integration | revokeAllForUser', (group) => {
     const codes = await OAuthAuthorizationCode.query().where('userId', 'user-1')
     assert.lengthOf(codes, 0)
 
-    const consents = await OAuthConsent.query().where('userId', 'user-1')
+    const consents = await OAuthGrant.query().where('userId', 'user-1')
     assert.lengthOf(consents, 0)
   })
 

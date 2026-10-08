@@ -19,7 +19,7 @@ export async function configure(command: Configure) {
     'migrations/create_oauth_authorization_codes_table.stub',
     'migrations/create_oauth_access_tokens_table.stub',
     'migrations/create_oauth_refresh_tokens_table.stub',
-    'migrations/create_oauth_consents_table.stub',
+    'migrations/create_oauth_grants_table.stub',
     'migrations/create_oauth_pending_authorization_requests_table.stub',
   ]
   const migrationStubs =
