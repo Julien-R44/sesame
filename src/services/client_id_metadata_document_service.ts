@@ -175,6 +175,7 @@ export class ClientIdMetadataDocumentService {
       cacheControl: fetched.cacheControl,
       expires: fetched.expires,
       date: fetched.date,
+      age: fetched.age,
       minTtl: string.seconds.parse(this.#config.cache.minTtl),
       maxTtl: string.seconds.parse(this.#config.cache.maxTtl),
     })

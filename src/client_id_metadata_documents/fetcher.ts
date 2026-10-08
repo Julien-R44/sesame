@@ -202,6 +202,7 @@ export class ClientMetadataDocumentFetcher {
         cacheControl: response.headers['cache-control'] ?? null,
         expires: response.headers['expires'] ?? null,
         date: response.headers['date'] ?? null,
+        age: response.headers['age'] ?? null,
       }
     } catch (error) {
       throw this.#toFetchError({ error, signal, timeoutMs: options.timeoutMs })
