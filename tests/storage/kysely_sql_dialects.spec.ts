@@ -341,5 +341,7 @@ for (const dialect of ['postgres', 'mysql', 'mariadb'] as const) {
     }
   })
 
+  // Real servers run dozens of DDL statements (fresh schema plus the 0.7 upgrade cycle)
+  sqlTest.timeout(30_000)
   if (!connectionUrl) sqlTest.skip()
 }
