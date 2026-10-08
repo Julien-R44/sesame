@@ -92,7 +92,7 @@ The Kysely driver supports SQLite, PostgreSQL, and MySQL. For a custom Kysely di
 
 Sésame configures one `store` at a time. It must be an AdonisJS `ConfigProvider<SesameStore>`; the service provider resolves it with the application before creating the manager. Choose `stores.lucid()`, `stores.kysely()`, or a custom driver. To add a custom driver, implement `SesameStore` from `@julr/sesame/types` and wrap it with `configProvider.create()`. The store interface exposes OAuth operations rather than generic CRUD queries. Its `exchangeAuthorizationCode`, `rotateRefreshToken`, and `issueTokenPair` methods must use real database transactions; the first two return `false` when another request consumed the credential first. `purgeUnusedClients` should also run in a transaction and re-check client usage in its `DELETE`.
 
-Upgrading an existing Lucid application from 0.6.0 requires config and import changes. Follow the [0.6.0 to 0.7.0 migration guide](docs/migration-0.6-to-0.7.md).
+Upgrading an existing Lucid application from 0.6.0 requires config and import changes. Follow the [0.6.0 to 0.7.0 migration guide](docs/migration-0.6-to-0.7.md). Upgrading from 0.7.0 requires a database migration published by `node ace sesame:upgrade 0.8`; follow the [0.7.0 to 0.8.0 migration guide](docs/migration-0.7-to-0.8.md).
 
 ## Configuration
 
@@ -183,7 +183,7 @@ sesame.registerDiscoveryRoutes({ jwksPath: '/.well-known/jwks.json' })
 
 The authorization code flow works in three steps. All clients must use PKCE with S256 (mandatory per OAuth 2.1).
 
-1. The consuming app redirects the user to `GET /oauth/authorize` with `client_id`, `redirect_uri`, `response_type=code`, `scope`, `state`, `code_challenge`, and `code_challenge_method=S256`. If the user is not logged in, they are sent to your `loginPage`. Once authenticated, they see the consent screen (your `consentPage`). If the user has already approved the requested scopes, consent is skipped and the code is issued directly.
+1. The consuming app redirects the user to `GET /oauth/authorize` with `client_id`, `redirect_uri`, `response_type=code`, `scope`, `state`, `code_challenge`, and `code_challenge_method=S256`. If the user is not logged in, they are sent to your `loginPage`. Once authenticated, they see the consent screen (your `consentPage`). If the user already has an active [grant](#grants) without context covering the requested scopes, consent is skipped and the code is issued directly.
 
 2. After the user approves, they are redirected back to the `redirect_uri` with a `code` and `state` parameter. The consuming app exchanges the code at `POST /oauth/token` with `grant_type=authorization_code`, the `code`, `redirect_uri`, client credentials, and the PKCE `code_verifier`. The response contains an `access_token`, `refresh_token` (when the `refresh_token` grant is enabled), `token_type`, `expires_in`, and `scope`. The `iss` parameter is included in all redirect responses per RFC 9207.
 
@@ -255,14 +255,41 @@ Both methods throw the standard Sésame OAuth errors, which render as JSON when 
 
 Declining `offline_access` does not prevent a refresh token: Sésame issues one whenever the `refresh_token` grant is enabled, regardless of that scope (RFC 6749 §5.1). The scope is only removed from the granted list. To stop issuing refresh tokens, remove `refresh_token` from `grantTypes`.
 
-Approved scopes are remembered per client and user, and merged with previously approved ones. Future requests covered by the remembered scopes skip the consent page, unless the client sends `prompt=consent`. Denying a request does not change the remembered consent.
+Every approval creates a [grant](#grants) holding the granted scopes. Future requests whose scopes are covered by the user's active grants for that client skip the consent page, unless the client sends `prompt=consent` or the grants carry a context. Denying a request does not touch existing grants.
+
+#### Attaching application context
+
+Pass `context` to `approveAuthorization` to store application data on the grant, for example the team the user picked on your consent page. The OAuth guard exposes it on every request authenticated with a token issued from that grant, and refresh token rotation keeps it.
+
+```ts title="app/controllers/oauth_consent_controller.ts"
+const member = await TeamMember.findByOrFail({ userId: user.id, teamId: request.input('team_id') })
+
+const { redirectUrl } = await sesame.approveAuthorization({
+  authToken,
+  userId: String(user.id),
+  context: { teamMemberId: member.id, projectIds: request.input('project_ids') },
+})
+```
+
+The context must be a plain JSON object. It is stored as-is in the database, so do not put secrets in it, and it is never exposed to the client (token response, introspection). The built-in `POST /oauth/consent` route never reads a context from the request body. A grant with a context never skips the consent page: the user picks the context again on each authorization.
+
+Type it once with module augmentation:
+
+```ts title="config/sesame.ts"
+declare module '@julr/sesame/types' {
+  interface SesameGrantContext {
+    teamMemberId: number
+    projectIds: number[]
+  }
+}
+```
 
 ### The `prompt` parameter
 
 Sésame supports two values of the OpenID Connect `prompt` parameter, with or without the `openid` scope, and advertises them in `prompt_values_supported`:
 
 - `prompt=consent` always shows the consent page, even when the user already approved the requested scopes.
-- `prompt=none` never shows a page. Sésame redirects back to the client with `error=login_required` when the user is not logged in, or `error=consent_required` when the requested scopes are not covered by a remembered consent. Combining `none` with another value returns `error=invalid_request`.
+- `prompt=none` never shows a page. Sésame redirects back to the client with `error=login_required` when the user is not logged in, or `error=consent_required` when the requested scopes are not covered by an active grant without context. Combining `none` with another value returns `error=invalid_request`.
 
 Other values (`login`, `select_account`, `create`) and `max_age` are ignored.
 
@@ -377,7 +404,7 @@ declare module '@adonisjs/core/types' {
 
 Use the same `kyselyOAuthUserProvider` as `oidcProvider` in `config/sesame.ts` if you enable OIDC. The `getOidcClaims()` method above includes the email claim when the client has the `email` scope.
 
-Then use the guard in your controllers. After authentication, you have access to the user, the granted scopes, the client ID, and the access token that authenticated the request.
+Then use the guard in your controllers. After authentication, you have access to the user, the granted scopes, the client ID, the access token that authenticated the request, and the [grant](#grants) it was issued from with its context.
 
 ```ts title="app/controllers/api_controller.ts"
 import type { HttpContext } from '@adonisjs/core/http'
@@ -391,13 +418,15 @@ export default class ApiController {
     const scopes = guard.scopes // e.g. ['read', 'write']
     const clientId = guard.clientId // e.g. 'my-app-client-id'
     const tokenId = guard.accessToken!.id // e.g. '0b6f…' (access token record id)
+    const grantId = guard.grantId // undefined for client_credentials tokens
+    const context = guard.context // e.g. { teamMemberId: 12, projectIds: [3] } or null
 
-    return { user, scopes, clientId, tokenId }
+    return { user, scopes, clientId, tokenId, grantId, context }
   }
 }
 ```
 
-`guard.accessToken` holds `id`, `clientId`, `userId`, `scopes`, `expiresAt`, and `createdAt`. It never contains the token value or its hash. Use the `id` to correlate audit logs with a token.
+`guard.accessToken` holds `id`, `clientId`, `userId`, `scopes`, `expiresAt`, `createdAt`, `grantId`, and `context`. It never contains the token value or its hash. Use the `id` to correlate audit logs with a token.
 
 Sésame does not track a "last used" date. Access tokens are short-lived and rotated on refresh, and writing on every request has a cost. If you need it, listen to `oauth_auth:authentication_succeeded` (see [Events](#events)) and record usage in your app, ideally throttled.
 
@@ -478,11 +507,11 @@ export default class PostsController {
 
 ### Refreshing tokens
 
-The consuming app sends `POST /oauth/token` with `grant_type=refresh_token`, the `refresh_token`, and client credentials to get a new token pair. Sésame uses **refresh token rotation**: every refresh returns a new refresh token and the old one is revoked immediately. If an attacker replays a revoked refresh token, all tokens for that client+user pair are nuked as a security measure. The client can request a narrower set of scopes by passing a `scope` parameter, but cannot request scopes that were not in the original grant.
+The consuming app sends `POST /oauth/token` with `grant_type=refresh_token`, the `refresh_token`, and client credentials to get a new token pair. Sésame uses **refresh token rotation**: every refresh returns a new refresh token and the old one is revoked immediately. If an attacker replays a revoked refresh token, its whole [grant](#grants) is revoked as a security measure: every token issued from that authorization stops working, while other grants of the same user and client (another device, another context) keep working. The client can request a narrower set of scopes by passing a `scope` parameter, but cannot request scopes that were not in the original grant.
 
 ### Revoking tokens
 
-The consuming app can call `POST /oauth/revoke` with the `token`, optional `token_type_hint`, and client credentials. The endpoint always returns HTTP 200, even if the token was not found (to prevent information leakage per RFC 7009). When revoking a refresh token, the associated access token is also revoked automatically.
+The consuming app can call `POST /oauth/revoke` with the `token`, optional `token_type_hint`, and client credentials. The endpoint always returns HTTP 200, even if the token was not found (to prevent information leakage per RFC 7009). Revoking a refresh token revokes its whole [grant](#grants), including every access token issued from it (RFC 7009 §2.1). Revoking an access token only revokes that token.
 
 On the server side, you can revoke all tokens for a user at once. This is useful when a user is deleted or deactivated.
 
@@ -498,6 +527,47 @@ export default class UsersController {
   }
 }
 ```
+
+### Grants
+
+A grant is one authorization a user gave to a client. Every completed authorization creates one, and its authorization code, access tokens, and rotated refresh tokens all reference it. A user can hold several grants for the same client: one per device, per reconnection, or per [context](#attaching-application-context). A grant stays active as long as its latest refresh token, and expired grants are removed by [token cleanup](#token-cleanup).
+
+Use the grant API to build a "connected applications" page:
+
+```ts title="app/controllers/connected_apps_controller.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+import sesame from '@julr/sesame/services/main'
+
+export default class ConnectedAppsController {
+  async index({ auth, view }: HttpContext) {
+    const grants = await sesame.listGrants({ userId: String(auth.getUserOrFail().id) })
+    const apps = Object.groupBy(grants, (grant) => grant.clientId)
+
+    return view.render('settings/connected_apps', { apps })
+  }
+
+  async disconnect({ auth, params }: HttpContext) {
+    await sesame.revokeGrants({
+      userId: String(auth.getUserOrFail().id),
+      clientId: params.clientId,
+    })
+  }
+
+  async revoke({ auth, params }: HttpContext) {
+    await sesame.revokeGrant({ grantId: params.id, userId: String(auth.getUserOrFail().id) })
+  }
+}
+```
+
+| Method                                       | Description                                                                                    |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `listGrants({ userId, clientId? })`          | Active grants, newest first. Each includes its public `client` record                          |
+| `findGrant(grantId)`                         | One grant, or `null`                                                                           |
+| `revokeGrant({ grantId, userId? })`          | Revokes the grant and all its tokens. With `userId`, only revokes a grant owned by that user   |
+| `revokeGrants({ userId, clientId? })`        | Revokes every grant of a user, optionally for one client. Returns the number of revoked grants |
+| `updateGrant({ grantId, context, userId? })` | Replaces the context. The guard reads it on every request, so the change applies immediately   |
+
+`revokeAllForUser()` and `deleteClient()` also remove the related grants.
 
 ### Introspecting tokens
 
@@ -725,7 +795,7 @@ await sesame.updateClient('a1b2c3...', {
   isDisabled: true,
 })
 
-// Delete a client and all its tokens, codes, and consents
+// Delete a client and all its tokens, codes, and grants
 await sesame.deleteClient('a1b2c3...')
 ```
 
@@ -801,7 +871,7 @@ test.group('API', () => {
   test('returns user data for authenticated request', async ({ client }) => {
     const user = await User.findOrFail(1)
 
-    const response = await client.get('/api/me').loginAs(user, 'oauth')
+    const response = await client.get('/api/me').withGuard('oauth').loginAs(user)
 
     response.assertStatus(200)
     response.assertBodyContains({ id: user.id })
@@ -809,7 +879,14 @@ test.group('API', () => {
 })
 ```
 
-The test client is created with `defaultScopes` from your config. The token is scoped to a `__test_client__` OAuth client that gets auto-created on first use.
+The test client is created with `defaultScopes` from your config. The token is scoped to a `__test_client__` OAuth client that gets auto-created on first use, and belongs to its own grant. Pass options to choose the scopes or the grant context:
+
+```ts title="tests/functional/api.spec.ts"
+await client
+  .get('/mcp')
+  .withGuard('oauth')
+  .loginAs(user, { scopes: ['read'], context: { teamMemberId: 1 } })
+```
 
 ## Token Cleanup
 
@@ -822,7 +899,7 @@ node ace sesame:purge --expired
 node ace sesame:purge --hours=168
 ```
 
-The `--hours` flag (default: 168, i.e. 7 days) controls how long expired tokens are kept for audit purposes before deletion. The programmatic option is named `retentionHours`.
+The `--hours` flag (default: 168, i.e. 7 days) controls how long expired tokens, authorization codes, and grants are kept for audit purposes before deletion. The programmatic option is named `retentionHours`. Revoked refresh tokens are also kept for that period, so replaying a recently rotated refresh token is still detected. Revoked access tokens are deleted immediately.
 
 You can also call it programmatically:
 
@@ -830,7 +907,7 @@ You can also call it programmatically:
 import sesame from '@julr/sesame/services/main'
 
 const result = await sesame.purgeTokens({ retentionHours: 168 })
-// => { accessTokens: 42, refreshTokens: 12, authorizationCodes: 3, pendingRequests: 7 }
+// => { accessTokens: 42, refreshTokens: 12, authorizationCodes: 3, pendingRequests: 7, grants: 5 }
 ```
 
 ### Unused clients
@@ -847,7 +924,7 @@ A client is deleted when all of these are true:
 - it was created more than `--client-days` days ago (default: 30; must be an integer of at least 1, like `olderThanDays`)
 - it was dynamically registered: its `metadata` has `registration: 'dynamic'`, or `token_endpoint_auth_method` for clients registered before this marker existed
 - it was never authorized: its `metadata` has no `first_authorized_at`
-- no access token, refresh token, authorization code, consent, or pending authorization request references it
+- no access token, refresh token, authorization code, grant, or pending authorization request references it
 
 Sésame writes `first_authorized_at` in the client's `metadata` the first time the client obtains tokens (authorization code exchange, client credentials, or a refresh for clients registered before this marker existed). The marker survives token purges and `revokeAllForUser()`, so a client that was used once is never deleted, even after all its tokens are gone. The purge therefore targets clients that registered and never obtained a token.
 
@@ -865,7 +942,7 @@ const deleted = await sesame.purgeUnusedClients({ olderThanDays: 30 })
 - All tokens (access tokens, refresh tokens, authorization codes, client secrets) are stored as **SHA-256 hashes**. Raw values are never persisted in the database.
 - PKCE with **S256** is mandatory for all clients (OAuth 2.1).
 - Refresh tokens use **rotation**. The old token is revoked immediately on use.
-- **Replay detection**: if a revoked refresh token is presented, all tokens for that client+user pair are revoked to mitigate stolen token reuse.
+- **Replay detection**: if a revoked refresh token or an already exchanged authorization code is presented, its whole grant is revoked to mitigate stolen token reuse (OAuth 2.1 §4.1.3 and §4.3.1).
 - Client secret verification uses **timing-safe comparison**.
 - ID tokens are signed with **RS256** using the configured JWK. The JWKS endpoint only exposes public key components.
 - Protocol-managed claims (`sub`, `iss`, `aud`, `exp`, `iat`, `nonce`, `at_hash`) cannot be overridden by `getOidcClaims()`.
