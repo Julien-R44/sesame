@@ -37,6 +37,11 @@ export interface OAuthGuardAccessToken {
    * Application context stored on the grant, read on every request.
    */
   context: GrantContext | null
+
+  /**
+   * Resource indicator (RFC 8707) the token is bound to, or null when unbound.
+   */
+  resource: string | null
 }
 
 /**
@@ -72,6 +77,28 @@ export interface OAuthUserProviderContract<RealUser> {
 export interface OAuthAuthenticateAsClientOptions {
   scopes?: Scope[]
   context?: GrantContext | null
+}
+
+/**
+ * Protected-resource options of an OAuth guard.
+ */
+export interface OAuthGuardOptions {
+  /**
+   * Path of the protected resource served behind this guard, relative to
+   * the issuer (e.g. `/mcp`). It must match a resource registered with
+   * `registerProtectedResource()`.
+   *
+   * When set, tokens bound to another resource (RFC 8707) are rejected.
+   * Without it, the guard performs no audience check.
+   */
+  resource?: string
+
+  /**
+   * Also reject tokens that are not bound to any resource, such as tokens
+   * issued to clients that do not send the `resource` parameter.
+   * Only applies when `resource` is set. Defaults to `false`.
+   */
+  requireAudience?: boolean
 }
 
 /**
