@@ -201,6 +201,46 @@ test.group('OAuthGuard | Unit', (group) => {
     assert.strictEqual(user1, user2)
   })
 
+  test('exposes the access token identity', async ({ assert }) => {
+    await createTestClient()
+    const expiresAt = DateTime.now().plus({ minutes: 30 })
+    const { id, raw } = await createTestAccessToken({ scopes: ['read'], expiresAt })
+    const { guard } = buildGuard({ bearerToken: raw })
+
+    assert.isUndefined(guard.accessToken)
+    await guard.authenticate()
+
+    const token = guard.accessToken!
+    assert.deepEqual(Object.keys(token).sort(), [
+      'clientId',
+      'createdAt',
+      'expiresAt',
+      'id',
+      'scopes',
+      'userId',
+    ])
+    assert.equal(token.id, id)
+    assert.equal(token.clientId, 'test-client')
+    assert.equal(token.userId, 'user-1')
+    assert.deepEqual(token.scopes, ['read'])
+    assert.equal(token.expiresAt.toUnixInteger(), expiresAt.toUnixInteger())
+    assert.isTrue(DateTime.isDateTime(token.createdAt))
+    assert.deepEqual(guard.scopes, ['read'])
+    assert.equal(guard.clientId, 'test-client')
+  })
+
+  test('passes the access token to authentication_succeeded', async ({ assert }) => {
+    await createTestClient()
+    const { id, raw } = await createTestAccessToken({ scopes: ['read'] })
+    const { guard, emitter } = buildGuard({ bearerToken: raw })
+
+    await guard.authenticate()
+
+    const event = emitter.events.find((e) => e.name === 'oauth_auth:authentication_succeeded')
+    assert.equal(event?.data.accessToken.id, id)
+    assert.strictEqual(event?.data.accessToken, guard.accessToken)
+  })
+
   test('getUserOrFail throws when not authenticated', ({ assert }) => {
     const { guard } = buildGuard()
     assert.throws(() => guard.getUserOrFail(), 'Unauthorized access')

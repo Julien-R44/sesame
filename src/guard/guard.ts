@@ -9,8 +9,10 @@ import type { SesameManager } from '../sesame_manager.ts'
 import { TokenService } from '../services/token_service.ts'
 import { buildBearerChallenge, mergeScopes } from '../bearer_challenge.ts'
 import { E_INSUFFICIENT_SCOPE } from '../oauth_error.ts'
+import type { OAuthAccessTokenRecord } from '../storage/types.ts'
 import type {
   OAuthAuthenticateOptions,
+  OAuthGuardAccessToken,
   OAuthGuardEvents,
   OAuthUserProviderContract,
 } from './types.ts'
@@ -37,6 +39,12 @@ export class OAuthGuard<
   scopes: Scope[] = []
   clientId?: string
 
+  /**
+   * Access token that authenticated the request. Set after a successful
+   * `authenticate()`.
+   */
+  accessToken?: OAuthGuardAccessToken
+
   #name: string
   #ctx: HttpContext
   #emitter: EmitterLike<OAuthGuardEvents<UserProvider[typeof symbols.PROVIDER_REAL_USER]>>
@@ -59,6 +67,20 @@ export class OAuthGuard<
     this.#userProvider = userProvider
     this.#manager = manager
     this.#resource = resource
+  }
+
+  /**
+   * Expose the identity of a token record without its hash.
+   */
+  #toGuardAccessToken(record: OAuthAccessTokenRecord & { userId: string }): OAuthGuardAccessToken {
+    return {
+      id: record.id,
+      clientId: record.clientId,
+      userId: record.userId,
+      scopes: record.scopes as Scope[],
+      expiresAt: record.expiresAt,
+      createdAt: record.createdAt,
+    }
   }
 
   #extractBearerToken(): string {
@@ -160,13 +182,15 @@ export class OAuthGuard<
 
     this.isAuthenticated = true
     this.user = providerUser.getOriginal() as UserProvider[typeof symbols.PROVIDER_REAL_USER]
-    this.scopes = record.scopes as Scope[]
-    this.clientId = record.clientId
+    this.accessToken = this.#toGuardAccessToken({ ...record, userId: record.userId })
+    this.scopes = this.accessToken.scopes
+    this.clientId = this.accessToken.clientId
 
     void this.#emitter.emit('oauth_auth:authentication_succeeded', {
       ctx: this.#ctx,
       guardName: this.#name,
       user: this.user,
+      accessToken: this.accessToken,
     })
 
     return this.user
