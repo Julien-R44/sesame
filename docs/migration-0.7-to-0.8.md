@@ -103,7 +103,8 @@ Rolling it back recreates an empty `oauth_consents` table.
 No data is copied. Instead:
 
 - Existing access and refresh tokens keep working without a grant. The guard exposes `grantId` as `undefined` and `context` as `null` for them.
-- An existing refresh token is attached to a new grant the next time it is used, so active clients appear in `listGrants()` after their next refresh. Replaying an old refresh token that has no grant still revokes the grant-less tokens of the same client and user, as in 0.7.0.
+- An existing refresh token is attached to a new grant the next time it is used, together with its access token, so active clients appear in `listGrants()` after their next refresh. Replaying that refresh token afterwards revokes the new grant and every token issued from it. The same applies to an authorization code issued before the upgrade and exchanged after it.
+- Replaying a refresh token that was rotated before the upgrade, and therefore never got a grant, revokes the grant-less refresh and access tokens of the same client and user. Tokens already attached to a grant are not affected.
 - Remembered consents are dropped. Each user sees your consent page once more the next time a client starts a new authorization. Token refreshes are not affected.
 
 ### 3. Behavior changes
@@ -111,7 +112,8 @@ No data is copied. Instead:
 - **Remembered consent follows grants.** The consent page is skipped when the user's active grants without context cover the requested scopes. Revoking every grant of a client, or letting them expire, shows the consent page again. A grant with a context never skips the consent page.
 - **Every authorization creates a grant.** A user who connects the same client twice, for example from two devices sharing a [Client ID Metadata Document](https://datatracker.ietf.org/doc/draft-ietf-oauth-client-id-metadata-document/) `client_id`, now holds two grants.
 - **Refresh token replay only revokes the replayed grant.** Previously, every token of the client and user pair was revoked, which logged out other devices and contexts. The grant itself is now deleted, so that authorization has to be approved again (OAuth 2.1 §4.3.1).
-- **Reusing an authorization code revokes its grant.** Exchanged codes are kept with `consumed_at` instead of being deleted. A second exchange returns `invalid_grant` with `Authorization code has already been consumed` and revokes the tokens issued from the first exchange (OAuth 2.1 §4.1.3).
+- **Reusing an authorization code revokes its grant.** Exchanged codes are kept with `consumed_at` instead of being deleted. A second exchange returns `invalid_grant` with `Authorization code has already been consumed` and revokes the tokens issued from the first exchange (OAuth 2.1 §4.1.3). This includes two concurrent exchanges of the same code: the slower one revokes the tokens of the faster one.
+- **Introspection and userinfo check the grant.** Tokens whose grant was revoked or has expired are reported as `active: false` and rejected by `/oauth/userinfo`, like the OAuth guard already does.
 - **`POST /oauth/revoke` with a refresh token revokes its whole grant**, including every access token issued from it (RFC 7009 §2.1). Revoking an access token still only revokes that token.
 - **Purge keeps revoked refresh tokens for the retention period** (`--hours`, 168 by default) instead of deleting them immediately, so a replay is still detected after a purge. Expired grants are purged too, and `purgeTokens()` returns an additional `grants` count.
 - **`revokeAllForUser()` and `deleteClient()`** delete grants instead of consents.
@@ -126,7 +128,11 @@ No data is copied. Instead:
   - Add `createGrant()`, `findGrant()`, `listGrants()`, `updateGrant()`, `revokeGrant()`, and `revokeGrants()`.
   - `findAccessToken()` returns the token joined with its `grant` (or `null`) in a single query.
   - `exchangeAuthorizationCode()` receives `consumedAt` and must mark the code consumed instead of deleting it.
-  - `exchangeAuthorizationCode()`, `rotateRefreshToken()`, and `issueTokenPair()` receive an optional `grant` write (`extend` or `create`) to apply in the same transaction.
+  - `exchangeAuthorizationCode()`, `rotateRefreshToken()`, and `issueTokenPair()` receive an optional `grant` write to apply in the same transaction:
+    - `extend` must lock the grant (`SELECT ... FOR UPDATE` where supported), fail the whole issuance when the grant no longer exists or has expired, and never move its expiry backwards;
+    - `create` inserts the grant and sets `grant_id` on the `adopt` rows (code, refresh token, access token) whose `grant_id` is still null.
+  - These three methods return `false` when the issuance fails because of an inactive grant, so `issueTokenPair()` now returns a boolean.
+  - `revokeGrant()` and `revokeGrants()` should delete the grant before its tokens, so an issuance waiting on the grant lock cannot leave tokens behind.
   - `purgeTokens()` must keep revoked refresh tokens until the cutoff, delete expired grants, and return a `grants` count.
 
 ### 5. New: grant context and grant management
