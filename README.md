@@ -90,7 +90,7 @@ If Sésame uses its own migration folder, configure a separate [Kysely migrator]
 
 The Kysely driver supports SQLite, PostgreSQL, and MySQL. For a custom Kysely dialect backed by one of these databases, pass its `dialect` explicitly to `stores.kysely()`.
 
-Sésame configures one `store` at a time. It must be an AdonisJS `ConfigProvider<SesameStore>`; the service provider resolves it with the application before creating the manager. Choose `stores.lucid()`, `stores.kysely()`, or a custom driver. To add a custom driver, implement `SesameStore` from `@julr/sesame/types` and wrap it with `configProvider.create()`. The store interface exposes OAuth operations rather than generic CRUD queries. Its `exchangeAuthorizationCode`, `rotateRefreshToken`, and `issueTokenPair` methods must use real database transactions; the first two return `false` when another request consumed the credential first.
+Sésame configures one `store` at a time. It must be an AdonisJS `ConfigProvider<SesameStore>`; the service provider resolves it with the application before creating the manager. Choose `stores.lucid()`, `stores.kysely()`, or a custom driver. To add a custom driver, implement `SesameStore` from `@julr/sesame/types` and wrap it with `configProvider.create()`. The store interface exposes OAuth operations rather than generic CRUD queries. Its `exchangeAuthorizationCode`, `rotateRefreshToken`, and `issueTokenPair` methods must use real database transactions; the first two return `false` when another request consumed the credential first. `purgeUnusedClients` should also run in a transaction and re-check client usage in its `DELETE`.
 
 Upgrading an existing Lucid application from 0.6.0 requires config and import changes. Follow the [0.6.0 to 0.7.0 migration guide](docs/migration-0.6-to-0.7.md).
 
@@ -580,6 +580,8 @@ Sésame supports RFC 7591 dynamic client registration. Clients send their metada
 
 Set `allowDynamicRegistration: true` in `config/sesame.ts`. Also set `allowPublicRegistration: true` only if unauthenticated clients should be able to register.
 
+Registered clients store `registration: 'dynamic'` in their `metadata` (not returned in the registration response). With public registration, clients that register but never complete an authorization pile up; delete them with `node ace sesame:purge --clients` (see [Token Cleanup](#token-cleanup)).
+
 ## Managing Clients
 
 ### Creating clients from the CLI
@@ -748,6 +750,30 @@ import sesame from '@julr/sesame/services/main'
 
 const result = await sesame.purgeTokens({ retentionHours: 168 })
 // => { accessTokens: 42, refreshTokens: 12, authorizationCodes: 3, pendingRequests: 7 }
+```
+
+### Unused clients
+
+Dynamic client registration lets any client create a record, so `oauth_clients` grows over time. Pass `--clients` to also delete dynamically registered clients that were never used:
+
+```bash title="Terminal"
+node ace sesame:purge --clients
+node ace sesame:purge --clients --client-days=7
+```
+
+A client is deleted when all of these are true:
+
+- it was created more than `--client-days` days ago (default: 30)
+- it was dynamically registered: its `metadata` has `registration: 'dynamic'`, or `token_endpoint_auth_method` for clients registered before this marker existed
+- no access token, refresh token, authorization code, consent, or pending authorization request references it
+
+Clients created with `sesame.createClient()` or `node ace sesame:client` are never deleted. A completed authorization records a consent, so this targets clients that registered and never finished an authorization. Tokens are purged first, then clients. The flag is opt-in, so an existing `sesame:purge` schedule keeps its current behavior.
+
+```ts title="app/services/token_cleanup.ts"
+import sesame from '@julr/sesame/services/main'
+
+const deleted = await sesame.purgeUnusedClients({ olderThanDays: 30 })
+// => 12
 ```
 
 ## Security

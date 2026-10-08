@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import { BaseModel } from '@adonisjs/lucid/orm'
 import { retryConsentConflict } from '../consent_retry.js'
+import { CLIENT_USAGE_TABLES, chunkClientIds, isDynamicallyRegistered } from '../unused_clients.js'
 import { OAuthAccessToken } from '../../models/oauth_access_token.js'
 import { OAuthAuthorizationCode } from '../../models/oauth_authorization_code.js'
 import { OAuthClient } from '../../models/oauth_client.js'
@@ -22,6 +23,7 @@ import type {
   OAuthRefreshTokenRecord,
   PendingAuthorizationRequestLookupOptions,
   PurgeTokensOptions,
+  PurgeUnusedClientsOptions,
   RotateRefreshTokenOptions,
   SesamePurgeResult,
   SesameStore,
@@ -87,6 +89,23 @@ export class LucidStore implements SesameStore {
       isDisabled: Boolean(record.isDisabled),
       requirePkce: Boolean(record.requirePkce),
     }
+  }
+
+  /**
+   * Query clients referenced by no token, code, consent, or pending request.
+   */
+  #unusedClientsQuery() {
+    const query = this.#query(OAuthClient)
+    for (const table of CLIENT_USAGE_TABLES) {
+      query.whereNotExists((usage) => {
+        usage
+          .from(table)
+          .select(1)
+          .whereColumn(`${table}.client_id`, `${OAuthClient.table}.client_id`)
+      })
+    }
+
+    return query
   }
 
   /**
@@ -542,6 +561,33 @@ export class LucidStore implements SesameStore {
       )
 
       return counts
+    })
+  }
+
+  /**
+   * Delete dynamically registered clients that were never used.
+   */
+  async purgeUnusedClients(options: PurgeUnusedClientsOptions): Promise<number> {
+    return this.#transaction(async (store) => {
+      const candidates = await store.#unusedClientsQuery().where(
+        'createdAt',
+        '<',
+        options.createdBefore.toSQL()!
+      )
+
+      const clientIds = candidates
+        .map((client) => this.#clientRecord(client))
+        .filter((client) => isDynamicallyRegistered(client.metadata))
+        .map((client) => client.clientId)
+
+      let deleted = 0
+      for (const chunk of chunkClientIds(clientIds)) {
+        deleted += this.#affectedRows(
+          await store.#unusedClientsQuery().whereIn('clientId', chunk).delete()
+        )
+      }
+
+      return deleted
     })
   }
 }

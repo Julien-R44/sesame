@@ -12,6 +12,7 @@ import {
   E_INVALID_SCOPE,
 } from '../oauth_error.ts'
 import { metadataUriRule, redirectUriRule } from '../rules.ts'
+import { DYNAMIC_REGISTRATION } from '../storage/unused_clients.ts'
 
 const metadataUrl = vine.string().url({ require_protocol: true }).use(metadataUriRule()).optional()
 
@@ -119,7 +120,8 @@ export default class RegisterController {
       ...(body.software_version ? { software_version: body.software_version } : {}),
     }
 
-    // Persist the new client
+    // Persist the new client. The registration marker is stored but not returned:
+    // it lets `sesame:purge --clients` target dynamically registered clients.
     const store = manager.store
     await store.createClient({
       id: crypto.randomUUID(),
@@ -133,7 +135,7 @@ export default class RegisterController {
       isDisabled: false,
       requirePkce: true,
       type: isPublic ? 'public' : 'confidential',
-      metadata,
+      metadata: { ...metadata, registration: DYNAMIC_REGISTRATION },
       userId: user ? String(user.id) : null,
     })
 

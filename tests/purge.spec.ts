@@ -1,5 +1,10 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
+import { AceFactory } from '@adonisjs/core/factories'
+import SesamePurge from '../commands/sesame_purge.ts'
+import { SesameManager } from '../src/sesame_manager.ts'
+import { OAuthClient } from '../src/models/oauth_client.ts'
+import { OAuthConsent } from '../src/models/oauth_consent.ts'
 import { createManager, setupIntegrationGroup } from './helpers/app.ts'
 import { createTestClient } from './helpers/create_test_client.ts'
 import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
@@ -304,5 +309,143 @@ test.group('SesameManager | purgeTokens', (group) => {
     assert.equal(result.authorizationCodes, 0)
     const codes = await OAuthAuthorizationCode.query()
     assert.lengthOf(codes, 1)
+  })
+})
+
+test.group('SesameManager | purgeUnusedClients', (group) => {
+  setupIntegrationGroup(group)
+
+  const dynamicMetadata = { token_endpoint_auth_method: 'none', registration: 'dynamic' }
+
+  function createOldClient(clientId: string, metadata: Record<string, any> | null) {
+    return createTestClient({ clientId, metadata, createdAt: DateTime.now().minus({ days: 40 }) })
+  }
+
+  test('deletes old dynamic clients that were never used', async ({ assert }) => {
+    await createOldClient('dynamic-unused', dynamicMetadata)
+    await createOldClient('legacy-dynamic-unused', { token_endpoint_auth_method: 'none' })
+
+    const deleted = await createManager().purgeUnusedClients()
+
+    assert.equal(deleted, 2)
+    assert.lengthOf(await OAuthClient.query(), 0)
+  })
+
+  test('keeps manual, recent, and used clients', async ({ assert }) => {
+    const manager = createManager()
+    const tokenService = new TokenService(manager)
+    const expiresAt = DateTime.now().plus({ hours: 1 })
+
+    await createOldClient('manual', null)
+    await createOldClient('manual-with-metadata', { team: 'core' })
+    await createTestClient({ clientId: 'recent', metadata: dynamicMetadata })
+    await createOldClient('with-access-token', dynamicMetadata)
+    await createOldClient('with-refresh-token', dynamicMetadata)
+    await createOldClient('with-code', dynamicMetadata)
+    await createOldClient('with-consent', dynamicMetadata)
+    await createOldClient('with-pending', dynamicMetadata)
+
+    await OAuthAccessToken.create({
+      id: crypto.randomUUID(),
+      tokenHash: tokenService.hashToken('access'),
+      clientId: 'with-access-token',
+      userId: 'user-1',
+      scopes: ['read'],
+      expiresAt,
+    })
+    await OAuthRefreshToken.create({
+      id: crypto.randomUUID(),
+      token: tokenService.hashToken('refresh'),
+      accessTokenId: crypto.randomUUID(),
+      clientId: 'with-refresh-token',
+      userId: 'user-1',
+      scopes: ['read'],
+      expiresAt,
+    })
+    await OAuthAuthorizationCode.create({
+      id: crypto.randomUUID(),
+      code: tokenService.hashToken('code'),
+      clientId: 'with-code',
+      userId: 'user-1',
+      scopes: ['read'],
+      redirectUri: 'https://app.example.com/callback',
+      expiresAt,
+    })
+    await OAuthConsent.create({
+      id: crypto.randomUUID(),
+      clientId: 'with-consent',
+      userId: 'user-1',
+      scopes: ['read'],
+    })
+    await OAuthPendingAuthorizationRequest.create({
+      id: crypto.randomUUID(),
+      token: tokenService.hashToken('pending'),
+      clientId: 'with-pending',
+      userId: 'user-1',
+      redirectUri: 'https://app.example.com/callback',
+      scopes: ['read'],
+      expiresAt,
+    })
+
+    const deleted = await manager.purgeUnusedClients()
+
+    assert.equal(deleted, 0)
+    assert.lengthOf(await OAuthClient.query(), 8)
+  })
+
+  test('honors olderThanDays', async ({ assert }) => {
+    await createTestClient({
+      clientId: 'ten-days-old',
+      metadata: dynamicMetadata,
+      createdAt: DateTime.now().minus({ days: 10 }),
+    })
+
+    assert.equal(await createManager().purgeUnusedClients(), 0)
+    assert.equal(await createManager().purgeUnusedClients({ olderThanDays: 7 }), 1)
+  })
+})
+
+test.group('sesame:purge command', () => {
+  async function runPurge(args: string[]) {
+    const calls: string[] = []
+    const fakeManager = {
+      async purgeTokens() {
+        calls.push('tokens')
+        return { accessTokens: 0, refreshTokens: 0, authorizationCodes: 0, pendingRequests: 0 }
+      },
+      async purgeUnusedClients(options: { olderThanDays: number }) {
+        calls.push(`clients:${options.olderThanDays}`)
+        return 2
+      },
+    }
+
+    const ace = await new AceFactory().make(new URL('./', import.meta.url))
+    await ace.boot()
+    ace.app.container.singleton(SesameManager, () => fakeManager as any)
+
+    const command = await ace.create(SesamePurge, args)
+    await command.exec()
+
+    return { command, calls }
+  }
+
+  test('does not purge clients by default', async ({ assert }) => {
+    const { command, calls } = await runPurge([])
+
+    assert.equal(command.exitCode, 0)
+    assert.deepEqual(calls, ['tokens'])
+  })
+
+  test('purges unused clients after tokens with --clients', async ({ assert }) => {
+    const { command, calls } = await runPurge(['--clients', '--client-days=7'])
+
+    assert.equal(command.exitCode, 0)
+    assert.deepEqual(calls, ['tokens', 'clients:7'])
+  })
+
+  test('defaults --client-days to 30', async ({ assert }) => {
+    const { calls } = await runPurge(['--clients'])
+
+    assert.deepEqual(calls, ['tokens', 'clients:30'])
   })
 })

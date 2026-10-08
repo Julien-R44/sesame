@@ -129,6 +129,52 @@ test.group('Kysely store | OAuth flows', () => {
     }
   })
 
+  test('purges dynamically registered clients that were never used', async ({ assert }) => {
+    const { db, manager } = await createKyselyManager()
+
+    try {
+      const store = manager.store
+      const old = DateTime.now().minus({ days: 40 })
+      const createClient = (clientId: string, metadata: Record<string, any> | null) =>
+        store.createClient({
+          id: crypto.randomUUID(),
+          clientId,
+          name: clientId,
+          redirectUris: [],
+          scopes: ['read'],
+          grantTypes: ['authorization_code'],
+          isPublic: true,
+          isDisabled: false,
+          requirePkce: true,
+          metadata,
+          createdAt: old,
+          updatedAt: old,
+        })
+
+      await createClient('dynamic-unused', { registration: 'dynamic' })
+      await createClient('legacy-unused', { token_endpoint_auth_method: 'none' })
+      await createClient('manual-unused', null)
+      await createClient('dynamic-consented', { registration: 'dynamic' })
+      await store.grantConsent({
+        clientId: 'dynamic-consented',
+        userId: 'user-1',
+        scopes: ['read'],
+      })
+
+      const deleted = await store.purgeUnusedClients({
+        createdBefore: DateTime.now().minus({ days: 30 }),
+      })
+
+      assert.equal(deleted, 2)
+      assert.sameMembers(
+        (await store.listClients()).map((client) => client.clientId),
+        ['manual-unused', 'dynamic-consented']
+      )
+    } finally {
+      await db.destroy()
+    }
+  })
+
   test('merges consent and consumes a pending request once', async ({ assert }) => {
     const { db, manager } = await createKyselyManager()
 

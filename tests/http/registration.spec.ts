@@ -50,6 +50,22 @@ test.group('HTTP | Dynamic Registration', (group) => {
     assert.ok(record.isPublic)
   })
 
+  test('marks the stored client as dynamically registered', async ({ client, assert }) => {
+    const response = await client.post(`${ctx.baseUrl}/oauth/register`).json({
+      client_name: 'Marked Client',
+      redirect_uris: ['https://mcp-client.example.com/callback'],
+      token_endpoint_auth_method: 'none',
+    })
+
+    response.assertStatus(201)
+    assert.notProperty(response.body(), 'registration')
+
+    const record = await OAuthClient.query()
+      .where('clientId', response.body().client_id)
+      .firstOrFail()
+    assert.equal(record.metadata?.registration, 'dynamic')
+  })
+
   test('returns all registered metadata (RFC 7591 §3.2.1)', async ({ client }) => {
     const response = await client.post(`${ctx.baseUrl}/oauth/register`).json({
       client_name: 'Full Metadata Client',
