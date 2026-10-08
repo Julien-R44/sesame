@@ -4,7 +4,7 @@ import type { OAuthClientRecord } from '../storage/types.ts'
 import { E_INVALID_CLIENT, E_INVALID_REQUEST, E_INVALID_SCOPE } from '../oauth_error.ts'
 import { BUILTIN_SCOPES } from '../types.ts'
 import { findClientByExactId } from '../storage/find_client_by_exact_id.ts'
-import { assertClientIdMetadataDocumentsEnabled } from '../client_id_metadata_documents/client_id_url.ts'
+import { assertClientIdMetadataDocumentAllowed } from '../client_id_metadata_documents/client_id_url.ts'
 
 /**
  * Extracted client credentials from a request.
@@ -102,7 +102,7 @@ export class ClientService {
     if (!credentials) throw new E_INVALID_CLIENT('Client authentication failed')
     if (!this.#manager) throw new Error('ClientService requires SesameManager for authentication')
 
-    assertClientIdMetadataDocumentsEnabled({
+    assertClientIdMetadataDocumentAllowed({
       clientId: credentials.clientId,
       config: this.#manager.config,
     })

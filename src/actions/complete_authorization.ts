@@ -7,7 +7,7 @@ import { IssueAuthorizationCodeAction } from './issue_authorization_code.ts'
 import { assertGrantContext } from '../services/grant_service.ts'
 import { isRedirectUriAllowed } from '../redirect_uri.ts'
 import { findClientByExactId } from '../storage/find_client_by_exact_id.ts'
-import { assertClientIdMetadataDocumentsEnabled } from '../client_id_metadata_documents/client_id_url.ts'
+import { assertClientIdMetadataDocumentAllowed } from '../client_id_metadata_documents/client_id_url.ts'
 import {
   E_INVALID_CLIENT,
   E_INVALID_GRANT,
@@ -110,7 +110,7 @@ export class CompleteAuthorizationAction {
     })
     if (!pendingRequest) throw new E_INVALID_GRANT('Authorization request not found or expired')
 
-    assertClientIdMetadataDocumentsEnabled({
+    assertClientIdMetadataDocumentAllowed({
       clientId: pendingRequest.clientId,
       config: manager.config,
     })

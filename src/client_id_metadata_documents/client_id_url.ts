@@ -23,17 +23,26 @@ export function isClientIdMetadataDocumentUrl(clientId: string) {
 }
 
 /**
- * Reject URL client ids when the feature is disabled, even if a client
- * row already exists for them. Disabling the feature cuts CIMD clients.
+ * Gate every endpoint resolving a client: URL client ids are rejected
+ * when the feature is disabled (even if a client row already exists) or
+ * when their host is not in `allowedHosts`, so removing a host cuts its
+ * refresh tokens, pending consents and client info as well.
  */
-export function assertClientIdMetadataDocumentsEnabled(options: {
+export function assertClientIdMetadataDocumentAllowed(options: {
   clientId: string
   config: ResolvedSesameConfig
 }) {
   if (!isClientIdMetadataDocumentUrl(options.clientId)) return
-  if (options.config.clientIdMetadataDocuments) return
 
-  throw new E_INVALID_CLIENT('Client ID Metadata Documents are not supported')
+  const config = options.config.clientIdMetadataDocuments
+  if (!config) throw new E_INVALID_CLIENT('Client ID Metadata Documents are not supported')
+  if (!URL.canParse(options.clientId))
+    throw new E_INVALID_CLIENT('Client ID URL is not a valid URL')
+
+  const { hostname } = new URL(options.clientId)
+  if (isHostAllowed({ hostname, allowedHosts: config.allowedHosts })) return
+
+  throw new E_INVALID_CLIENT('Client ID host is not allowed')
 }
 
 /**

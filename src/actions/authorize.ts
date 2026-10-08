@@ -12,7 +12,7 @@ import { isRedirectUriAllowed } from '../redirect_uri.ts'
 import { ClientIdMetadataDocumentService } from '../services/client_id_metadata_document_service.ts'
 import { ClientMetadataDocumentFetcher } from '../client_id_metadata_documents/fetcher.ts'
 import {
-  assertClientIdMetadataDocumentsEnabled,
+  assertClientIdMetadataDocumentAllowed,
   isClientIdMetadataDocumentUrl,
 } from '../client_id_metadata_documents/client_id_url.ts'
 import { findClientByExactId } from '../storage/find_client_by_exact_id.ts'
@@ -90,7 +90,7 @@ export class AuthorizeAction {
    * the user is authenticated.
    */
   async #findClient(manager: SesameManager, input: AuthorizeInput) {
-    assertClientIdMetadataDocumentsEnabled({ clientId: input.clientId, config: manager.config })
+    assertClientIdMetadataDocumentAllowed({ clientId: input.clientId, config: manager.config })
 
     if (!isClientIdMetadataDocumentUrl(input.clientId)) {
       return findClientByExactId({ store: manager.store, clientId: input.clientId })

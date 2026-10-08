@@ -5,7 +5,7 @@ import { E_INVALID_CLIENT, E_INVALID_REQUEST } from '../oauth_error.ts'
 import type { OAuthClientRecord } from '../storage/types.ts'
 import { findClientByExactId } from '../storage/find_client_by_exact_id.ts'
 import {
-  assertClientIdMetadataDocumentsEnabled,
+  assertClientIdMetadataDocumentAllowed,
   isClientIdMetadataDocumentUrl,
 } from '../client_id_metadata_documents/client_id_url.ts'
 
@@ -46,7 +46,7 @@ export default class ClientInfoController {
     if (error) throw new E_INVALID_REQUEST('Missing client_id')
 
     const manager = await ctx.containerResolver.make(SesameManager)
-    assertClientIdMetadataDocumentsEnabled({ clientId: query.client_id, config: manager.config })
+    assertClientIdMetadataDocumentAllowed({ clientId: query.client_id, config: manager.config })
 
     const client = await findClientByExactId({ store: manager.store, clientId: query.client_id })
     if (!client) throw new E_INVALID_CLIENT('Client not found')
