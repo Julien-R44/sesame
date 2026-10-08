@@ -197,6 +197,29 @@ export class SesameManager {
   }
 
   /**
+   * Check whether a path was registered with `registerProtectedResource()`.
+   * The issuer root is always registered.
+   */
+  hasResource(path?: string): boolean {
+    return this.#resources.has(this.resourceIdentifier(path))
+  }
+
+  /**
+   * Audience of tokens issued for the resource served under `path`.
+   *
+   * Uses the same matching as the `resource` parameter, so an unregistered
+   * path maps to the most specific registered resource, like the tokens
+   * that clients obtain for it.
+   */
+  resourceAudience(path?: string): string {
+    const identifier = this.resourceIdentifier(path)
+
+    return (
+      matchResourceIndicator({ value: identifier, resources: this.#resources.keys() }) ?? identifier
+    )
+  }
+
+  /**
    * Resolve a raw `resource` request parameter (RFC 8707) to a registered
    * resource identifier. Returns null when the parameter is absent, and
    * throws `invalid_target` when it is repeated, malformed, or not served

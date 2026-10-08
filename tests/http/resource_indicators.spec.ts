@@ -1,7 +1,13 @@
 import { test } from '@japa/runner'
 import type { ApiClient } from '@japa/api-client'
 import { HttpContextFactory, RequestFactory } from '@adonisjs/core/factories/http'
-import { createManager, setupHttpGroup, setupIntegrationGroup } from '../helpers/app.ts'
+import { LoggerFactory } from '@adonisjs/core/factories/logger'
+import {
+  createManager,
+  createTestConfig,
+  setupHttpGroup,
+  setupIntegrationGroup,
+} from '../helpers/app.ts'
 import { createTestClient } from '../helpers/create_test_client.ts'
 import { createTestGrant } from '../helpers/create_test_grant.ts'
 import { createPkce } from '../helpers/create_pkce.ts'
@@ -11,7 +17,8 @@ import { createTestRefreshToken } from '../helpers/create_test_refresh_token.ts'
 import { FakeUserProvider, createFakeEmitter } from '../helpers/fakes.ts'
 import { OAuthGuard } from '../../src/guard/guard.ts'
 import type { OAuthGuardOptions } from '../../src/guard/types.ts'
-import type { SesameManager } from '../../src/sesame_manager.ts'
+import { SesameManager } from '../../src/sesame_manager.ts'
+import { lucidStore } from '../../src/storage/drivers/lucid.ts'
 import { TokenService } from '../../src/services/token_service.ts'
 import { OAuthAccessToken } from '../../src/models/oauth_access_token.ts'
 import { OAuthAuthorizationCode } from '../../src/models/oauth_authorization_code.ts'
@@ -477,11 +484,104 @@ test.group('HTTP | Resource indicators — guard audience', (group) => {
   })
 })
 
+test.group('HTTP | Resource indicators — guards on unregistered resources', (group) => {
+  const ctx = setupHttpGroup(group, undefined, {
+    setupRoutes(router, manager) {
+      manager.registerProtectedResource({ resource: '/mcp-a' })
+      registerGuardRoute({
+        router,
+        manager,
+        path: '/legacy-mcp',
+        guard: { resource: '/legacy-mcp' },
+      })
+      ctx.manager = manager
+    },
+  }) as ReturnType<typeof setupHttpGroup> & { manager: SesameManager }
+
+  test('accepts tokens the authorization server issued for the guard path', async ({
+    client,
+    assert,
+  }) => {
+    await createTestClient()
+    const resource = ctx.manager.resolveResource('https://auth.example.com/legacy-mcp')
+    assert.equal(resource, 'https://auth.example.com')
+    const { raw } = await createTestAccessToken({ resource })
+
+    const response = await client.get(`${ctx.baseUrl}/legacy-mcp`).bearerToken(raw)
+
+    response.assertStatus(200)
+    response.assertBodyContains({ authenticated: true, audience: 'https://auth.example.com' })
+  })
+
+  test('rejects tokens bound to another registered resource', async ({ client }) => {
+    await createTestClient()
+    const { raw } = await createTestAccessToken({ resource: MCP_A })
+
+    const response = await client.get(`${ctx.baseUrl}/legacy-mcp`).bearerToken(raw)
+
+    response.assertStatus(200)
+    response.assertBodyContains({ authenticated: false })
+  })
+})
+
+test.group('OAuthGuard | Resource indicators — unregistered resource warning', (group) => {
+  setupIntegrationGroup(group)
+
+  /**
+   * Build a guard whose request context logs into `logs`.
+   */
+  function buildGuard(options: {
+    manager: SesameManager
+    logs: string[]
+    token: string
+    resource: string
+  }) {
+    const request = new RequestFactory().merge({ url: '/' }).create()
+    request.request.headers.authorization = `Bearer ${options.token}`
+    const logger = new LoggerFactory().pushLogsTo(options.logs).merge({ enabled: true }).create()
+    const ctx = new HttpContextFactory().merge({ request, logger }).create()
+    const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
+
+    return new OAuthGuard('mcp', ctx, createFakeEmitter(), provider, options.manager, {
+      resource: options.resource,
+    })
+  }
+
+  test('warns once when the guard resource is not registered', async ({ assert }) => {
+    const manager = createManager()
+    const logs: string[] = []
+    await createTestClient()
+    const { raw } = await createTestAccessToken({ resource: 'https://auth.example.com' })
+
+    assert.isTrue(await buildGuard({ manager, logs, token: raw, resource: '/legacy-mcp' }).check())
+    assert.isTrue(await buildGuard({ manager, logs, token: raw, resource: '/legacy-mcp' }).check())
+
+    const warnings = logs.map((log) => JSON.parse(log)).filter((log) => log.level === 40)
+    assert.lengthOf(warnings, 1)
+    assert.equal(warnings[0].resource, '/legacy-mcp')
+    assert.equal(warnings[0].audience, 'https://auth.example.com')
+    assert.include(warnings[0].msg, 'registerProtectedResource')
+  })
+
+  test('does not warn for registered resources', async ({ assert }) => {
+    const manager = new SesameManager(createTestConfig(), { get: () => {} } as any, lucidStore())
+    manager.registerProtectedResource({ resource: '/mcp-a' })
+    const logs: string[] = []
+    await createTestClient()
+    const { raw } = await createTestAccessToken({ resource: MCP_A })
+
+    assert.isTrue(await buildGuard({ manager, logs, token: raw, resource: '/mcp-a' }).check())
+
+    assert.lengthOf(logs, 0)
+  })
+})
+
 test.group('OAuthGuard | Resource indicators — test helpers', (group) => {
   setupIntegrationGroup(group)
 
   test('binds loginAs tokens to the guard resource', async ({ assert }) => {
-    const manager = createManager()
+    const manager = new SesameManager(createTestConfig(), { get: () => {} } as any, lucidStore())
+    manager.registerProtectedResource({ resource: '/mcp-a' })
     const ctx = new HttpContextFactory()
       .merge({ request: new RequestFactory().merge({ url: '/' }).create() })
       .create()

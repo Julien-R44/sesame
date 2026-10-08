@@ -21,6 +21,11 @@ import type {
 } from './types.ts'
 
 /**
+ * Guard resources already reported as unregistered, per manager.
+ */
+const reportedResources = new WeakMap<SesameManager, Set<string>>()
+
+/**
  * OAuth 2.0 guard for `@adonisjs/auth`.
  *
  * Verifies opaque Bearer tokens against the database,
@@ -104,9 +109,37 @@ export class OAuthGuard<
    */
   #hasValidAudience(record: OAuthAccessTokenWithGrantRecord): boolean {
     if (this.#resource === undefined) return true
+
+    const audience = this.#expectedAudience(this.#resource)
     if (!record.resource) return !this.#requireAudience
 
-    return record.resource === this.#manager.resourceIdentifier(this.#resource)
+    return record.resource === audience
+  }
+
+  /**
+   * Audience expected for the guard resource, resolved like the `resource`
+   * parameter so it matches what the authorization server stored on tokens.
+   */
+  #expectedAudience(resource: string): string {
+    if (!this.#manager.hasResource(resource)) this.#warnUnregisteredResource(resource)
+
+    return this.#manager.resourceAudience(resource)
+  }
+
+  /**
+   * Warn once per resource when the guard protects a path that was not
+   * registered with `registerProtectedResource()`.
+   */
+  #warnUnregisteredResource(resource: string) {
+    const reported = reportedResources.get(this.#manager) ?? new Set<string>()
+    reportedResources.set(this.#manager, reported)
+    if (reported.has(resource)) return
+
+    reported.add(resource)
+    this.#ctx.logger.warn(
+      { guard: this.#name, resource, audience: this.#manager.resourceAudience(resource) },
+      'OAuth guard resource is not registered with sesame.registerProtectedResource(). Tokens are matched against the closest registered resource instead.'
+    )
   }
 
   /**
@@ -376,8 +409,7 @@ export class OAuthGuard<
       userId,
       grantId,
       scopes,
-      resource:
-        this.#resource === undefined ? null : this.#manager.resourceIdentifier(this.#resource),
+      resource: this.#resource === undefined ? null : this.#expectedAudience(this.#resource),
       expiresAt: DateTime.fromJSDate(expiresAt),
     })
 
