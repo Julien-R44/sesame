@@ -1,11 +1,18 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
 import { HttpContextFactory, RequestFactory } from '@adonisjs/core/factories/http'
-import { setupHttpGroup, setupIntegrationGroup, createManager } from '../helpers/app.ts'
+import {
+  setupHttpGroup,
+  setupIntegrationGroup,
+  createManager,
+  createTestConfig,
+} from '../helpers/app.ts'
 import { createTestClient } from '../helpers/create_test_client.ts'
 import { createTestAccessToken } from '../helpers/create_test_access_token.ts'
 import { FakeUserProvider, createFakeEmitter } from '../helpers/fakes.ts'
 import { OAuthGuard } from '../../src/guard/guard.ts'
+import { SesameManager } from '../../src/sesame_manager.ts'
+import { lucidStore } from '../../src/storage/drivers/lucid.ts'
 
 test.group('HTTP | OAuthGuard', (group) => {
   const ctx = setupHttpGroup(group, undefined, {
@@ -218,5 +225,95 @@ test.group('OAuthGuard | Unit', (group) => {
 
     const names = emitter.events.map((e) => e.name)
     assert.include(names, 'oauth_auth:authentication_failed')
+  })
+})
+
+test.group('OAuthGuard | WWW-Authenticate scope', (group) => {
+  setupIntegrationGroup(group)
+
+  const metadataUrl = 'https://auth.example.com/.well-known/oauth-protected-resource/mcp'
+
+  function buildResourceGuard(options?: { bearerToken?: string; resourceScopes?: string[] }) {
+    const router = { get: () => {} } as any
+    const manager = new SesameManager(createTestConfig(), router, lucidStore())
+    manager.registerProtectedResource({ resource: '/mcp', scopes: options?.resourceScopes })
+
+    const request = new RequestFactory().merge({ url: '/mcp' }).create()
+    if (options?.bearerToken)
+      request.request.headers.authorization = `Bearer ${options.bearerToken}`
+
+    const ctx = new HttpContextFactory().merge({ request }).create()
+    const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
+    const guard = new OAuthGuard('oauth', ctx, createFakeEmitter(), provider, manager, '/mcp')
+
+    return { guard, ctx }
+  }
+
+  test('advertises the resource scopes when no token is sent', async ({ assert }) => {
+    const { guard, ctx } = buildResourceGuard({ resourceScopes: ['read'] })
+
+    await guard.check()
+
+    assert.equal(
+      ctx.response.getHeader('www-authenticate'),
+      `Bearer resource_metadata="${metadataUrl}", scope="read"`
+    )
+  })
+
+  test('omits scope when the resource declares none', async ({ assert }) => {
+    const { guard, ctx } = buildResourceGuard()
+
+    await guard.check()
+
+    assert.equal(
+      ctx.response.getHeader('www-authenticate'),
+      `Bearer resource_metadata="${metadataUrl}"`
+    )
+  })
+
+  test('merges the resource scopes with the route scopes', async ({ assert }) => {
+    const { guard, ctx } = buildResourceGuard({ resourceScopes: ['read'] })
+
+    await assert.rejects(() => guard.authenticate({ scopes: ['read', 'write'] }))
+
+    assert.equal(
+      ctx.response.getHeader('www-authenticate'),
+      `Bearer resource_metadata="${metadataUrl}", scope="read write"`
+    )
+  })
+
+  test('adds nothing when the resource scopes satisfy an any-scope route', async ({ assert }) => {
+    const { guard, ctx } = buildResourceGuard({ resourceScopes: ['read'] })
+
+    await assert.rejects(() => guard.authenticate({ scopes: ['admin', 'read'], match: 'any' }))
+
+    assert.equal(
+      ctx.response.getHeader('www-authenticate'),
+      `Bearer resource_metadata="${metadataUrl}", scope="read"`
+    )
+  })
+
+  test('keeps scope next to invalid_token for a rejected token', async ({ assert }) => {
+    const { guard, ctx } = buildResourceGuard({ bearerToken: 'nope', resourceScopes: ['read'] })
+
+    await guard.check()
+
+    assert.equal(
+      ctx.response.getHeader('www-authenticate'),
+      `Bearer resource_metadata="${metadataUrl}", scope="read", error="invalid_token", error_description="Invalid or expired token"`
+    )
+  })
+
+  test('insufficientScopeError lists granted and required scopes', async ({ assert }) => {
+    await createTestClient()
+    const { raw } = await createTestAccessToken({ scopes: ['read'] })
+    const { guard } = buildResourceGuard({ bearerToken: raw })
+
+    await guard.authenticate()
+    const error = guard.insufficientScopeError(['write'])
+
+    assert.deepEqual(error.missingScopes, ['write'])
+    assert.deepEqual(error.challengeScopes, ['read', 'write'])
+    assert.equal(error.resourceMetadata, metadataUrl)
   })
 })

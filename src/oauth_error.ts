@@ -9,6 +9,7 @@
 
 import { Exception } from '@adonisjs/core/exceptions'
 import type { HttpContext } from '@adonisjs/core/http'
+import { buildBearerChallenge } from './bearer_challenge.ts'
 
 /**
  * Base class for all OAuth errors. Extends AdonisJS Exception
@@ -116,7 +117,7 @@ export const E_INVALID_TOKEN = class extends OAuthError {
   handle(error: this, ctx: HttpContext) {
     ctx.response.header(
       'WWW-Authenticate',
-      `Bearer error="invalid_token", error_description="${error.message}"`
+      buildBearerChallenge({ error: 'invalid_token', errorDescription: error.message })
     )
 
     super.handle(error, ctx)
@@ -192,7 +193,11 @@ export const E_SERVER_ERROR = class extends OAuthError {
  * the protected resource. Returns 403 with a WWW-Authenticate header
  * per RFC 6750 §3.1.
  *
+ * `challengeScopes` and `resourceMetadata` are filled by the OAuth guard
+ * so the challenge follows the MCP scope challenge recommendations.
+ *
  * @see https://datatracker.ietf.org/doc/html/rfc6750#section-3.1
+ * @see https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#scope-challenge-handling
  */
 export const E_INSUFFICIENT_SCOPE = class extends OAuthError {
   static readonly status: number = 403
@@ -202,16 +207,30 @@ export const E_INSUFFICIENT_SCOPE = class extends OAuthError {
 
   missingScopes: string[]
 
+  /**
+   * Scopes advertised in the challenge. Defaults to `missingScopes`.
+   */
+  challengeScopes?: string[]
+
+  /**
+   * Protected resource metadata URL (RFC 9728) advertised in the challenge.
+   */
+  resourceMetadata?: string
+
   constructor(missingScopes: string[], message?: string) {
     super(message ?? 'The token does not have the required scope(s)')
     this.missingScopes = missingScopes
   }
 
   handle(error: this, ctx: HttpContext) {
-    const scope = error.missingScopes.join(' ')
     ctx.response.header(
       'WWW-Authenticate',
-      `Bearer error="insufficient_scope", error_description="${error.message}", scope="${scope}"`
+      buildBearerChallenge({
+        resourceMetadata: error.resourceMetadata,
+        scopes: error.challengeScopes ?? error.missingScopes,
+        error: 'insufficient_scope',
+        errorDescription: error.message,
+      })
     )
 
     super.handle(error, ctx)

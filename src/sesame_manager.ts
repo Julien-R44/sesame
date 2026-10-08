@@ -39,6 +39,7 @@ export class SesameManager {
   #router: Router
   #keyService: KeyService | null
   #store: SesameStore
+  #protectedResourceScopes = new Map<string, Scope[]>()
 
   constructor(config: ResolvedSesameConfig, router: Router, store: SesameStore) {
     this.#config = config
@@ -72,6 +73,16 @@ export class SesameManager {
     }
 
     return this.#keyService
+  }
+
+  /**
+   * Scopes declared for a resource with `registerProtectedResource()`.
+   * The OAuth guard advertises them in its `WWW-Authenticate` challenge.
+   */
+  getProtectedResourceScopes(resource?: string): Scope[] {
+    if (!resource) return []
+
+    return this.#protectedResourceScopes.get(resource) ?? []
   }
 
   get isOidcEnabled(): boolean {
@@ -352,6 +363,8 @@ export class SesameManager {
    * @see https://datatracker.ietf.org/doc/html/rfc9728
    */
   registerProtectedResource(options: { resource: string; scopes?: Scope[] }) {
+    if (options.scopes) this.#protectedResourceScopes.set(options.resource, options.scopes)
+
     const wellKnownPath = `/.well-known/oauth-protected-resource${options.resource}`
 
     this.#router.get(wellKnownPath, async (ctx: HttpContext): Promise<ResourceServerMetadata> => {

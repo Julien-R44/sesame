@@ -6,7 +6,12 @@ import { OAuthGuard } from './guard.ts'
 import type { OAuthGuardEvents, OAuthUserProviderContract } from './types.ts'
 
 export { OAuthGuard } from './guard.ts'
-export type { OAuthGuardUser, OAuthGuardEvents, OAuthUserProviderContract } from './types.ts'
+export type {
+  OAuthAuthenticateOptions,
+  OAuthGuardUser,
+  OAuthGuardEvents,
+  OAuthUserProviderContract,
+} from './types.ts'
 
 /**
  * Configure the OAuth guard for `@adonisjs/auth`.
