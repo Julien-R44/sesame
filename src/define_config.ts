@@ -1,5 +1,32 @@
 import { InvalidArgumentsException } from '@adonisjs/core/exceptions'
-import type { SesameConfig, ResolvedSesameConfig } from './types.ts'
+import type {
+  ClientIdMetadataDocumentsConfig,
+  ResolvedClientIdMetadataDocumentsConfig,
+  SesameConfig,
+  ResolvedSesameConfig,
+} from './types.ts'
+
+/**
+ * Apply defaults to the Client ID Metadata Documents options.
+ * Returns null when the feature is disabled.
+ */
+function resolveClientIdMetadataDocuments(
+  config?: boolean | ClientIdMetadataDocumentsConfig
+): ResolvedClientIdMetadataDocumentsConfig | null {
+  if (!config) return null
+
+  const options = config === true ? {} : config
+
+  return {
+    allowedHosts: options.allowedHosts?.map((host) => host.toLowerCase()) ?? null,
+    cache: {
+      minTtl: options.cache?.minTtl ?? '5m',
+      maxTtl: options.cache?.maxTtl ?? '24h',
+    },
+    fetchTimeout: options.fetchTimeout ?? '5s',
+    maxResponseSize: options.maxResponseSize ?? 5120,
+  }
+}
 
 /**
  * Resolve user-supplied `SesameConfig` into a `ResolvedSesameConfig`
@@ -14,6 +41,7 @@ import type { SesameConfig, ResolvedSesameConfig } from './types.ts'
  * - `authorizationCodeTtl`: `'10m'`
  * - `allowDynamicRegistration`: `false`
  * - `allowPublicRegistration`: `false`
+ * - `clientIdMetadataDocuments`: disabled
  */
 export function defineConfig<const TScopes extends Record<string, string>>(
   config: Omit<SesameConfig, 'scopes' | 'defaultScopes'> & {
@@ -40,6 +68,7 @@ export function defineConfig<const TScopes extends Record<string, string>>(
     consentPage: config.consentPage,
     allowDynamicRegistration: config.allowDynamicRegistration ?? false,
     allowPublicRegistration: config.allowPublicRegistration ?? false,
+    clientIdMetadataDocuments: resolveClientIdMetadataDocuments(config.clientIdMetadataDocuments),
     jwk: config.jwk,
     oidcProvider: config.oidcProvider,
     idTokenTtl: config.idTokenTtl ?? '1h',

@@ -134,6 +134,9 @@ export default class MetadataController {
       code_challenge_methods_supported: ['S256'],
       authorization_response_iss_parameter_supported: true,
       prompt_values_supported: [...SUPPORTED_PROMPT_VALUES],
+      ...(manager.config.clientIdMetadataDocuments
+        ? { client_id_metadata_document_supported: true }
+        : {}),
     }
   }
 

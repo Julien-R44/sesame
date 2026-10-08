@@ -5,6 +5,7 @@ import type { HttpContext } from '@adonisjs/core/http'
 import { SesameManager } from '../sesame_manager.ts'
 import { AuthorizeAction } from '../actions/authorize.ts'
 import { buildClientRedirectUrl, type ClientRedirectUrlOptions } from '../client_redirect_url.ts'
+import { ClientMetadataDocumentFetcher } from '../client_id_metadata_documents/fetcher.ts'
 import { E_INVALID_REQUEST } from '../oauth_error.ts'
 
 /**
@@ -41,7 +42,8 @@ export default class AuthorizeController {
     await ctx.auth.check()
     const user = ctx.auth.user as { id: string | number } | undefined
 
-    const action = new AuthorizeAction()
+    const fetcher = await ctx.containerResolver.make(ClientMetadataDocumentFetcher)
+    const action = new AuthorizeAction({ fetcher })
     const result = await action.execute(manager, {
       clientId: query.client_id,
       responseType: query.response_type,

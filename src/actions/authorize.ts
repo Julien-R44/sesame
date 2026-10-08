@@ -9,6 +9,12 @@ import type { OAuthClientRecord } from '../storage/types.ts'
 import { IssueAuthorizationCodeAction } from './issue_authorization_code.ts'
 import { rejectDeletedClient } from '../storage/foreign_key_violation.ts'
 import { isRedirectUriAllowed } from '../redirect_uri.ts'
+import { ClientIdMetadataDocumentService } from '../services/client_id_metadata_document_service.ts'
+import { ClientMetadataDocumentFetcher } from '../client_id_metadata_documents/fetcher.ts'
+import {
+  assertClientIdMetadataDocumentsEnabled,
+  isClientIdMetadataDocumentUrl,
+} from '../client_id_metadata_documents/client_id_url.ts'
 import {
   E_INVALID_CLIENT,
   E_INVALID_REQUEST,
@@ -71,6 +77,29 @@ type ValidatedAuthorizeInput = AuthorizeInput & { userId: string; resource: stri
  * controller can redirect back to the client per spec.
  */
 export class AuthorizeAction {
+  #fetcher: ClientMetadataDocumentFetcher
+
+  constructor(options?: { fetcher?: ClientMetadataDocumentFetcher }) {
+    this.#fetcher = options?.fetcher ?? new ClientMetadataDocumentFetcher()
+  }
+
+  /**
+   * Find a registered client, or resolve a `client_id` URL through its
+   * Client ID Metadata Document. Resolved clients are only persisted once
+   * the user is authenticated.
+   */
+  async #findClient(manager: SesameManager, input: AuthorizeInput) {
+    assertClientIdMetadataDocumentsEnabled({ clientId: input.clientId, config: manager.config })
+
+    if (!isClientIdMetadataDocumentUrl(input.clientId)) {
+      return manager.store.findClient(input.clientId)
+    }
+
+    const service = new ClientIdMetadataDocumentService({ manager, fetcher: this.#fetcher })
+
+    return service.resolve({ clientId: input.clientId, persist: !!input.userId })
+  }
+
   /**
    * Process an authorization request. Returns a discriminated
    * union that the controller interprets as the appropriate
@@ -81,8 +110,7 @@ export class AuthorizeAction {
       throw new E_UNSUPPORTED_RESPONSE_TYPE('Only "code" is supported')
     }
 
-    const store = manager.store
-    const client = await store.findClient(input.clientId)
+    const client = await this.#findClient(manager, input)
     if (!client) throw new E_INVALID_CLIENT('Client not found')
     if (client.isDisabled) throw new E_INVALID_CLIENT('Client is disabled')
 
