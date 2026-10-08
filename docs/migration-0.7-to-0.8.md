@@ -28,7 +28,7 @@ export class MyStore implements SesameStore {
 }
 ```
 
-Run the existence checks again in the `DELETE` statement, inside a transaction, so a client that starts an authorization flow between the lookup and the delete is kept.
+Run the existence checks again in the `DELETE` statement, inside a transaction, so a client that creates a token, code, or pending request between the lookup and the delete is kept. The purge takes no lock: an authorization request that already loaded the client can still race with the delete. Its insert then hits the foreign key and Sésame answers `invalid_client`, as for an unknown client. A custom store must let that foreign key error propagate (Postgres `23503`, MySQL/MariaDB `ER_NO_REFERENCED_ROW_2`, SQLite `SQLITE_CONSTRAINT_FOREIGNKEY`).
 
 ### Header changes
 

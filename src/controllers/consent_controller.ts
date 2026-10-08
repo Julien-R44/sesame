@@ -7,6 +7,7 @@ import { SesameManager } from '../sesame_manager.ts'
 import { TokenService } from '../services/token_service.ts'
 import type { OAuthPendingAuthorizationRequestRecord } from '../storage/types.ts'
 import { IssueAuthorizationCodeAction } from '../actions/issue_authorization_code.ts'
+import { rejectDeletedClient } from '../storage/foreign_key_violation.ts'
 import { E_INVALID_CLIENT, E_INVALID_GRANT, E_INVALID_REQUEST } from '../oauth_error.ts'
 
 /**
@@ -106,7 +107,7 @@ export default class ConsentController {
     scopes: string[]
   ) {
     const store = manager.store
-    await store.grantConsent({ clientId, userId, scopes })
+    await rejectDeletedClient(() => store.grantConsent({ clientId, userId, scopes }))
   }
 
   /**
