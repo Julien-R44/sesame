@@ -427,6 +427,19 @@ test.group('SesameManager | purgeUnusedClients', (group) => {
     assert.equal(await createManager().purgeUnusedClients(), 0)
   })
 
+  test('rejects an olderThanDays below 1 or not an integer', async ({ assert }) => {
+    await createTestClient({ clientId: 'just-registered', metadata: dynamicMetadata })
+    const manager = createManager()
+
+    for (const olderThanDays of [0, -1, 1.5, Number.NaN]) {
+      await assert.rejects(
+        () => manager.purgeUnusedClients({ olderThanDays }),
+        'olderThanDays must be a positive integer'
+      )
+    }
+    assert.lengthOf(await OAuthClient.query(), 1)
+  })
+
   test('honors olderThanDays', async ({ assert }) => {
     await createTestClient({
       clientId: 'ten-days-old',
@@ -475,6 +488,15 @@ test.group('sesame:purge command', () => {
 
     assert.equal(command.exitCode, 0)
     assert.deepEqual(calls, ['tokens', 'clients:7'])
+  })
+
+  test('rejects an invalid --client-days before purging anything', async ({ assert }) => {
+    for (const days of ['0', '-3', '1.5']) {
+      const { command, calls } = await runPurge(['--clients', `--client-days=${days}`])
+
+      assert.equal(command.exitCode, 1)
+      assert.deepEqual(calls, [])
+    }
   })
 
   test('defaults --client-days to 30', async ({ assert }) => {

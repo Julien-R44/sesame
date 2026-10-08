@@ -39,12 +39,19 @@ export default class SesamePurge extends BaseCommand {
   declare clients: boolean
 
   @flags.number({
-    description: 'Minimum age in days of the unused clients to purge (default: 30)',
+    description: 'Minimum age in days of the unused clients to purge, at least 1 (default: 30)',
     default: 30,
   })
   declare clientDays: number
 
   async run() {
+    const invalidClientDays = !Number.isInteger(this.clientDays) || this.clientDays < 1
+    if (this.clients && invalidClientDays) {
+      this.logger.error('--client-days must be a positive integer')
+      this.exitCode = 1
+      return
+    }
+
     const manager = await this.app.container.make(SesameManager)
 
     const result = await manager.purgeTokens({

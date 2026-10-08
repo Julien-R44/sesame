@@ -765,7 +765,7 @@ node ace sesame:purge --clients --client-days=7
 
 A client is deleted when all of these are true:
 
-- it was created more than `--client-days` days ago (default: 30)
+- it was created more than `--client-days` days ago (default: 30; must be an integer of at least 1, like `olderThanDays`)
 - it was dynamically registered: its `metadata` has `registration: 'dynamic'`, or `token_endpoint_auth_method` for clients registered before this marker existed
 - it was never authorized: its `metadata` has no `first_authorized_at`
 - no access token, refresh token, authorization code, consent, or pending authorization request references it
