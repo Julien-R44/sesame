@@ -80,15 +80,15 @@ export class ExchangeAuthorizationCodeAction {
     const refreshToken = this.#prepareRefreshToken(manager, tokenService)
     const idToken = await this.#prepareIdToken(manager, authCode, input.client, accessToken.raw)
 
+    const accessTokenExpiresAt = DateTime.fromJSDate(accessToken.expiresAt)
     const grant = grantService.resolveTokenGrant({
       grantId: authCode.grantId,
       clientId: input.client.clientId,
       userId: authCode.userId,
       scopes: authCode.scopes,
-      expiresAt: DateTime.max(
-        DateTime.fromJSDate(accessToken.expiresAt),
-        refreshToken?.expiresAt ?? DateTime.fromMillis(0)
-      ),
+      expiresAt: refreshToken
+        ? DateTime.max(accessTokenExpiresAt, refreshToken.expiresAt)
+        : accessTokenExpiresAt,
     })
 
     /**
