@@ -1,7 +1,7 @@
 # Sésame
 
 <p align="center">
-  <img src="docs/assets/sesame-logo.png" alt="Sésame" width="560" />
+  <img src="docs/assets/sesame-logo-readme.png" alt="Sésame" width="560" />
 </p>
 
 > OAuth 2.1 + OIDC server for AdonisJS
