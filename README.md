@@ -868,7 +868,7 @@ export default class OAuthConsentController {
 }
 ```
 
-`GET /oauth/client-info` also returns `client_uri`, `logo_uri`, `tos_uri`, `policy_uri`, `client_id_metadata_document`, and `client_id_host` for metadata document clients. Sésame does not proxy logos: rendering `logo_uri` directly lets the client's host see when the consent screen is displayed.
+`GET /oauth/client-info` also returns `client_uri`, `logo_uri`, `tos_uri`, `policy_uri`, `client_id_metadata_document`, and `client_id_host` for metadata document clients. It only reads stored clients: a metadata document client returns `invalid_client` until an authenticated user has gone through `/oauth/authorize` with it, because anonymous resolutions are never persisted. The client is always stored by the time the consent page is displayed. Sésame does not proxy logos: rendering `logo_uri` directly lets the client's host see when the consent screen is displayed.
 
 ## Managing Clients
 

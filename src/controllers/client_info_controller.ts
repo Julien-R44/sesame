@@ -35,6 +35,8 @@ function pickDisplayMetadata(client: OAuthClientRecord) {
  * For Client ID Metadata Document clients, `client_id_host` is the
  * host serving the document. Consent screens should display it, along
  * with the redirect URI host, to mitigate phishing.
+ * These clients are only stored once an authenticated user went through
+ * the authorize endpoint, so they are unknown here before that.
  */
 export default class ClientInfoController {
   static validator = vine.create({
