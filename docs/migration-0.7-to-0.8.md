@@ -77,9 +77,9 @@ Other `prompt` values (`login`, `select_account`, `create`) are still ignored. D
 
 Sésame 0.8.0 records every authorization a user gives to a client as a **grant**. Authorization codes, access tokens, and refresh tokens reference the grant they were issued from, so a whole authorization can be listed, revoked, or carry application context. This change requires a database migration. Custom stores must also be updated.
 
-### 1. Publish and run the upgrade migration
+### 1. Publish and run the upgrade migrations
 
-Publish the upgrade migration for your store, then run it before starting the application with 0.8.0:
+One command publishes every 0.8.0 migration for your store: the grants migration below and the [resource indicators](#resource-indicators-and-token-audience) migration. Run them before starting the application with 0.8.0:
 
 ```bash title="Terminal"
 # Lucid
@@ -90,15 +90,16 @@ node ace migration:run
 node ace sesame:upgrade 0.8 --store=kysely
 ```
 
-The Kysely migrations are written to `database/kysely_migrations/` with names such as `sesame_v000800_add_oauth_grants.ts`: the zero-padded version keeps them sorted after `create_oauth_tables.ts` and before the migrations of later Sésame versions. Move them next to the `create_oauth_tables.ts` migration you applied for 0.7.0, keep their filenames, and run them with your Kysely migrator.
+The Kysely migrations are written to `database/kysely_migrations/` as `sesame_v000800_add_oauth_grants.ts` and `sesame_v000800_add_oauth_resource_columns.ts`: the zero-padded version keeps them sorted after `create_oauth_tables.ts` and before the migrations of later Sésame versions. Move them next to the `create_oauth_tables.ts` migration you applied for 0.7.0, keep their filenames, and run them with your Kysely migrator.
 
-The migration:
+The migrations:
 
-- creates the `oauth_grants` table;
-- adds a nullable, indexed `grant_id` column to `oauth_authorization_codes`, `oauth_access_tokens`, and `oauth_refresh_tokens`, and a `consumed_at` column to `oauth_authorization_codes`;
-- drops the `oauth_consents` table.
+- create the `oauth_grants` table;
+- add a nullable, indexed `grant_id` column to `oauth_authorization_codes`, `oauth_access_tokens`, and `oauth_refresh_tokens`, and a `consumed_at` column to `oauth_authorization_codes`;
+- drop the `oauth_consents` table;
+- add a nullable `resource` text column to `oauth_pending_authorization_requests`, `oauth_authorization_codes`, `oauth_access_tokens`, and `oauth_refresh_tokens`.
 
-Rolling it back recreates an empty `oauth_consents` table.
+Rolling them back drops the `resource` columns and recreates an empty `oauth_consents` table.
 
 ### 2. Existing tokens and remembered consents
 
@@ -143,3 +144,47 @@ No data is copied. Instead:
 - Build a "connected applications" page with `listGrants()`, `revokeGrant()`, `revokeGrants()`, and `updateGrant()`. See [Grants](../README.md#grants).
 - `withGuard('oauth').loginAs(user, { scopes, context })` authenticates test requests with custom scopes and context.
 - `guard.accessToken` (and the `accessToken` of the `oauth_auth:authentication_succeeded` event) gains `grantId` and `context`, also available as `guard.grantId` and `guard.context`.
+
+## Resource indicators and token audience
+
+Sésame 0.8.0 supports the `resource` parameter ([RFC 8707](https://datatracker.ietf.org/doc/html/rfc8707)), which MCP clients send to name the server a token is for. Authorization codes, access tokens, and refresh tokens are bound to that resource, and a guard that declares a `resource` rejects tokens issued for another resource. The `resource` columns are added by the upgrade migrations of [Grants](#1-publish-and-run-the-upgrade-migrations); no other migration is needed.
+
+### Existing tokens
+
+Existing codes and tokens keep a `null` resource: they are not bound to any resource and remain valid until they expire. The first refresh that sends a `resource` binds the new tokens to it, including when the refresh token is attached to a new grant.
+
+### How `resource` values are resolved
+
+A `resource` value is mapped to the most specific path registered with `registerProtectedResource()` on the issuer's origin, or to the issuer itself when no registered path covers it. For example, without a registered `/api/mcp`, a client requesting `https://app.com/api/mcp` gets a token bound to `https://app.com`. Only malformed values (relative URIs, fragments, whitespace, control characters, or backslashes), resources on another origin, and repeated `resource` parameters fail with `invalid_target`, where 0.7.0 ignored the parameter.
+
+Requesting another resource than the one granted, at the token endpoint or on refresh, fails with `invalid_target`. Requests without `resource` keep working and produce unbound tokens.
+
+### Declare `resource` on the guard of each MCP server
+
+Without a `resource`, a guard keeps the 0.7.0 behavior and accepts tokens bound to any resource. To reject tokens issued for another resource of your application, pass the path you registered with `registerProtectedResource()` to the guard that protects it:
+
+```ts title="config/auth.ts"
+import { oauthGuard } from '@julr/sesame/guard'
+import { oauthUserProvider } from '@julr/sesame/guard/lucid'
+
+const userProvider = oauthUserProvider({ model: () => import('#models/user') })
+
+guards: {
+  web: sessionGuard({ ... }),
+  api: oauthGuard({ provider: userProvider }),
+  mcp: oauthGuard({ provider: userProvider, resource: '/api/mcp' }),
+}
+```
+
+```ts title="start/routes.ts"
+sesame.registerProtectedResource({ resource: '/api/mcp', scopes: ['read'] })
+```
+
+Tokens that are not bound to a resource are still accepted by default. Once your clients send `resource`, set `requireAudience: true` on the guard to reject them, as the MCP specification requires.
+
+### Behavior and code changes
+
+- **Guards that already declared `resource` in 0.7.0 now check the token audience.** In 0.7.0, `resource` only built the `WWW-Authenticate` header. Check that each such path is registered with `registerProtectedResource()`. If it is not, the guard keeps working but matches tokens against the closest registered resource (usually the issuer), so it also accepts tokens issued for the whole application, and Sésame logs a warning once. Register the path to restrict the guard to tokens issued for it.
+- **Introspection** returns the resource of bound tokens as `aud`.
+- **Records:** `OAuthAccessTokenRecord`, `OAuthRefreshTokenRecord`, `OAuthAuthorizationCodeRecord`, and `OAuthPendingAuthorizationRequestRecord` gain `resource: string | null`. Custom stores must persist and return it; no store method signature changed. A store that drops the field returns tokens as unbound.
+- **Guard:** `guard.audience` and `guard.accessToken.resource` expose the resource of the authenticating token. Code that instantiates `OAuthGuard` directly must pass the resource as an options object: `new OAuthGuard(name, ctx, emitter, provider, manager, { resource: '/api/mcp' })` instead of a string.
