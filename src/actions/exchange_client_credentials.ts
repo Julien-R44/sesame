@@ -7,6 +7,7 @@ import { TokenService } from '../services/token_service.ts'
 import { ClientService } from '../services/client_service.ts'
 import { BUILTIN_SCOPES, OIDC_SCOPES } from '../types.ts'
 import { E_INVALID_CLIENT, E_INVALID_SCOPE } from '../oauth_error.ts'
+import { markFirstAuthorization } from '../storage/unused_clients.ts'
 
 export interface ExchangeClientCredentialsInput {
   client: OAuthClientRecord
@@ -52,6 +53,7 @@ export class ExchangeClientCredentialsAction {
     const expiresAt = new Date(Date.now() + ttlSeconds * 1000)
 
     const store = manager.store
+    await markFirstAuthorization({ store, client: input.client })
     await store.createAccessToken({
       id: crypto.randomUUID(),
       tokenHash,

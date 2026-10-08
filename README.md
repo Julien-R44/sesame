@@ -582,7 +582,7 @@ Sésame supports RFC 7591 dynamic client registration. Clients send their metada
 
 Set `allowDynamicRegistration: true` in `config/sesame.ts`. Also set `allowPublicRegistration: true` only if unauthenticated clients should be able to register.
 
-Registered clients store `registration: 'dynamic'` in their `metadata` (not returned in the registration response). With public registration, clients that register but never complete an authorization pile up; delete them with `node ace sesame:purge --clients` (see [Token Cleanup](#token-cleanup)).
+Registered clients store `registration: 'dynamic'` in their `metadata` (not returned in the registration response), then `first_authorized_at` once they first obtain tokens. With public registration, clients that register but never complete an authorization pile up; delete them with `node ace sesame:purge --clients` (see [Token Cleanup](#token-cleanup)).
 
 ## Managing Clients
 
@@ -767,9 +767,12 @@ A client is deleted when all of these are true:
 
 - it was created more than `--client-days` days ago (default: 30)
 - it was dynamically registered: its `metadata` has `registration: 'dynamic'`, or `token_endpoint_auth_method` for clients registered before this marker existed
+- it was never authorized: its `metadata` has no `first_authorized_at`
 - no access token, refresh token, authorization code, consent, or pending authorization request references it
 
-Clients created with `sesame.createClient()` or `node ace sesame:client` are never deleted. A completed authorization records a consent, so this targets clients that registered and never finished an authorization. Tokens are purged first, then clients. The flag is opt-in, so an existing `sesame:purge` schedule keeps its current behavior.
+Sésame writes `first_authorized_at` in the client's `metadata` the first time the client obtains tokens (authorization code exchange, client credentials, or a refresh for clients registered before this marker existed). The marker survives token purges and `revokeAllForUser()`, so a client that was used once is never deleted, even after all its tokens are gone. The purge therefore targets clients that registered and never obtained a token.
+
+Clients created with `sesame.createClient()` or `node ace sesame:client` are never deleted. Tokens are purged first, then clients. The flag is opt-in, so an existing `sesame:purge` schedule keeps its current behavior.
 
 ```ts title="app/services/token_cleanup.ts"
 import sesame from '@julr/sesame/services/main'

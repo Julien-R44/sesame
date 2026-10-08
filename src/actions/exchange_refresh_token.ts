@@ -12,6 +12,7 @@ import {
   E_INVALID_REQUEST,
   E_INVALID_SCOPE,
 } from '../oauth_error.ts'
+import { markFirstAuthorization } from '../storage/unused_clients.ts'
 
 export interface ExchangeRefreshTokenInput {
   client: OAuthClientRecord
@@ -103,6 +104,9 @@ export class ExchangeRefreshTokenAction {
     if (refreshToken.expiresAt < DateTime.now()) {
       throw new E_INVALID_GRANT('Refresh token has expired')
     }
+
+    // Clients registered before the marker existed get it on their next refresh
+    await markFirstAuthorization({ store, client: input.client })
 
     const scopes = this.#resolveScopes(manager, input, refreshToken, clientService)
 

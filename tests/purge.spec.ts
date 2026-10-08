@@ -12,6 +12,9 @@ import { OAuthRefreshToken } from '../src/models/oauth_refresh_token.ts'
 import { OAuthAuthorizationCode } from '../src/models/oauth_authorization_code.ts'
 import { OAuthPendingAuthorizationRequest } from '../src/models/oauth_pending_authorization_request.ts'
 import { TokenService } from '../src/services/token_service.ts'
+import { ExchangeAuthorizationCodeAction } from '../src/actions/exchange_authorization_code.ts'
+import { markFirstAuthorization } from '../src/storage/unused_clients.ts'
+import { createAuthCodeExchange } from './helpers/create_auth_code_exchange.ts'
 
 test.group('SesameManager | purgeTokens', (group) => {
   setupIntegrationGroup(group)
@@ -393,6 +396,37 @@ test.group('SesameManager | purgeUnusedClients', (group) => {
     assert.lengthOf(await OAuthClient.query(), 8)
   })
 
+  test('keeps an authorized client after its user is revoked and tokens are purged', async ({
+    assert,
+  }) => {
+    await createOldClient('mcp-client', dynamicMetadata)
+    const { client, rawCode, codeVerifier, redirectUri, manager } = await createAuthCodeExchange({
+      clientId: 'mcp-client',
+    })
+
+    await new ExchangeAuthorizationCodeAction().execute(manager, {
+      client,
+      code: rawCode,
+      redirectUri,
+      codeVerifier,
+    })
+    await manager.revokeAllForUser('user-1')
+    await manager.purgeTokens()
+
+    assert.lengthOf(await OAuthAccessToken.query(), 0)
+    assert.lengthOf(await OAuthRefreshToken.query(), 0)
+    assert.equal(await manager.purgeUnusedClients(), 0)
+
+    const stored = await manager.findClient('mcp-client')
+    assert.isString(stored?.metadata?.first_authorized_at)
+  })
+
+  test('keeps dynamic clients carrying first_authorized_at', async ({ assert }) => {
+    await createOldClient('authorized', { ...dynamicMetadata, first_authorized_at: '2026-01-01' })
+
+    assert.equal(await createManager().purgeUnusedClients(), 0)
+  })
+
   test('honors olderThanDays', async ({ assert }) => {
     await createTestClient({
       clientId: 'ten-days-old',
@@ -447,5 +481,43 @@ test.group('sesame:purge command', () => {
     const { calls } = await runPurge(['--clients'])
 
     assert.deepEqual(calls, ['tokens', 'clients:30'])
+  })
+})
+
+test.group('markFirstAuthorization', () => {
+  function fakeStore() {
+    const updates: any[] = []
+    const store = {
+      async updateClient(options: any) {
+        updates.push(options)
+      },
+    }
+
+    return { store: store as any, updates }
+  }
+
+  test('writes the marker once on dynamic clients', async ({ assert }) => {
+    const { store, updates } = fakeStore()
+    const client = { id: 'id-1', metadata: { registration: 'dynamic' } } as any
+
+    await markFirstAuthorization({ store, client })
+    await markFirstAuthorization({
+      store,
+      client: { ...client, metadata: updates[0].data.metadata },
+    })
+
+    assert.lengthOf(updates, 1)
+    assert.equal(updates[0].id, 'id-1')
+    assert.equal(updates[0].data.metadata.registration, 'dynamic')
+    assert.isString(updates[0].data.metadata.first_authorized_at)
+  })
+
+  test('leaves manually created clients untouched', async ({ assert }) => {
+    const { store, updates } = fakeStore()
+
+    await markFirstAuthorization({ store, client: { id: 'a', metadata: null } as any })
+    await markFirstAuthorization({ store, client: { id: 'b', metadata: { team: 'x' } } as any })
+
+    assert.lengthOf(updates, 0)
   })
 })

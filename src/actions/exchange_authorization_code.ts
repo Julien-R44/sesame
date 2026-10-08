@@ -7,6 +7,7 @@ import type { OAuthAuthorizationCodeRecord, OAuthClientRecord } from '../storage
 import { TokenService } from '../services/token_service.ts'
 import { IdTokenService } from '../services/id_token_service.ts'
 import { ClientService } from '../services/client_service.ts'
+import { markFirstAuthorization } from '../storage/unused_clients.ts'
 import { E_INVALID_CLIENT, E_INVALID_GRANT, E_INVALID_REQUEST } from '../oauth_error.ts'
 
 /**
@@ -62,6 +63,13 @@ export class ExchangeAuthorizationCodeAction {
 
     const refreshToken = this.#prepareRefreshToken(manager, tokenService)
     const idToken = await this.#prepareIdToken(manager, authCode, input.client, accessToken.raw)
+
+    /**
+     * The code and its PKCE proof are valid: the client completed an authorization.
+     * Marking it before consuming the code means a failed write cannot cost the
+     * client tokens that were already issued.
+     */
+    await markFirstAuthorization({ store: manager.store, client: input.client })
 
     await this.#atomicExchange(manager, input, authCode, accessToken, refreshToken)
 

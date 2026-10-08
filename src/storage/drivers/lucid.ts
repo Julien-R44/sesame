@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 import { BaseModel } from '@adonisjs/lucid/orm'
 import { retryConsentConflict } from '../consent_retry.js'
-import { CLIENT_USAGE_TABLES, chunkClientIds, isDynamicallyRegistered } from '../unused_clients.js'
+import { CLIENT_USAGE_TABLES, chunkClientIds, isPurgeableClient } from '../unused_clients.js'
 import { OAuthAccessToken } from '../../models/oauth_access_token.js'
 import { OAuthAuthorizationCode } from '../../models/oauth_authorization_code.js'
 import { OAuthClient } from '../../models/oauth_client.js'
@@ -565,7 +565,7 @@ export class LucidStore implements SesameStore {
   }
 
   /**
-   * Delete dynamically registered clients that were never used.
+   * Delete dynamically registered clients that were never authorized and are unused.
    */
   async purgeUnusedClients(options: PurgeUnusedClientsOptions): Promise<number> {
     return this.#transaction(async (store) => {
@@ -577,7 +577,7 @@ export class LucidStore implements SesameStore {
 
       const clientIds = candidates
         .map((client) => this.#clientRecord(client))
-        .filter((client) => isDynamicallyRegistered(client.metadata))
+        .filter((client) => isPurgeableClient(client.metadata))
         .map((client) => client.clientId)
 
       let deleted = 0
