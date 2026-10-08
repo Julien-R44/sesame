@@ -8,6 +8,7 @@ import { TokenService } from '../services/token_service.ts'
 import { IdTokenService } from '../services/id_token_service.ts'
 import { ClientService } from '../services/client_service.ts'
 import { markFirstAuthorization } from '../storage/unused_clients.ts'
+import { GrantService, type ResolvedTokenGrant } from '../services/grant_service.ts'
 import { E_INVALID_CLIENT, E_INVALID_GRANT, E_INVALID_REQUEST } from '../oauth_error.ts'
 
 /**
@@ -30,12 +31,24 @@ export interface ExchangeAuthorizationCodeInput {
 }
 
 /**
+ * Validated code and the tokens and grant it is exchanged for.
+ */
+interface CodeExchange {
+  client: OAuthClientRecord
+  authCode: OAuthAuthorizationCodeRecord
+  accessToken: { raw: string; hash: string; expiresAt: Date }
+  refreshToken: { raw: string; hash: string; expiresAt: DateTime } | null
+  grant: ResolvedTokenGrant
+}
+
+/**
  * Handle the Authorization Code Grant (RFC 6749 §4.1.3).
  *
  * Exchanges an authorization code for an access token and
  * optionally a refresh token and id_token. Verifies PKCE,
  * validates scopes, and atomically consumes the code to
- * prevent replay.
+ * prevent replay. Consumed codes are kept: redeeming one
+ * again revokes its whole grant (OAuth 2.1 §4.1.3).
  *
  * @see https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3
  * @see https://datatracker.ietf.org/doc/html/rfc7636#section-4.6
@@ -59,10 +72,24 @@ export class ExchangeAuthorizationCodeAction {
 
     clientService.validateClientScopes(authCode.scopes, input.client.scopes)
 
+    const grantService = new GrantService(manager)
+    await grantService.assertActive(authCode.grantId)
+
     const accessToken = tokenService.createAccessToken()
 
     const refreshToken = this.#prepareRefreshToken(manager, tokenService)
     const idToken = await this.#prepareIdToken(manager, authCode, input.client, accessToken.raw)
+
+    const grant = grantService.resolveTokenGrant({
+      grantId: authCode.grantId,
+      clientId: input.client.clientId,
+      userId: authCode.userId,
+      scopes: authCode.scopes,
+      expiresAt: DateTime.max(
+        DateTime.fromJSDate(accessToken.expiresAt),
+        refreshToken?.expiresAt ?? DateTime.fromMillis(0)
+      ),
+    })
 
     /**
      * The code and its PKCE proof are valid: the client completed an authorization.
@@ -71,7 +98,13 @@ export class ExchangeAuthorizationCodeAction {
      */
     await markFirstAuthorization({ store: manager.store, client: input.client })
 
-    await this.#atomicExchange(manager, input, authCode, accessToken, refreshToken)
+    await this.#atomicExchange(manager, {
+      client: input.client,
+      authCode,
+      accessToken,
+      refreshToken,
+      grant,
+    })
 
     const ttlSeconds = string.seconds.parse(manager.config.accessTokenTtl)
 
@@ -105,6 +138,11 @@ export class ExchangeAuthorizationCodeAction {
     })
 
     if (!authCode) throw new E_INVALID_GRANT('Authorization code not found')
+
+    if (authCode.consumedAt) {
+      await new GrantService(manager).revokeFamily(authCode)
+      throw new E_INVALID_GRANT('Authorization code has already been consumed')
+    }
 
     if (authCode.expiresAt < DateTime.now()) {
       await store.deleteAuthorizationCode(authCode.id)
@@ -192,26 +230,24 @@ export class ExchangeAuthorizationCodeAction {
   }
 
   /**
-   * Atomically consume the authorization code and persist
-   * the new access token (and optionally refresh token)
-   * inside a single transaction.
+   * Atomically consume the authorization code, persist the new
+   * access token (and optionally refresh token), and extend the
+   * grant inside a single transaction.
    */
-  async #atomicExchange(
-    manager: SesameManager,
-    input: ExchangeAuthorizationCodeInput,
-    authCode: OAuthAuthorizationCodeRecord,
-    accessToken: { raw: string; hash: string; expiresAt: Date },
-    refreshToken: { raw: string; hash: string; expiresAt: DateTime } | null
-  ) {
+  async #atomicExchange(manager: SesameManager, exchange: CodeExchange) {
+    const { authCode, client, accessToken, refreshToken, grant } = exchange
     const store = manager.store
     const accessTokenId = crypto.randomUUID()
     const exchanged = await store.exchangeAuthorizationCode({
       codeId: authCode.id,
+      consumedAt: DateTime.now(),
+      grant: grant.write,
       accessToken: {
         id: accessTokenId,
         tokenHash: accessToken.hash,
-        clientId: input.client.clientId,
+        clientId: client.clientId,
         userId: authCode.userId,
+        grantId: grant.grantId,
         scopes: authCode.scopes,
         expiresAt: DateTime.fromJSDate(accessToken.expiresAt),
       },
@@ -220,8 +256,9 @@ export class ExchangeAuthorizationCodeAction {
             id: crypto.randomUUID(),
             token: refreshToken.hash,
             accessTokenId,
-            clientId: input.client.clientId,
+            clientId: client.clientId,
             userId: authCode.userId,
+            grantId: grant.grantId,
             scopes: authCode.scopes,
             expiresAt: refreshToken.expiresAt,
           }

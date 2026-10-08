@@ -1,4 +1,5 @@
 import { test } from '@japa/runner'
+import { DateTime } from 'luxon'
 import { createTestConfig, setupIntegrationGroup } from './helpers/app.ts'
 import { createTestClient } from './helpers/create_test_client.ts'
 import { createPkce } from './helpers/create_pkce.ts'
@@ -80,17 +81,19 @@ test.group('Deleted client race', (group) => {
     )
   })
 
-  test('granting consent reports invalid_client for a deleted client', async ({ assert }) => {
+  test('creating a grant reports invalid_client for a deleted client', async ({ assert }) => {
     const { manager } = await createDeletedClient()
 
     await assertOAuthError(
       assert,
       () =>
         rejectDeletedClient(() =>
-          manager.store.grantConsent({
+          manager.store.createGrant({
+            id: crypto.randomUUID(),
             clientId: 'deleted-client',
             userId: 'user-1',
             scopes: ['read'],
+            expiresAt: DateTime.now().plus({ minutes: 10 }),
           })
         ),
       'invalid_client'

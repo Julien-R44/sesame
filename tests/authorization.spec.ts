@@ -6,6 +6,7 @@ import { assertOAuthError } from './helpers/assert_oauth_error.ts'
 import { createAuthCodeExchange } from './helpers/create_auth_code_exchange.ts'
 import { OAuthAuthorizationCode } from '../src/models/oauth_authorization_code.ts'
 import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
+import { OAuthRefreshToken } from '../src/models/oauth_refresh_token.ts'
 import { TokenService } from '../src/services/token_service.ts'
 import { ClientService } from '../src/services/client_service.ts'
 import { ExchangeAuthorizationCodeAction } from '../src/actions/exchange_authorization_code.ts'
@@ -264,7 +265,7 @@ test.group('Integration | Authorization Code Grant', (group) => {
     )
   })
 
-  test('authorization code is single-use', async ({ assert }) => {
+  test('authorization code reuse is rejected and revokes its grant', async ({ assert }) => {
     await createTestClient()
     const { client, rawCode, codeVerifier, redirectUri, manager } = await createAuthCodeExchange({
       scopes: ['read'],
@@ -286,8 +287,14 @@ test.group('Integration | Authorization Code Grant', (group) => {
           redirectUri,
           codeVerifier,
         }),
-      'Authorization code not found'
+      'Authorization code has already been consumed'
     )
+
+    const tokenHash = new TokenService(manager).hashToken(result.access_token)
+    const token = await manager.store.findAccessToken({ hash: tokenHash })
+    assert.isNotNull(token?.revokedAt)
+    assert.isNull(token?.grant)
+    assert.lengthOf(await OAuthRefreshToken.query(), 0)
   })
 
   test('rejects concurrent reuse of the same authorization code', async ({ assert }) => {

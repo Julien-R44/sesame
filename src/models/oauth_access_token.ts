@@ -26,6 +26,9 @@ export class OAuthAccessToken extends BaseModel {
   @column()
   declare userId: string | null
 
+  @column()
+  declare grantId: string | null
+
   @json()
   declare scopes: string[]
 

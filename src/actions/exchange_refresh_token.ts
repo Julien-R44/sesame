@@ -6,6 +6,7 @@ import type { OAuthClientRecord, OAuthRefreshTokenRecord } from '../storage/type
 import { TokenService } from '../services/token_service.ts'
 import { IdTokenService } from '../services/id_token_service.ts'
 import { ClientService } from '../services/client_service.ts'
+import { GrantService, type ResolvedTokenGrant } from '../services/grant_service.ts'
 import {
   E_INVALID_CLIENT,
   E_INVALID_GRANT,
@@ -21,6 +22,18 @@ export interface ExchangeRefreshTokenInput {
 }
 
 /**
+ * Refresh token being rotated and the tokens and grant replacing it.
+ */
+interface RefreshRotation {
+  client: OAuthClientRecord
+  oldRefreshToken: OAuthRefreshTokenRecord
+  accessToken: { raw: string; hash: string; expiresAt: Date }
+  newRefreshToken: { raw: string; hash: string; expiresAt: DateTime }
+  scopes: string[]
+  grant: ResolvedTokenGrant
+}
+
+/**
  * Handle the Refresh Token Grant (RFC 6749 §6).
  *
  * Exchanges a refresh token for a new access token and a new
@@ -30,8 +43,12 @@ export interface ExchangeRefreshTokenInput {
  * ## Replay detection
  *
  * If a revoked refresh token is presented **outside** the grace
- * period, all tokens for that client+user pair are nuked to
- * mitigate stolen-token reuse (RFC 6819 §5.2.2.3, RFC 9700 §4.14.2).
+ * period, its whole grant is revoked (every token issued from the
+ * same authorization) to mitigate stolen-token reuse
+ * (OAuth 2.1 §4.3.1, RFC 9700 §4.14.2). Other grants of the same
+ * client and user (another device, another context) are untouched.
+ * Refresh tokens issued before grants existed fall back to their
+ * client+user family and are adopted into a grant on rotation.
  *
  * ## Grace period (rotation reuse window)
  *
@@ -87,7 +104,7 @@ export class ExchangeRefreshTokenAction {
       const revokedSecondsAgo = DateTime.now().diff(refreshToken.revokedAt, 'seconds').seconds
 
       if (gracePeriodSeconds <= 0 || revokedSecondsAgo > gracePeriodSeconds) {
-        await this.#nukeTokensForReplay(manager, input.client.clientId, refreshToken.userId)
+        await new GrantService(manager).revokeFamily(refreshToken)
         throw new E_INVALID_GRANT('Refresh token has been revoked (possible replay attack)')
       }
 
@@ -105,6 +122,8 @@ export class ExchangeRefreshTokenAction {
       throw new E_INVALID_GRANT('Refresh token has expired')
     }
 
+    await new GrantService(manager).assertActive(refreshToken.grantId)
+
     // Clients registered before the marker existed get it on their next refresh
     await markFirstAuthorization({ store, client: input.client })
 
@@ -120,7 +139,15 @@ export class ExchangeRefreshTokenAction {
       accessToken.raw
     )
 
-    await this.#atomicRotation(manager, input, refreshToken, accessToken, newRefreshToken, scopes)
+    const grant = this.#resolveGrant(manager, refreshToken, newRefreshToken.expiresAt)
+    await this.#atomicRotation(manager, {
+      client: input.client,
+      oldRefreshToken: refreshToken,
+      accessToken,
+      newRefreshToken,
+      scopes,
+      grant,
+    })
 
     const ttlSeconds = string.seconds.parse(manager.config.accessTokenTtl)
 
@@ -147,6 +174,7 @@ export class ExchangeRefreshTokenAction {
   ) {
     const tokenService = new TokenService(manager)
     const clientService = new ClientService()
+    await new GrantService(manager).assertActive(revokedRefreshToken.grantId)
     const scopes = this.#resolveScopes(manager, input, revokedRefreshToken, clientService)
 
     const accessToken = tokenService.createAccessToken()
@@ -160,14 +188,17 @@ export class ExchangeRefreshTokenAction {
     )
 
     const accessTokenId = crypto.randomUUID()
+    const grant = this.#resolveGrant(manager, revokedRefreshToken, newRefreshToken.expiresAt)
 
     const store = manager.store
     await store.issueTokenPair({
+      grant: grant.write,
       accessToken: {
         id: accessTokenId,
         tokenHash: accessToken.hash,
         clientId: input.client.clientId,
         userId: revokedRefreshToken.userId,
+        grantId: grant.grantId,
         scopes,
         expiresAt: DateTime.fromJSDate(accessToken.expiresAt),
       },
@@ -177,6 +208,7 @@ export class ExchangeRefreshTokenAction {
         accessTokenId,
         clientId: input.client.clientId,
         userId: revokedRefreshToken.userId,
+        grantId: grant.grantId,
         scopes,
         expiresAt: newRefreshToken.expiresAt,
       },
@@ -195,12 +227,21 @@ export class ExchangeRefreshTokenAction {
   }
 
   /**
-   * Replay detection: nuke all tokens for this client+user
-   * pair when a revoked token is reused.
+   * Keep the new tokens in the refresh token's grant until the new
+   * refresh token expires, adopting legacy tokens into a new grant.
    */
-  async #nukeTokensForReplay(manager: SesameManager, clientId: string, userId: string) {
-    const store = manager.store
-    await store.revokeTokenFamily({ clientId, userId, now: DateTime.now() })
+  #resolveGrant(
+    manager: SesameManager,
+    refreshToken: OAuthRefreshTokenRecord,
+    expiresAt: DateTime
+  ): ResolvedTokenGrant {
+    return new GrantService(manager).resolveTokenGrant({
+      grantId: refreshToken.grantId,
+      clientId: refreshToken.clientId,
+      userId: refreshToken.userId,
+      scopes: refreshToken.scopes,
+      expiresAt,
+    })
   }
 
   /**
@@ -282,28 +323,25 @@ export class ExchangeRefreshTokenAction {
   }
 
   /**
-   * Atomically revoke the old token pair and persist the
-   * new access + refresh tokens inside a single transaction.
+   * Atomically revoke the old token pair, persist the new
+   * access + refresh tokens, and extend the grant inside a
+   * single transaction.
    */
-  async #atomicRotation(
-    manager: SesameManager,
-    input: ExchangeRefreshTokenInput,
-    oldRefreshToken: OAuthRefreshTokenRecord,
-    accessToken: { raw: string; hash: string; expiresAt: Date },
-    newRefreshToken: { raw: string; hash: string; expiresAt: DateTime },
-    scopes: string[]
-  ) {
+  async #atomicRotation(manager: SesameManager, rotation: RefreshRotation) {
+    const { client, oldRefreshToken, accessToken, newRefreshToken, scopes, grant } = rotation
     const store = manager.store
     const accessTokenId = crypto.randomUUID()
     const rotated = await store.rotateRefreshToken({
       oldRefreshTokenId: oldRefreshToken.id,
       oldAccessTokenId: oldRefreshToken.accessTokenId,
       revokedAt: DateTime.now(),
+      grant: grant.write,
       accessToken: {
         id: accessTokenId,
         tokenHash: accessToken.hash,
-        clientId: input.client.clientId,
+        clientId: client.clientId,
         userId: oldRefreshToken.userId,
+        grantId: grant.grantId,
         scopes,
         expiresAt: DateTime.fromJSDate(accessToken.expiresAt),
       },
@@ -311,8 +349,9 @@ export class ExchangeRefreshTokenAction {
         id: crypto.randomUUID(),
         token: newRefreshToken.hash,
         accessTokenId,
-        clientId: input.client.clientId,
+        clientId: client.clientId,
         userId: oldRefreshToken.userId,
+        grantId: grant.grantId,
         scopes,
         expiresAt: newRefreshToken.expiresAt,
       },

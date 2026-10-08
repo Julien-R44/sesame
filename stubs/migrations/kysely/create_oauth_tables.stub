@@ -39,11 +39,18 @@ export async function up(db: Kysely<any>): Promise<void> {
       column.notNull().references('oauth_clients.client_id').onDelete('cascade')
     )
     .addColumn('user_id', 'varchar(255)')
+    .addColumn('grant_id', 'varchar(36)')
     .addColumn('scopes', 'json', (column) => column.notNull())
     .addColumn('expires_at', 'timestamp', (column) => column.notNull())
     .addColumn('revoked_at', 'timestamp')
     .addColumn('created_at', 'timestamp', (column) => column.notNull())
     .addColumn('updated_at', 'timestamp', (column) => column.notNull())
+    .execute()
+  // Revoking a grant revokes every access token issued from it.
+  await db.schema
+    .createIndex('oauth_access_tokens_grant_id_idx')
+    .on('oauth_access_tokens')
+    .column('grant_id')
     .execute()
 
   // Refresh tokens point to their access token so rotation can revoke the old pair.
@@ -56,6 +63,7 @@ export async function up(db: Kysely<any>): Promise<void> {
       column.notNull().references('oauth_clients.client_id').onDelete('cascade')
     )
     .addColumn('user_id', 'varchar(255)', (column) => column.notNull())
+    .addColumn('grant_id', 'varchar(36)')
     .addColumn('scopes', 'json', (column) => column.notNull())
     .addColumn('expires_at', 'timestamp', (column) => column.notNull())
     .addColumn('revoked_at', 'timestamp')
@@ -68,6 +76,12 @@ export async function up(db: Kysely<any>): Promise<void> {
     .on('oauth_refresh_tokens')
     .column('token')
     .execute()
+  // Replay detection and grant revocation remove a grant's refresh tokens.
+  await db.schema
+    .createIndex('oauth_refresh_tokens_grant_id_idx')
+    .on('oauth_refresh_tokens')
+    .column('grant_id')
+    .execute()
 
   // Authorization codes are short-lived, single-use credentials for the code grant.
   await db.schema
@@ -78,11 +92,13 @@ export async function up(db: Kysely<any>): Promise<void> {
       column.notNull().references('oauth_clients.client_id').onDelete('cascade')
     )
     .addColumn('user_id', 'varchar(255)', (column) => column.notNull())
+    .addColumn('grant_id', 'varchar(36)')
     .addColumn('scopes', 'json', (column) => column.notNull())
     .addColumn('redirect_uri', 'text', (column) => column.notNull())
     .addColumn('code_challenge', 'varchar(255)')
     .addColumn('code_challenge_method', 'varchar(255)')
     .addColumn('nonce', 'varchar(255)')
+    .addColumn('consumed_at', 'timestamp')
     .addColumn('expires_at', 'timestamp', (column) => column.notNull())
     .addColumn('created_at', 'timestamp', (column) => column.notNull())
     .addColumn('updated_at', 'timestamp', (column) => column.notNull())
@@ -93,25 +109,32 @@ export async function up(db: Kysely<any>): Promise<void> {
     .on('oauth_authorization_codes')
     .column('code')
     .execute()
-
-  // A consent records the scopes approved by one user for one client.
+  // Revoking a grant discards its pending authorization codes.
   await db.schema
-    .createTable('oauth_consents')
+    .createIndex('oauth_authorization_codes_grant_id_idx')
+    .on('oauth_authorization_codes')
+    .column('grant_id')
+    .execute()
+
+  // A grant is one authorization given by a user to a client; its tokens reference it.
+  await db.schema
+    .createTable('oauth_grants')
     .addColumn('id', 'varchar(36)', (column) => column.primaryKey())
     .addColumn('client_id', 'varchar(255)', (column) =>
       column.notNull().references('oauth_clients.client_id').onDelete('cascade')
     )
     .addColumn('user_id', 'varchar(255)', (column) => column.notNull())
     .addColumn('scopes', 'json', (column) => column.notNull())
+    .addColumn('context', 'json')
+    .addColumn('expires_at', 'timestamp', (column) => column.notNull())
     .addColumn('created_at', 'timestamp', (column) => column.notNull())
     .addColumn('updated_at', 'timestamp', (column) => column.notNull())
     .execute()
-  // Only one consent record may exist for a client and user pair.
+  // List a user's grants, optionally for one client.
   await db.schema
-    .createIndex('oauth_consents_client_id_user_id_unique')
-    .on('oauth_consents')
-    .columns(['client_id', 'user_id'])
-    .unique()
+    .createIndex('oauth_grants_user_id_client_id_idx')
+    .on('oauth_grants')
+    .columns(['user_id', 'client_id'])
     .execute()
 
   // Pending requests carry the authorization context across the consent redirect.
@@ -143,7 +166,7 @@ export async function up(db: Kysely<any>): Promise<void> {
 export async function down(db: Kysely<any>): Promise<void> {
   // Drop children before clients to respect the client foreign keys.
   await db.schema.dropTable('oauth_pending_authorization_requests').execute()
-  await db.schema.dropTable('oauth_consents').execute()
+  await db.schema.dropTable('oauth_grants').execute()
   await db.schema.dropTable('oauth_authorization_codes').execute()
   await db.schema.dropTable('oauth_refresh_tokens').execute()
   await db.schema.dropTable('oauth_access_tokens').execute()

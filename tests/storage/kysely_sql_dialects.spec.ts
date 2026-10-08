@@ -7,6 +7,7 @@ import { Pool } from 'pg'
 import { kyselyStore } from '../../src/storage/drivers/kysely.ts'
 import { up, down } from '../../src/storage/migrations/kysely.ts'
 import type { SesameStore } from '../../src/storage/types.ts'
+import { testGrantRecords, testGrantRevocation } from './grant_store_contract.ts'
 
 /**
  * These tests use dedicated databases supplied through SESAME_TEST_POSTGRES_URL,
@@ -82,31 +83,12 @@ async function testClientRecords(store: SesameStore, assert: Assert) {
 }
 
 /**
- * Verify consent merging and one-time consumption of a pending request.
+ * Verify grant persistence and one-time consumption of a pending request.
  */
 async function testConsent(store: SesameStore, clientId: string, assert: Assert) {
   const identity = { clientId, userId: 'user-1' }
-  await store.grantConsent({ ...identity, scopes: ['read'] })
-  await store.grantConsent({ ...identity, scopes: ['write', 'read'] })
-  assert.deepEqual((await store.findConsent(identity))?.scopes, ['read', 'write'])
-
-  const concurrentIdentity = { clientId, userId: 'user-2' }
-  await Promise.all([
-    store.grantConsent({ ...concurrentIdentity, scopes: ['read'] }),
-    store.grantConsent({ ...concurrentIdentity, scopes: ['write'] }),
-  ])
-  assert.sameMembers((await store.findConsent(concurrentIdentity))!.scopes, ['read', 'write'])
-
-  await Promise.all([
-    store.grantConsent({ ...concurrentIdentity, scopes: ['profile'] }),
-    store.grantConsent({ ...concurrentIdentity, scopes: ['email'] }),
-  ])
-  assert.sameMembers((await store.findConsent(concurrentIdentity))!.scopes, [
-    'read',
-    'write',
-    'profile',
-    'email',
-  ])
+  await testGrantRecords(store, clientId, assert)
+  await testGrantRevocation(store, clientId, assert)
 
   const token = `pending-${crypto.randomUUID()}`
   await store.createPendingAuthorizationRequest({
@@ -159,6 +141,7 @@ async function testTokenExchange(store: SesameStore, clientId: string, assert: A
 
   const exchange = {
     codeId,
+    consumedAt: DateTime.now(),
     accessToken: {
       id: accessTokenId,
       tokenHash: accessHash,
@@ -275,7 +258,7 @@ async function testCleanup(store: SesameStore, clientId: string, assert: Assert)
   const counts = await store.purgeTokens({
     purgeRevoked: true,
     purgeExpired: false,
-    cutoff: DateTime.now(),
+    cutoff: DateTime.now().plus({ seconds: 2 }),
     now: DateTime.now(),
   })
   assert.isAtLeast(counts.accessTokens, 3)
@@ -310,7 +293,13 @@ async function testUnusedClientPurge(store: SesameStore, assert: Assert) {
   await createClient('dynamic-unused', { registration: 'dynamic' })
   await createClient('manual-unused', null)
   const used = await createClient('dynamic-used', { registration: 'dynamic' })
-  await store.grantConsent({ clientId: used.clientId, userId: 'user-1', scopes: ['read'] })
+  await store.createGrant({
+    id: crypto.randomUUID(),
+    clientId: used.clientId,
+    userId: 'user-1',
+    scopes: ['read'],
+    expiresAt: DateTime.now().plus({ days: 1 }),
+  })
 
   const deleted = await store.purgeUnusedClients({
     createdBefore: DateTime.now().minus({ days: 30 }),

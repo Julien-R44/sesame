@@ -21,6 +21,7 @@ export async function createAuthCodeExchange(options?: {
   rawCode?: string
   codeVerifier?: string
   redirectUri?: string
+  grantId?: string | null
 }) {
   const manager = options?.manager ?? createManager()
   const clientId = options?.clientId ?? 'test-client'
@@ -36,6 +37,7 @@ export async function createAuthCodeExchange(options?: {
     rawCode,
     codeChallenge,
     codeChallengeMethod: 'S256',
+    grantId: options?.grantId,
   })
 
   const client = await OAuthClient.query().where('clientId', clientId).firstOrFail()

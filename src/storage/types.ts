@@ -1,4 +1,5 @@
 import type { DateTime } from 'luxon'
+import type { GrantContext } from '../types.ts'
 
 /**
  * Stored OAuth client. `clientSecret` is a hash and must never be exposed
@@ -22,11 +23,31 @@ export interface OAuthClientRecord {
   updatedAt: DateTime
 }
 
+/**
+ * One authorization given by a user to a client. Codes and tokens issued
+ * from it reference it through `grantId`, so revoking the grant revokes
+ * them all. `expiresAt` slides with the latest token issued.
+ */
+export interface OAuthGrantRecord {
+  id: string
+  clientId: string
+  userId: string
+  scopes: string[]
+  context: GrantContext | null
+  expiresAt: DateTime
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+/**
+ * `grantId` is null for client_credentials tokens and tokens issued before grants existed.
+ */
 export interface OAuthAccessTokenRecord {
   id: string
   tokenHash: string
   clientId: string
   userId: string | null
+  grantId: string | null
   scopes: string[]
   expiresAt: DateTime
   revokedAt: DateTime | null
@@ -40,6 +61,7 @@ export interface OAuthRefreshTokenRecord {
   accessTokenId: string
   clientId: string
   userId: string
+  grantId: string | null
   scopes: string[]
   expiresAt: DateTime
   revokedAt: DateTime | null
@@ -52,23 +74,24 @@ export interface OAuthAuthorizationCodeRecord {
   code: string
   clientId: string
   userId: string
+  grantId: string | null
   scopes: string[]
   redirectUri: string
   codeChallenge: string | null
   codeChallengeMethod: string | null
   nonce: string | null
+  consumedAt: DateTime | null
   expiresAt: DateTime
   createdAt: DateTime
   updatedAt: DateTime
 }
 
-export interface OAuthConsentRecord {
-  id: string
-  clientId: string
-  userId: string
-  scopes: string[]
-  createdAt: DateTime
-  updatedAt: DateTime
+/**
+ * Access token joined with its grant, so the guard reads both in one query.
+ * `grant` is null when the token has no grant or its grant was revoked.
+ */
+export interface OAuthAccessTokenWithGrantRecord extends OAuthAccessTokenRecord {
+  grant: OAuthGrantRecord | null
 }
 
 export interface OAuthPendingAuthorizationRequestRecord {
@@ -100,6 +123,7 @@ export type SesameCreateRecord<T> = Omit<T, SesameOptionalCreateKeys<T>> &
  * Creation input for each persisted OAuth record.
  */
 export type CreateClientRecord = SesameCreateRecord<OAuthClientRecord>
+export type CreateGrantRecord = SesameCreateRecord<OAuthGrantRecord>
 export type CreateAccessTokenRecord = SesameCreateRecord<OAuthAccessTokenRecord>
 export type CreateRefreshTokenRecord = SesameCreateRecord<OAuthRefreshTokenRecord>
 export type CreateAuthorizationCodeRecord = SesameCreateRecord<OAuthAuthorizationCodeRecord>
@@ -113,22 +137,40 @@ export type UpdateClientRecord = Partial<
   >
 >
 
+export type UpdateGrantRecord = Partial<Pick<OAuthGrantRecord, 'context'>>
+
 export interface SesamePurgeResult {
   accessTokens: number
   refreshTokens: number
   authorizationCodes: number
   pendingRequests: number
+  grants: number
 }
+
+/**
+ * Grant change applied in the same transaction as a token issuance:
+ * extend the expiry of an existing grant, or create one for tokens
+ * issued before grants existed.
+ */
+export type TokenGrantWrite =
+  | { type: 'extend'; id: string; expiresAt: DateTime }
+  | { type: 'create'; grant: CreateGrantRecord }
 
 export interface IssueTokenPairOptions {
   accessToken: CreateAccessTokenRecord
   refreshToken: CreateRefreshTokenRecord
+  grant?: TokenGrantWrite
 }
 
+/**
+ * Mark a code consumed (it is kept to detect reuse) and issue its tokens.
+ */
 export interface ExchangeAuthorizationCodeOptions {
   codeId: string
+  consumedAt: DateTime
   accessToken: CreateAccessTokenRecord
   refreshToken: CreateRefreshTokenRecord | null
+  grant?: TokenGrantWrite
 }
 
 export interface RotateRefreshTokenOptions extends IssueTokenPairOptions {
@@ -162,6 +204,15 @@ export interface PendingAuthorizationRequestLookupOptions {
 }
 
 /**
+ * List a user's grants, newest first. `activeAt` keeps only grants expiring after it.
+ */
+export interface ListStoredGrantsOptions {
+  userId: string
+  clientId?: string
+  activeAt?: DateTime
+}
+
+/**
  * OAuth-specific persistence operations. Callers never build database predicates.
  * Conditional exchanges and rotations return false when another request won.
  */
@@ -176,7 +227,7 @@ export interface SesameStore {
   findAccessToken(options: {
     hash: string
     clientId?: string
-  }): Promise<OAuthAccessTokenRecord | null>
+  }): Promise<OAuthAccessTokenWithGrantRecord | null>
   createAccessToken(data: CreateAccessTokenRecord): Promise<void>
   revokeAccessToken(options: { hash: string; clientId: string; now: DateTime }): Promise<boolean>
 
@@ -185,7 +236,15 @@ export interface SesameStore {
     clientId: string
   }): Promise<OAuthRefreshTokenRecord | null>
   revokeRefreshToken(options: { hash: string; clientId: string; now: DateTime }): Promise<void>
-  revokeTokenFamily(options: { clientId: string; userId: string; now: DateTime }): Promise<void>
+  /**
+   * Replay detection for tokens without a grant: delete the refresh tokens
+   * and revoke the access tokens of the client and user whose grant_id is null.
+   */
+  revokeLegacyTokenFamily(options: {
+    clientId: string
+    userId: string
+    now: DateTime
+  }): Promise<void>
 
   findAuthorizationCode(options: {
     code: string
@@ -195,8 +254,20 @@ export interface SesameStore {
   deleteAuthorizationCode(id: string): Promise<void>
   exchangeAuthorizationCode(options: ExchangeAuthorizationCodeOptions): Promise<boolean>
 
-  findConsent(options: { clientId: string; userId: string }): Promise<OAuthConsentRecord | null>
-  grantConsent(options: { clientId: string; userId: string; scopes: string[] }): Promise<void>
+  createGrant(data: CreateGrantRecord): Promise<void>
+  findGrant(id: string): Promise<OAuthGrantRecord | null>
+  listGrants(options: ListStoredGrantsOptions): Promise<OAuthGrantRecord[]>
+  updateGrant(options: { id: string; data: UpdateGrantRecord }): Promise<void>
+  /**
+   * Delete the grant with its codes and refresh tokens, and revoke its
+   * access tokens. Returns false when the grant did not exist.
+   */
+  revokeGrant(options: { id: string; now: DateTime }): Promise<boolean>
+  /**
+   * Revoke every grant of a user (optionally for one client) like `revokeGrant`.
+   * Returns the number of revoked grants.
+   */
+  revokeGrants(options: { userId: string; clientId?: string; now: DateTime }): Promise<number>
 
   createPendingAuthorizationRequest(data: CreatePendingAuthorizationRequestRecord): Promise<void>
   findPendingAuthorizationRequest(

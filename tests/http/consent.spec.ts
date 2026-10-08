@@ -3,7 +3,7 @@ import type { ApiClient } from '@japa/api-client'
 import { setupHttpGroup } from '../helpers/app.ts'
 import { createTestClient } from '../helpers/create_test_client.ts'
 import { createPkce } from '../helpers/create_pkce.ts'
-import { OAuthConsent } from '../../src/models/oauth_consent.ts'
+import { OAuthGrant } from '../../src/models/oauth_grant.ts'
 import { OAuthPendingAuthorizationRequest } from '../../src/models/oauth_pending_authorization_request.ts'
 
 const pkce = createPkce('consent-subset-verifier')
@@ -67,7 +67,7 @@ test.group('HTTP | Consent submission', (group) => {
     tokenResponse.assertStatus(200)
     assert.equal(tokenResponse.body().scope, 'read')
 
-    const consent = await OAuthConsent.query().firstOrFail()
+    const consent = await OAuthGrant.query().firstOrFail()
     assert.deepEqual(consent.scopes, ['read'])
   })
 
@@ -95,7 +95,7 @@ test.group('HTTP | Consent submission', (group) => {
 
     consentResponse.assertStatus(302)
 
-    const consent = await OAuthConsent.query().firstOrFail()
+    const consent = await OAuthGrant.query().firstOrFail()
     assert.deepEqual(consent.scopes, ['read', 'offline_access'])
   })
 

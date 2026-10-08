@@ -20,7 +20,7 @@ export const CLIENT_USAGE_TABLES = [
   'oauth_access_tokens',
   'oauth_refresh_tokens',
   'oauth_authorization_codes',
-  'oauth_consents',
+  'oauth_grants',
   'oauth_pending_authorization_requests',
 ] as const
 

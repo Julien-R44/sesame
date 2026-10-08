@@ -8,6 +8,8 @@ import { json } from '../decorators.js'
  * Authorization codes are short-lived, single-use tokens issued
  * during the authorization flow. The `code` column stores the
  * SHA-256 hash of the raw code value sent to the client.
+ * Exchanged codes are kept with `consumedAt` so a second
+ * redemption revokes the grant (OAuth 2.1 §4.1.3).
  *
  * When PKCE (RFC 7636) is used, the `codeChallenge` and
  * `codeChallengeMethod` (always S256) are stored alongside the
@@ -31,6 +33,9 @@ export class OAuthAuthorizationCode extends BaseModel {
   @column()
   declare userId: string
 
+  @column()
+  declare grantId: string | null
+
   @json()
   declare scopes: string[]
 
@@ -45,6 +50,9 @@ export class OAuthAuthorizationCode extends BaseModel {
 
   @column()
   declare nonce: string | null
+
+  @column.dateTime()
+  declare consumedAt: DateTime | null
 
   @column.dateTime()
   declare expiresAt: DateTime

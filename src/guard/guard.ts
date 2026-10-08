@@ -4,13 +4,15 @@ import type { EmitterLike } from '@adonisjs/core/types/events'
 import { symbols } from '@adonisjs/auth'
 import { errors } from '@adonisjs/auth'
 import type { AuthClientResponse, GuardContract } from '@adonisjs/auth/types'
-import type { Scope } from '../types.ts'
+import type { GrantContext, Scope } from '../types.ts'
 import type { SesameManager } from '../sesame_manager.ts'
+import type { OAuthAccessTokenWithGrantRecord } from '../storage/types.ts'
 import { TokenService } from '../services/token_service.ts'
 import { buildBearerChallenge, mergeScopes } from '../bearer_challenge.ts'
 import { E_INSUFFICIENT_SCOPE } from '../oauth_error.ts'
-import type { OAuthAccessTokenRecord } from '../storage/types.ts'
+import { assertGrantContext } from '../services/grant_service.ts'
 import type {
+  OAuthAuthenticateAsClientOptions,
   OAuthAuthenticateOptions,
   OAuthGuardAccessToken,
   OAuthGuardEvents,
@@ -21,8 +23,9 @@ import type {
  * OAuth 2.0 guard for `@adonisjs/auth`.
  *
  * Verifies opaque Bearer tokens against the database,
- * checks revocation and expiry, loads the real User model
- * via the provider, and exposes OAuth-specific data (scopes, clientId).
+ * checks revocation and expiry of the token and its grant,
+ * loads the real User model via the provider, and exposes
+ * OAuth-specific data (scopes, clientId, grantId, context).
  */
 export class OAuthGuard<
   UserProvider extends OAuthUserProviderContract<unknown>,
@@ -44,6 +47,17 @@ export class OAuthGuard<
    * `authenticate()`.
    */
   accessToken?: OAuthGuardAccessToken
+
+  /**
+   * Grant the token was issued from. Undefined for client_credentials
+   * tokens and tokens issued before grants existed.
+   */
+  grantId?: string
+
+  /**
+   * Application context stored on the token's grant, read on every request.
+   */
+  context: GrantContext | null = null
 
   #name: string
   #ctx: HttpContext
@@ -71,9 +85,11 @@ export class OAuthGuard<
   }
 
   /**
-   * Expose the identity of a token record without its hash.
+   * Expose the identity of a token record and its grant context without its hash.
    */
-  #toGuardAccessToken(record: OAuthAccessTokenRecord & { userId: string }): OAuthGuardAccessToken {
+  #toGuardAccessToken(
+    record: OAuthAccessTokenWithGrantRecord & { userId: string }
+  ): OAuthGuardAccessToken {
     return {
       id: record.id,
       clientId: record.clientId,
@@ -81,6 +97,8 @@ export class OAuthGuard<
       scopes: record.scopes as Scope[],
       expiresAt: record.expiresAt,
       createdAt: record.createdAt,
+      grantId: record.grantId,
+      context: record.grant?.context ?? null,
     }
   }
 
@@ -154,6 +172,19 @@ export class OAuthGuard<
   }
 
   /**
+   * Check the token itself and, when it belongs to a grant, that
+   * the grant still exists and has not expired.
+   */
+  #isUsable(record: OAuthAccessTokenWithGrantRecord): boolean {
+    const now = new Date()
+    if (record.revokedAt) return false
+    if (record.expiresAt.toJSDate() < now) return false
+    if (!record.grantId) return true
+
+    return record.grant !== null && record.grant.expiresAt.toJSDate() >= now
+  }
+
+  /**
    * Protected resource metadata URL (RFC 9728) of the resource
    * protected by this guard.
    */
@@ -197,10 +228,9 @@ export class OAuthGuard<
     const hashed = tokenService.hashToken(rawToken)
     const store = this.#manager.store
     const record = await store.findAccessToken({ hash: hashed })
-    if (!record) throw this.#authenticationFailed('Invalid or expired token', includeError)
-    if (record.revokedAt) throw this.#authenticationFailed('Invalid or expired token', includeError)
-    if (record.expiresAt.toJSDate() < new Date())
+    if (!record || !this.#isUsable(record)) {
       throw this.#authenticationFailed('Invalid or expired token', includeError)
+    }
 
     if (!record.userId) throw this.#authenticationFailed('Invalid or expired token', includeError)
 
@@ -212,6 +242,8 @@ export class OAuthGuard<
     this.accessToken = this.#toGuardAccessToken({ ...record, userId: record.userId })
     this.scopes = this.accessToken.scopes
     this.clientId = this.accessToken.clientId
+    this.grantId = this.accessToken.grantId ?? undefined
+    this.context = this.accessToken.context
 
     void this.#emitter.emit('oauth_auth:authentication_succeeded', {
       ctx: this.#ctx,
@@ -256,16 +288,26 @@ export class OAuthGuard<
 
   /**
    * Used internally by Japa's `loginAs` helper during testing.
-   * Creates a test client and access token in DB, then returns
-   * the authorization headers for the test HTTP client to use.
+   * Creates a test client, a grant, and an access token in DB,
+   * then returns the authorization headers for the test HTTP
+   * client to use.
+   *
+   * @example
+   * ```ts
+   * await client.get('/mcp').loginAs(user, { scopes: ['read'], context: { teamId: 1 } })
+   * ```
    *
    * @see https://docs.adonisjs.com/guides/auth/custom-auth-guard#implementing-the-guard
    */
   async authenticateAsClient(
-    user: UserProvider[typeof symbols.PROVIDER_REAL_USER]
+    user: UserProvider[typeof symbols.PROVIDER_REAL_USER],
+    options?: OAuthAuthenticateAsClientOptions
   ): Promise<AuthClientResponse> {
+    assertGrantContext(options?.context)
+
     const tokenService = new TokenService(this.#manager)
     const defaultScopes = this.#manager.config.defaultScopes
+    const scopes = options?.scopes ?? defaultScopes
 
     const store = this.#manager.store
     let testClient = await store.findClient('__test_client__')
@@ -289,13 +331,23 @@ export class OAuthGuard<
 
     const userId = String((user as any).id ?? (user as any).getId?.() ?? 'test-user')
     const { raw, hash, expiresAt } = tokenService.createAccessToken()
+    const grantId = crypto.randomUUID()
 
+    await store.createGrant({
+      id: grantId,
+      clientId: testClient.clientId,
+      userId,
+      scopes,
+      context: options?.context ?? null,
+      expiresAt: DateTime.fromJSDate(expiresAt),
+    })
     await store.createAccessToken({
       id: crypto.randomUUID(),
       tokenHash: hash,
       clientId: testClient.clientId,
       userId,
-      scopes: defaultScopes,
+      grantId,
+      scopes,
       expiresAt: DateTime.fromJSDate(expiresAt),
     })
 

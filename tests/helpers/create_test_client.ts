@@ -4,6 +4,7 @@ import { OAuthAuthorizationCode } from '../../src/models/oauth_authorization_cod
 import { ClientService } from '../../src/services/client_service.ts'
 import { TokenService } from '../../src/services/token_service.ts'
 import { createManager } from './app.ts'
+import { createTestGrant } from './create_test_grant.ts'
 
 export type TestClientOverrides = Partial<Record<string, any>> & {
   rawClientSecret?: string
@@ -43,7 +44,8 @@ export async function createTestClient(overrides?: TestClientOverrides) {
  * Creates an OAuthAuthorizationCode in the database.
  *
  * The `rawCode` is hashed before storage (matches real behavior).
- * Expires in 10 minutes by default.
+ * Expires in 10 minutes by default. A grant is created for the code
+ * unless `grantId` is given; pass `null` for a pre-grant (legacy) code.
  */
 export async function createTestAuthCode(options: {
   clientId: string
@@ -53,14 +55,27 @@ export async function createTestAuthCode(options: {
   rawCode: string
   codeChallenge?: string
   codeChallengeMethod?: string
+  grantId?: string | null
 }) {
   const tokenService = new TokenService(createManager())
+  const grantId =
+    options.grantId === undefined
+      ? (
+          await createTestGrant({
+            clientId: options.clientId,
+            userId: options.userId,
+            scopes: options.scopes,
+            expiresAt: DateTime.now().plus({ minutes: 10 }),
+          })
+        ).id
+      : options.grantId
 
   return OAuthAuthorizationCode.create({
     id: crypto.randomUUID(),
     code: tokenService.hashToken(options.rawCode),
     clientId: options.clientId,
     userId: options.userId,
+    grantId,
     scopes: options.scopes,
     redirectUri: options.redirectUri,
     codeChallenge: options.codeChallenge ?? null,

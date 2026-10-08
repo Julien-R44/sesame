@@ -14,6 +14,7 @@ export default class extends BaseSchema {
         .inTable('oauth_clients')
         .onDelete('CASCADE')
       table.string('user_id').nullable()
+      table.uuid('grant_id').nullable().index()
       table.json('scopes').notNullable()
       table.timestamp('expires_at').notNullable()
       table.timestamp('revoked_at').nullable()

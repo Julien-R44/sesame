@@ -6,7 +6,8 @@ import { assertOAuthError } from './helpers/assert_oauth_error.ts'
 import { TokenService } from '../src/services/token_service.ts'
 import type { SesameManager } from '../src/sesame_manager.ts'
 import { OAuthAuthorizationCode } from '../src/models/oauth_authorization_code.ts'
-import { OAuthConsent } from '../src/models/oauth_consent.ts'
+import { OAuthGrant } from '../src/models/oauth_grant.ts'
+import { createTestGrant } from './helpers/create_test_grant.ts'
 import { OAuthPendingAuthorizationRequest } from '../src/models/oauth_pending_authorization_request.ts'
 
 /**
@@ -70,7 +71,7 @@ test.group('Integration | Approve and deny authorization', (group) => {
     const code = await OAuthAuthorizationCode.query().firstOrFail()
     assert.deepEqual(code.scopes, ['read'])
 
-    const consent = await OAuthConsent.query().firstOrFail()
+    const consent = await OAuthGrant.query().firstOrFail()
     assert.deepEqual(consent.scopes, ['read'])
   })
 
@@ -248,14 +249,10 @@ test.group('Integration | Approve and deny authorization', (group) => {
     assert.lengthOf(await OAuthAuthorizationCode.all(), 0)
   })
 
-  test('denies a request and leaves existing consent untouched', async ({ assert }) => {
+  test('denies a request and leaves existing grants untouched', async ({ assert }) => {
     const manager = createManager()
     await createTestClient()
-    await manager.store.grantConsent({
-      clientId: 'test-client',
-      userId: 'user-1',
-      scopes: ['read'],
-    })
+    await createTestGrant({ scopes: ['read'] })
     const authToken = await createPendingRequest(manager, ['read', 'write'])
 
     const decision = await manager.denyAuthorization({ authToken, userId: 'user-1' })
@@ -274,7 +271,7 @@ test.group('Integration | Approve and deny authorization', (group) => {
     assert.lengthOf(await OAuthPendingAuthorizationRequest.all(), 0)
     assert.lengthOf(await OAuthAuthorizationCode.all(), 0)
 
-    const consent = await OAuthConsent.query().firstOrFail()
+    const consent = await OAuthGrant.query().firstOrFail()
     assert.deepEqual(consent.scopes, ['read'])
   })
 })

@@ -17,6 +17,7 @@ import { kyselyStore } from '../../src/storage/drivers/kysely.ts'
 import { up } from '../../src/storage/migrations/kysely.ts'
 import { createPkce } from '../helpers/create_pkce.ts'
 import { createFakeEmitter, FakeUserProvider } from '../helpers/fakes.ts'
+import { testGrantRecords, testGrantRevocation } from './grant_store_contract.ts'
 
 async function createKyselyManager() {
   const db = new Kysely<any>({ dialect: new SqliteDialect({ database: new Database(':memory:') }) })
@@ -154,11 +155,13 @@ test.group('Kysely store | OAuth flows', () => {
       await createClient('dynamic-unused', { registration: 'dynamic' })
       await createClient('legacy-unused', { token_endpoint_auth_method: 'none' })
       await createClient('manual-unused', null)
-      await createClient('dynamic-consented', { registration: 'dynamic' })
-      await store.grantConsent({
-        clientId: 'dynamic-consented',
+      await createClient('dynamic-granted', { registration: 'dynamic' })
+      await store.createGrant({
+        id: crypto.randomUUID(),
+        clientId: 'dynamic-granted',
         userId: 'user-1',
         scopes: ['read'],
+        expiresAt: DateTime.now().plus({ days: 1 }),
       })
 
       const deleted = await store.purgeUnusedClients({
@@ -168,30 +171,22 @@ test.group('Kysely store | OAuth flows', () => {
       assert.equal(deleted, 2)
       assert.sameMembers(
         (await store.listClients()).map((client) => client.clientId),
-        ['manual-unused', 'dynamic-consented']
+        ['manual-unused', 'dynamic-granted']
       )
     } finally {
       await db.destroy()
     }
   })
 
-  test('merges consent and consumes a pending request once', async ({ assert }) => {
+  test('persists grants and consumes a pending request once', async ({ assert }) => {
     const { db, manager } = await createKyselyManager()
 
     try {
       const { client } = await manager.createClient({ name: 'Consent App', redirectUris: [] })
       const store = manager.store
       const identity = { clientId: client.clientId, userId: 'user-1' }
-      await store.grantConsent({ ...identity, scopes: ['read'] })
-      await store.grantConsent({ ...identity, scopes: ['write', 'read'] })
-      assert.deepEqual((await store.findConsent(identity))?.scopes, ['read', 'write'])
-
-      const concurrentIdentity = { clientId: client.clientId, userId: 'user-2' }
-      await Promise.all([
-        store.grantConsent({ ...concurrentIdentity, scopes: ['read'] }),
-        store.grantConsent({ ...concurrentIdentity, scopes: ['write'] }),
-      ])
-      assert.sameMembers((await store.findConsent(concurrentIdentity))!.scopes, ['read', 'write'])
+      await testGrantRecords(store, client.clientId, assert)
+      await testGrantRevocation(store, client.clientId, assert)
 
       await store.createPendingAuthorizationRequest({
         id: crypto.randomUUID(),

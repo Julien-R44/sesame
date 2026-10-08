@@ -10,8 +10,8 @@ import { json } from '../decorators.js'
  * produces a new token and revokes the old one.
  *
  * Replay detection is implemented by checking `revokedAt` —
- * if a revoked token is presented, all tokens for that
- * client+user pair are deleted as a security measure.
+ * if a revoked token is presented, its whole grant is revoked
+ * as a security measure.
  *
  * @see https://datatracker.ietf.org/doc/html/rfc6749#section-6
  * @see https://datatracker.ietf.org/doc/html/draft-ietf-oauth-security-topics#section-4.14.2
@@ -33,6 +33,9 @@ export class OAuthRefreshToken extends BaseModel {
 
   @column()
   declare userId: string
+
+  @column()
+  declare grantId: string | null
 
   @json()
   declare scopes: string[]

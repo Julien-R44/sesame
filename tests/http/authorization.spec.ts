@@ -4,7 +4,7 @@ import { setupHttpGroup } from '../helpers/app.ts'
 import { createTestClient } from '../helpers/create_test_client.ts'
 import { createPkce } from '../helpers/create_pkce.ts'
 import { OAuthAuthorizationCode } from '../../src/models/oauth_authorization_code.ts'
-import { OAuthConsent } from '../../src/models/oauth_consent.ts'
+import { createTestGrant } from '../helpers/create_test_grant.ts'
 import { OAuthPendingAuthorizationRequest } from '../../src/models/oauth_pending_authorization_request.ts'
 import { TokenService } from '../../src/services/token_service.ts'
 import { createManager } from '../helpers/app.ts'
@@ -378,7 +378,7 @@ test.group('HTTP | Authorization Flow', (group) => {
     const { codeChallenge } = createPkce('skip-consent-verifier')
 
     // Pre-create consent for 'read' scope
-    await OAuthConsent.create({
+    await createTestGrant({
       id: crypto.randomUUID(),
       clientId: 'test-client',
       userId: 'user-1',

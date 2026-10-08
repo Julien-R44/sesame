@@ -7,6 +7,7 @@ import type { OAuthGuardEvents, OAuthUserProviderContract } from './types.ts'
 
 export { OAuthGuard } from './guard.ts'
 export type {
+  OAuthAuthenticateAsClientOptions,
   OAuthAuthenticateOptions,
   OAuthGuardAccessToken,
   OAuthGuardUser,

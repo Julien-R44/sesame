@@ -200,19 +200,23 @@ export class AuthorizeAction {
   }
 
   /**
-   * Check whether a stored consent already covers every requested scope.
+   * Check whether the user's active grants without context already
+   * cover every requested scope. Grants with a context never skip the
+   * consent page: the application must pick the context again.
    */
   async #hasConsent(
     manager: SesameManager,
     options: { clientId: string; userId: string; scopes: string[] }
   ): Promise<boolean> {
-    const consent = await manager.store.findConsent({
-      clientId: options.clientId,
+    const grants = await manager.store.listGrants({
       userId: options.userId,
+      clientId: options.clientId,
+      activeAt: DateTime.now(),
     })
-    if (!consent) return false
+    const consentable = grants.filter((grant) => grant.context === null)
+    if (consentable.length === 0) return false
 
-    const consentedSet = new Set(consent.scopes)
+    const consentedSet = new Set(consentable.flatMap((grant) => grant.scopes))
 
     return options.scopes.every((scope) => consentedSet.has(scope))
   }
