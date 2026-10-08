@@ -8,6 +8,8 @@ import { kyselyStore } from '../../src/storage/drivers/kysely.ts'
 import { up, down } from '../../src/storage/migrations/kysely.ts'
 import type { SesameStore } from '../../src/storage/types.ts'
 import { testGrantRecords, testGrantRevocation } from './grant_store_contract.ts'
+import * as kyselyUpgrade from '../../src/storage/migrations/kysely_upgrade_0_8_add_oauth_grants.ts'
+import * as kyselyV07 from '../fixtures/migrations_0_7/kysely.ts'
 
 /**
  * These tests use dedicated databases supplied through SESAME_TEST_POSTGRES_URL,
@@ -321,6 +323,11 @@ for (const dialect of ['postgres', 'mysql', 'mariadb'] as const) {
     const db = createDatabase(dialect, connectionUrl!)
 
     try {
+      await kyselyV07.up(db)
+      await kyselyUpgrade.up(db)
+      await kyselyUpgrade.down(db)
+      await kyselyV07.down(db)
+
       await up(db)
       const store = kyselyStore({ db })
       const clientId = await testClientRecords(store, assert)

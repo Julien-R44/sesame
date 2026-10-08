@@ -16,6 +16,7 @@ export default defineConfig({
     './commands/sesame_client.ts',
     './commands/sesame_key.ts',
     './commands/sesame_purge.ts',
+    './commands/sesame_upgrade.ts',
     './src/middleware/scope_middleware.ts',
     './src/middleware/any_scope_middleware.ts',
   ],

@@ -1,0 +1,71 @@
+{{{
+  exports({ to: app.migrationsPath(`${prefix}_upgrade_0_8_add_oauth_grants.ts`) })
+}}}
+import { BaseSchema } from '@adonisjs/lucid/schema'
+
+const GRANT_TABLES = ['oauth_authorization_codes', 'oauth_access_tokens', 'oauth_refresh_tokens']
+
+/**
+ * Upgrade Sésame 0.7 OAuth tables to 0.8 grants. Existing codes and
+ * tokens keep working without a grant; refresh tokens are attached to
+ * a new grant on their next rotation.
+ */
+export default class extends BaseSchema {
+  async up() {
+    // A grant is one authorization given by a user to a client; its tokens reference it.
+    this.schema.createTable('oauth_grants', (table) => {
+      table.uuid('id').primary()
+      table.string('client_id').notNullable().references('client_id').inTable('oauth_clients').onDelete('CASCADE')
+      table.string('user_id').notNullable()
+      table.json('scopes').notNullable()
+      table.json('context').nullable()
+      table.timestamp('expires_at').notNullable()
+      table.timestamp('created_at').notNullable()
+      table.timestamp('updated_at').notNullable()
+
+      table.index(['user_id', 'client_id'])
+    })
+
+    // Codes and tokens reference the grant they were issued from.
+    for (const tableName of GRANT_TABLES) {
+      this.schema.alterTable(tableName, (table) => {
+        table.uuid('grant_id').nullable().index()
+      })
+    }
+
+    // Exchanged codes are kept so a second redemption revokes their grant.
+    this.schema.alterTable('oauth_authorization_codes', (table) => {
+      table.timestamp('consumed_at').nullable()
+    })
+
+    // Remembered consent is now derived from active grants.
+    this.schema.dropTable('oauth_consents')
+  }
+
+  async down() {
+    // Restore the consent table, empty: grants cannot be merged back into consents.
+    this.schema.createTable('oauth_consents', (table) => {
+      table.uuid('id').primary()
+      table.string('client_id').notNullable().references('client_id').inTable('oauth_clients').onDelete('CASCADE')
+      table.string('user_id').notNullable()
+      table.json('scopes').notNullable()
+      table.timestamp('created_at').notNullable()
+      table.timestamp('updated_at').notNullable()
+
+      table.unique(['client_id', 'user_id'])
+    })
+
+    this.schema.alterTable('oauth_authorization_codes', (table) => {
+      table.dropColumn('consumed_at')
+    })
+
+    for (const tableName of GRANT_TABLES) {
+      this.schema.alterTable(tableName, (table) => {
+        table.dropIndex(['grant_id'])
+        table.dropColumn('grant_id')
+      })
+    }
+
+    this.schema.dropTable('oauth_grants')
+  }
+}
