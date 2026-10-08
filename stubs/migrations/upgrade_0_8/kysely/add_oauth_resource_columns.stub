@@ -1,0 +1,32 @@
+{{{
+  exports({
+    to: app.makePath('database/kysely_migrations', 'upgrade_0_8_add_oauth_resource_columns.ts')
+  })
+}}}
+import type { Kysely } from 'kysely'
+
+/**
+ * Tables whose records can be bound to an RFC 8707 resource indicator.
+ */
+const TABLES = [
+  'oauth_pending_authorization_requests',
+  'oauth_authorization_codes',
+  'oauth_access_tokens',
+  'oauth_refresh_tokens',
+]
+
+/**
+ * Sésame 0.8: store the resource (RFC 8707) that authorization requests,
+ * codes, and tokens are bound to. Existing rows stay unbound (null).
+ */
+export async function up(db: Kysely<any>): Promise<void> {
+  for (const table of TABLES) {
+    await db.schema.alterTable(table).addColumn('resource', 'text').execute()
+  }
+}
+
+export async function down(db: Kysely<any>): Promise<void> {
+  for (const table of TABLES) {
+    await db.schema.alterTable(table).dropColumn('resource').execute()
+  }
+}
