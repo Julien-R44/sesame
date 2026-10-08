@@ -6,6 +6,7 @@ import { SesameManager } from '../sesame_manager.ts'
 import { AuthorizeAction } from '../actions/authorize.ts'
 import { buildClientRedirectUrl, type ClientRedirectUrlOptions } from '../client_redirect_url.ts'
 import { ClientMetadataDocumentFetcher } from '../client_id_metadata_documents/fetcher.ts'
+import { ClientMetadataDocumentResolutionCache } from '../client_id_metadata_documents/resolution_cache.ts'
 import { E_INVALID_REQUEST } from '../oauth_error.ts'
 
 /**
@@ -42,8 +43,13 @@ export default class AuthorizeController {
     await ctx.auth.check()
     const user = ctx.auth.user as { id: string | number } | undefined
 
-    const fetcher = await ctx.containerResolver.make(ClientMetadataDocumentFetcher)
-    const action = new AuthorizeAction({ fetcher })
+    const action = new AuthorizeAction({
+      clientMetadataDocuments: {
+        fetcher: await ctx.containerResolver.make(ClientMetadataDocumentFetcher),
+        cache: await ctx.containerResolver.make(ClientMetadataDocumentResolutionCache),
+        logger: ctx.logger,
+      },
+    })
     const result = await action.execute(manager, {
       clientId: query.client_id,
       responseType: query.response_type,
