@@ -17,6 +17,7 @@ export interface FetchedClientMetadataDocument {
   cacheControl: string | null
   expires: string | null
   date: string | null
+  age: string | null
 }
 
 /**
@@ -44,8 +45,14 @@ export interface CacheTtlOptions {
   cacheControl: string | null
   expires: string | null
   date: string | null
+  age: string | null
   minTtl: number
   maxTtl: number
+
+  /**
+   * Response time in milliseconds. Defaults to `Date.now()`.
+   */
+  now?: number
 }
 
 /**

@@ -781,7 +781,7 @@ When `/oauth/authorize` receives a `client_id` starting with `https://`, Sésame
 3. Fetches the document if no fresh copy is stored, then validates it. The rules are listed below.
 4. Stores the client in `oauth_clients` as a public client with mandatory PKCE, but only once the user is authenticated. Anonymous requests are validated without writing anything.
 
-The token, introspection, and revocation endpoints use the stored client and never fetch the document. The stored client is reused until the cache lifetime expires, then refreshed on the next authorization request. The cache lifetime comes from `Cache-Control: max-age` or `Expires`, clamped to `[minTtl, maxTtl]`. Responses with `no-store`, `no-cache`, or no freshness information use `minTtl`. If the document can no longer be fetched or validated, the authorization request fails even when a stored copy exists.
+The token, introspection, and revocation endpoints use the stored client and never fetch the document. The stored client is reused until the cache lifetime expires, then refreshed on the next authorization request. The cache lifetime is the remaining freshness of the response (`Cache-Control: max-age` or `Expires`, minus its age from the `Age` and `Date` headers, as defined by RFC 9111), clamped to `[minTtl, maxTtl]`. Responses with `no-store`, `no-cache`, no freshness information, or that are already stale use `minTtl`. If the document can no longer be fetched or validated, the authorization request fails even when a stored copy exists.
 
 Any failure returns an `invalid_client` error to the browser. Sésame does not redirect to the `redirect_uri` because it cannot be trusted yet.
 

@@ -101,7 +101,7 @@ test.group('HTTP | Client ID Metadata Documents', (group) => {
     client,
     assert,
   }) => {
-    fetcher.serve(CLAUDE_CODE_ID, claudeCodeDocument, { cacheControl: 'max-age=3600' })
+    fetcher.serve(CLAUDE_CODE_ID, claudeCodeDocument, { cacheControl: 'max-age=4200', age: '600' })
     const redirectUri = 'http://localhost:3118/callback'
 
     const authorizeResponse = await authorize(client, {

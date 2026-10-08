@@ -15,12 +15,13 @@ export class FakeClientMetadataDocumentFetcher extends ClientMetadataDocumentFet
   #responses = new Map<string, FetchedClientMetadataDocument | Error>()
   calls: string[] = []
 
-  serve(url: string, body: unknown, options?: { cacheControl?: string }) {
+  serve(url: string, body: unknown, options?: { cacheControl?: string; age?: string }) {
     this.#responses.set(url, {
       body,
       cacheControl: options?.cacheControl ?? null,
       expires: null,
       date: null,
+      age: options?.age ?? null,
     })
   }
 

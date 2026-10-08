@@ -19,6 +19,7 @@ const handlers: Record<string, Handler> = {
     res.writeHead(200, {
       'content-type': 'application/json; charset=utf-8',
       'cache-control': 'public, max-age=600',
+      'age': '120',
     })
     res.end(JSON.stringify({ client_id: 'x' }))
   },
@@ -103,6 +104,8 @@ test.group('CIMD | fetcher', (group) => {
 
     assert.deepEqual(result.body, { client_id: 'x' })
     assert.equal(result.cacheControl, 'public, max-age=600')
+    assert.equal(result.age, '120')
+    assert.isString(result.date)
   })
 
   test('accepts application/*+json media types', async ({ assert }) => {
