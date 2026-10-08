@@ -52,6 +52,7 @@ export class OAuthGuard<
   #manager: SesameManager
   #resource?: string
   #challengeScopes: Scope[] = []
+  #failure?: { description: string; includeError: boolean }
 
   constructor(
     name: string,
@@ -106,15 +107,38 @@ export class OAuthGuard<
     return mergeScopes(resourceScopes, routeScopes) as Scope[]
   }
 
-  #authenticationFailed(description: string, options?: { includeError?: boolean }) {
+  /**
+   * Write the 401 challenge of the last authentication failure.
+   */
+  #writeChallenge() {
+    if (!this.#failure) return
+
+    const { description, includeError } = this.#failure
     const header = buildBearerChallenge({
       resourceMetadata: this.resourceMetadataUrl,
       scopes: this.#challengeScopes,
-      error: options?.includeError ? 'invalid_token' : undefined,
-      errorDescription: options?.includeError ? description : undefined,
+      error: includeError ? 'invalid_token' : undefined,
+      errorDescription: includeError ? description : undefined,
     })
 
     this.#ctx.response.header('WWW-Authenticate', header)
+  }
+
+  /**
+   * Rewrite the challenge of a failed attempt with the scopes of a later
+   * call, e.g. `ctx.auth.check()` on the default guard followed by the
+   * scope middleware.
+   */
+  #refreshChallenge(options?: OAuthAuthenticateOptions) {
+    if (!options || this.isAuthenticated) return
+
+    this.#challengeScopes = this.#resolveChallengeScopes(options)
+    this.#writeChallenge()
+  }
+
+  #authenticationFailed(description: string, options?: { includeError?: boolean }) {
+    this.#failure = { description, includeError: options?.includeError ?? false }
+    this.#writeChallenge()
 
     const error = new errors.E_UNAUTHORIZED_ACCESS(description, {
       guardDriverName: this.driverName,
@@ -154,7 +178,10 @@ export class OAuthGuard<
   async authenticate(
     options?: OAuthAuthenticateOptions
   ): Promise<UserProvider[typeof symbols.PROVIDER_REAL_USER]> {
-    if (this.authenticationAttempted) return this.getUserOrFail()
+    if (this.authenticationAttempted) {
+      this.#refreshChallenge(options)
+      return this.getUserOrFail()
+    }
 
     this.authenticationAttempted = true
     this.#challengeScopes = this.#resolveChallengeScopes(options)
