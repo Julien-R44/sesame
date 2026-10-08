@@ -88,7 +88,7 @@ node ace migration:run
 node ace sesame:upgrade 0.8 --store=kysely
 ```
 
-The Kysely migration is written to `database/kysely_migrations/upgrade_0_8_add_oauth_grants.ts`. Move it next to the `create_oauth_tables.ts` migration you applied for 0.7.0, keep a filename that sorts after it, and run it with your Kysely migrator.
+The Kysely migrations are written to `database/kysely_migrations/` with names such as `sesame_v000800_add_oauth_grants.ts`: the zero-padded version keeps them sorted after `create_oauth_tables.ts` and before the migrations of later Sésame versions. Move them next to the `create_oauth_tables.ts` migration you applied for 0.7.0, keep their filenames, and run them with your Kysely migrator.
 
 The migration:
 

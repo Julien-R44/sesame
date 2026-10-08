@@ -22,6 +22,15 @@ export interface ExchangeRefreshTokenInput {
 }
 
 /**
+ * Refresh token issuing new tokens and the expiries of those tokens.
+ */
+interface GrantResolution {
+  refreshToken: OAuthRefreshTokenRecord
+  accessTokenExpiresAt: Date
+  refreshTokenExpiresAt: DateTime
+}
+
+/**
  * Refresh token being rotated and the tokens and grant replacing it.
  */
 interface RefreshRotation {
@@ -139,7 +148,11 @@ export class ExchangeRefreshTokenAction {
       accessToken.raw
     )
 
-    const grant = this.#resolveGrant(manager, refreshToken, newRefreshToken.expiresAt)
+    const grant = this.#resolveGrant(manager, {
+      refreshToken,
+      accessTokenExpiresAt: accessToken.expiresAt,
+      refreshTokenExpiresAt: newRefreshToken.expiresAt,
+    })
     await this.#atomicRotation(manager, {
       client: input.client,
       oldRefreshToken: refreshToken,
@@ -188,10 +201,14 @@ export class ExchangeRefreshTokenAction {
     )
 
     const accessTokenId = crypto.randomUUID()
-    const grant = this.#resolveGrant(manager, revokedRefreshToken, newRefreshToken.expiresAt)
+    const grant = this.#resolveGrant(manager, {
+      refreshToken: revokedRefreshToken,
+      accessTokenExpiresAt: accessToken.expiresAt,
+      refreshTokenExpiresAt: newRefreshToken.expiresAt,
+    })
 
     const store = manager.store
-    await store.issueTokenPair({
+    const issued = await store.issueTokenPair({
       grant: grant.write,
       accessToken: {
         id: accessTokenId,
@@ -213,6 +230,7 @@ export class ExchangeRefreshTokenAction {
         expiresAt: newRefreshToken.expiresAt,
       },
     })
+    if (!issued) throw new E_INVALID_GRANT('Grant has been revoked or has expired')
 
     const ttlSeconds = string.seconds.parse(manager.config.accessTokenTtl)
 
@@ -227,20 +245,23 @@ export class ExchangeRefreshTokenAction {
   }
 
   /**
-   * Keep the new tokens in the refresh token's grant until the new
-   * refresh token expires, adopting legacy tokens into a new grant.
+   * Keep the new tokens in the refresh token's grant until the last of
+   * them expires, adopting legacy tokens (and the presented refresh
+   * token with its access token) into a new grant.
    */
-  #resolveGrant(
-    manager: SesameManager,
-    refreshToken: OAuthRefreshTokenRecord,
-    expiresAt: DateTime
-  ): ResolvedTokenGrant {
+  #resolveGrant(manager: SesameManager, options: GrantResolution): ResolvedTokenGrant {
+    const { refreshToken } = options
+
     return new GrantService(manager).resolveTokenGrant({
       grantId: refreshToken.grantId,
       clientId: refreshToken.clientId,
       userId: refreshToken.userId,
       scopes: refreshToken.scopes,
-      expiresAt,
+      expiresAt: DateTime.max(
+        DateTime.fromJSDate(options.accessTokenExpiresAt),
+        options.refreshTokenExpiresAt
+      ),
+      adopt: { refreshTokenId: refreshToken.id, accessTokenId: refreshToken.accessTokenId },
     })
   }
 
@@ -357,6 +378,9 @@ export class ExchangeRefreshTokenAction {
       },
     })
 
-    if (!rotated) throw new E_INVALID_GRANT('Refresh token has already been consumed')
+    if (rotated) return
+
+    await new GrantService(manager).assertActive(oldRefreshToken.grantId)
+    throw new E_INVALID_GRANT('Refresh token has already been consumed')
   }
 }

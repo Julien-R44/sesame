@@ -10,7 +10,7 @@ import type { OAuthAccessTokenWithGrantRecord } from '../storage/types.ts'
 import { TokenService } from '../services/token_service.ts'
 import { buildBearerChallenge, mergeScopes } from '../bearer_challenge.ts'
 import { E_INSUFFICIENT_SCOPE } from '../oauth_error.ts'
-import { assertGrantContext } from '../services/grant_service.ts'
+import { assertGrantContext, hasActiveGrant } from '../services/grant_service.ts'
 import type {
   OAuthAuthenticateAsClientOptions,
   OAuthAuthenticateOptions,
@@ -176,12 +176,10 @@ export class OAuthGuard<
    * the grant still exists and has not expired.
    */
   #isUsable(record: OAuthAccessTokenWithGrantRecord): boolean {
-    const now = new Date()
     if (record.revokedAt) return false
-    if (record.expiresAt.toJSDate() < now) return false
-    if (!record.grantId) return true
+    if (record.expiresAt.toJSDate() < new Date()) return false
 
-    return record.grant !== null && record.grant.expiresAt.toJSDate() >= now
+    return hasActiveGrant(record)
   }
 
   /**

@@ -1,10 +1,14 @@
 import { DateTime } from 'luxon'
 import type { SesameManager } from '../sesame_manager.ts'
-import type { TokenGrantWrite } from '../storage/types.ts'
+import type { GrantAdoption, OAuthGrantRecord, TokenGrantWrite } from '../storage/types.ts'
 import { E_INVALID_GRANT } from '../oauth_error.ts'
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
  * Credential (code or refresh token) about to issue new tokens.
+ * `adopt` lists the rows attached to the grant when a legacy
+ * credential gets a new one.
  */
 export interface TokenGrantSource {
   grantId: string | null
@@ -12,6 +16,7 @@ export interface TokenGrantSource {
   userId: string
   scopes: string[]
   expiresAt: DateTime
+  adopt: GrantAdoption
 }
 
 /**
@@ -30,6 +35,28 @@ export function assertGrantContext(context: unknown): void {
   if (typeof context === 'object' && !Array.isArray(context)) return
 
   throw new TypeError('Grant context must be a plain object or null')
+}
+
+/**
+ * Check whether a grant identifier can exist. Grant ids are UUIDs, and
+ * some databases reject anything else in a native UUID column.
+ */
+export function isGrantId(value: string): boolean {
+  return UUID_PATTERN.test(value)
+}
+
+/**
+ * Check that a token's grant is still active. Tokens without a grant
+ * (client_credentials, issued before grants existed) are not affected.
+ */
+export function hasActiveGrant(token: {
+  grantId: string | null
+  grant: OAuthGrantRecord | null
+}): boolean {
+  if (!token.grantId) return true
+  if (!token.grant) return false
+
+  return token.grant.expiresAt.toMillis() > Date.now()
 }
 
 /**
@@ -55,15 +82,28 @@ export class GrantService {
   async assertActive(grantId: string | null): Promise<void> {
     if (!grantId) return
 
-    const grant = await this.#manager.store.findGrant(grantId)
-    if (!grant || grant.expiresAt < DateTime.now()) {
+    if (!(await this.isActive(grantId))) {
       throw new E_INVALID_GRANT('Grant has been revoked or has expired')
     }
   }
 
   /**
+   * Check that a credential's grant still exists and has not expired.
+   * Credentials without a grant are always considered active.
+   */
+  async isActive(grantId: string | null): Promise<boolean> {
+    if (!grantId) return true
+
+    const grant = await this.#manager.store.findGrant(grantId)
+
+    return hasActiveGrant({ grantId, grant })
+  }
+
+  /**
    * Extend the credential's grant until the new tokens expire, or adopt
-   * a legacy credential into a new context-less grant.
+   * a legacy credential into a new context-less grant. Adopting the
+   * presented code or refresh token makes a later replay of it revoke
+   * the new grant.
    */
   resolveTokenGrant(source: TokenGrantSource): ResolvedTokenGrant {
     if (source.grantId) {
@@ -87,6 +127,7 @@ export class GrantService {
           context: null,
           expiresAt: source.expiresAt,
         },
+        adopt: source.adopt,
       },
     }
   }

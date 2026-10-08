@@ -8,6 +8,7 @@ import {
 } from 'kysely'
 import { DateTime } from 'luxon'
 import { CLIENT_USAGE_TABLES, chunkClientIds, isPurgeableClient } from '../unused_clients.js'
+import { falseOnInactiveGrant, InactiveGrantError } from '../inactive_grant.js'
 import type {
   CreateAccessTokenRecord,
   CreateAuthorizationCodeRecord,
@@ -15,6 +16,7 @@ import type {
   CreateGrantRecord,
   CreatePendingAuthorizationRequestRecord,
   ExchangeAuthorizationCodeOptions,
+  GrantAdoption,
   IssueTokenPairOptions,
   ListStoredGrantsOptions,
   OAuthAccessTokenRecord,
@@ -293,6 +295,7 @@ export class KyselyStore implements SesameStore {
 
   /**
    * Extend or create the grant written alongside a token issuance.
+   * Must run inside a transaction.
    */
   async #applyGrantWrite(write?: TokenGrantWrite): Promise<void> {
     if (!write) return
@@ -301,29 +304,69 @@ export class KyselyStore implements SesameStore {
         .insertInto(tables.grants.name)
         .values(this.#newRow(write.grant, tables.grants))
         .execute()
+      await this.#adoptIntoGrant(write.grant.id, write.adopt)
       return
     }
 
+    await this.#extendGrant(write)
+  }
+
+  /**
+   * Lock an active grant and move its expiry forward, or throw so the
+   * issuance rolls back when the grant was revoked or expired meanwhile.
+   */
+  async #extendGrant(write: { id: string; expiresAt: DateTime }): Promise<void> {
+    const now = DateTime.now()
+    const query = this.#db
+      .selectFrom(tables.grants.name)
+      .select('expires_at')
+      .where('id', '=', write.id)
+      .where('expires_at', '>', encodeValue(now, 'expiresAt', tables.grants, this.#dialect))
+    const row = await (this.#dialect === 'sqlite' ? query : query.forUpdate()).executeTakeFirst()
+    if (!row) throw new InactiveGrantError()
+    if (toDateTime(row.expires_at) >= write.expiresAt) return
+
     await this.#db
       .updateTable(tables.grants.name)
-      .set(
-        encodeRow(
-          { expiresAt: write.expiresAt, updatedAt: DateTime.now() },
-          tables.grants,
-          this.#dialect
-        )
-      )
+      .set(encodeRow({ expiresAt: write.expiresAt, updatedAt: now }, tables.grants, this.#dialect))
       .where('id', '=', write.id)
       .execute()
   }
 
   /**
+   * Attach pre-grant credentials to a newly created grant.
+   */
+  async #adoptIntoGrant(grantId: string, adopt: GrantAdoption): Promise<void> {
+    const targets = [
+      { table: tables.authorizationCodes.name, id: adopt.codeId },
+      { table: tables.refreshTokens.name, id: adopt.refreshTokenId },
+      { table: tables.accessTokens.name, id: adopt.accessTokenId },
+    ]
+
+    for (const target of targets) {
+      if (!target.id) continue
+
+      await this.#db
+        .updateTable(target.table)
+        .set({ grant_id: grantId })
+        .where('id', '=', target.id)
+        .where('grant_id', 'is', null)
+        .execute()
+    }
+  }
+
+  /**
    * Delete grants with their codes and refresh tokens and revoke their
-   * access tokens. Must run inside a transaction.
+   * access tokens. Must run inside a transaction. The grants are deleted
+   * first so a concurrent issuance holding their lock cannot outlive them.
    */
   async #revokeGrantIds(ids: string[], now: DateTime): Promise<number> {
     if (ids.length === 0) return 0
 
+    const result = await this.#db
+      .deleteFrom(tables.grants.name)
+      .where('id', 'in', ids)
+      .executeTakeFirst()
     await this.#db.deleteFrom(tables.refreshTokens.name).where('grant_id', 'in', ids).execute()
     await this.#db.deleteFrom(tables.authorizationCodes.name).where('grant_id', 'in', ids).execute()
     await this.#db
@@ -332,10 +375,6 @@ export class KyselyStore implements SesameStore {
       .where('grant_id', 'in', ids)
       .where('revoked_at', 'is', null)
       .execute()
-    const result = await this.#db
-      .deleteFrom(tables.grants.name)
-      .where('id', 'in', ids)
-      .executeTakeFirst()
 
     return Number(result.numDeletedRows ?? 0)
   }
@@ -617,32 +656,34 @@ export class KyselyStore implements SesameStore {
    * Consume a code once and issue its token pair in one transaction.
    */
   async exchangeAuthorizationCode(options: ExchangeAuthorizationCodeOptions): Promise<boolean> {
-    return this.#transaction(async (store) => {
-      const consumed = await store.#db
-        .updateTable(tables.authorizationCodes.name)
-        .set(
-          encodeRow(
-            { consumedAt: options.consumedAt, updatedAt: options.consumedAt },
-            tables.authorizationCodes,
-            this.#dialect
+    return falseOnInactiveGrant(() =>
+      this.#transaction(async (store) => {
+        const consumed = await store.#db
+          .updateTable(tables.authorizationCodes.name)
+          .set(
+            encodeRow(
+              { consumedAt: options.consumedAt, updatedAt: options.consumedAt },
+              tables.authorizationCodes,
+              this.#dialect
+            )
           )
-        )
-        .where('id', '=', options.codeId)
-        .where('consumed_at', 'is', null)
-        .executeTakeFirst()
-      if (Number(consumed.numUpdatedRows ?? 0) !== 1) return false
+          .where('id', '=', options.codeId)
+          .where('consumed_at', 'is', null)
+          .executeTakeFirst()
+        if (Number(consumed.numUpdatedRows ?? 0) !== 1) return false
 
-      await store.#applyGrantWrite(options.grant)
-      await store.createAccessToken(options.accessToken)
-      if (options.refreshToken) {
-        await store.#db
-          .insertInto(tables.refreshTokens.name)
-          .values(store.#newRow(options.refreshToken, tables.refreshTokens))
-          .execute()
-      }
+        await store.#applyGrantWrite(options.grant)
+        await store.createAccessToken(options.accessToken)
+        if (options.refreshToken) {
+          await store.#db
+            .insertInto(tables.refreshTokens.name)
+            .values(store.#newRow(options.refreshToken, tables.refreshTokens))
+            .execute()
+        }
 
-      return true
-    })
+        return true
+      })
+    )
   }
 
   /**
@@ -802,57 +843,63 @@ export class KyselyStore implements SesameStore {
   /**
    * Issue an access and refresh token together for grace-period reuse.
    */
-  async issueTokenPair(options: IssueTokenPairOptions): Promise<void> {
-    await this.#transaction(async (store) => {
-      await store.#applyGrantWrite(options.grant)
-      await store.createAccessToken(options.accessToken)
-      await store.#db
-        .insertInto(tables.refreshTokens.name)
-        .values(store.#newRow(options.refreshToken, tables.refreshTokens))
-        .execute()
-    })
+  async issueTokenPair(options: IssueTokenPairOptions): Promise<boolean> {
+    return falseOnInactiveGrant(() =>
+      this.#transaction(async (store) => {
+        await store.#applyGrantWrite(options.grant)
+        await store.createAccessToken(options.accessToken)
+        await store.#db
+          .insertInto(tables.refreshTokens.name)
+          .values(store.#newRow(options.refreshToken, tables.refreshTokens))
+          .execute()
+
+        return true
+      })
+    )
   }
 
   /**
    * Conditionally rotate a refresh token and replace its access token.
    */
   async rotateRefreshToken(options: RotateRefreshTokenOptions): Promise<boolean> {
-    return this.#transaction(async (store) => {
-      const result = await store.#db
-        .updateTable(tables.refreshTokens.name)
-        .set(
-          encodeRow(
-            { revokedAt: options.revokedAt, updatedAt: options.revokedAt },
-            tables.refreshTokens,
-            this.#dialect
+    return falseOnInactiveGrant(() =>
+      this.#transaction(async (store) => {
+        const result = await store.#db
+          .updateTable(tables.refreshTokens.name)
+          .set(
+            encodeRow(
+              { revokedAt: options.revokedAt, updatedAt: options.revokedAt },
+              tables.refreshTokens,
+              this.#dialect
+            )
           )
-        )
-        .where('id', '=', options.oldRefreshTokenId)
-        .where('revoked_at', 'is', null)
-        .executeTakeFirst()
-      if (Number(result.numUpdatedRows ?? 0) !== 1) return false
+          .where('id', '=', options.oldRefreshTokenId)
+          .where('revoked_at', 'is', null)
+          .executeTakeFirst()
+        if (Number(result.numUpdatedRows ?? 0) !== 1) return false
 
-      await store.#db
-        .updateTable(tables.accessTokens.name)
-        .set(
-          encodeRow(
-            { revokedAt: options.revokedAt, updatedAt: options.revokedAt },
-            tables.accessTokens,
-            this.#dialect
+        await store.#db
+          .updateTable(tables.accessTokens.name)
+          .set(
+            encodeRow(
+              { revokedAt: options.revokedAt, updatedAt: options.revokedAt },
+              tables.accessTokens,
+              this.#dialect
+            )
           )
-        )
-        .where('id', '=', options.oldAccessTokenId)
-        .where('revoked_at', 'is', null)
-        .execute()
-      await store.#applyGrantWrite(options.grant)
-      await store.createAccessToken(options.accessToken)
-      await store.#db
-        .insertInto(tables.refreshTokens.name)
-        .values(store.#newRow(options.refreshToken, tables.refreshTokens))
-        .execute()
+          .where('id', '=', options.oldAccessTokenId)
+          .where('revoked_at', 'is', null)
+          .execute()
+        await store.#applyGrantWrite(options.grant)
+        await store.createAccessToken(options.accessToken)
+        await store.#db
+          .insertInto(tables.refreshTokens.name)
+          .values(store.#newRow(options.refreshToken, tables.refreshTokens))
+          .execute()
 
-      return true
-    })
+        return true
+      })
+    )
   }
 
   /**
