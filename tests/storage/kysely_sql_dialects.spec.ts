@@ -10,6 +10,11 @@ import type { SesameStore } from '../../src/storage/types.ts'
 import { testGrantRecords, testGrantRevocation } from './grant_store_contract.ts'
 import * as kyselyUpgrade from '../../src/storage/migrations/sesame_v000800_add_oauth_grants.ts'
 import * as kyselyV07 from '../fixtures/migrations_0_7/kysely.ts'
+import { SesameManager } from '../../src/sesame_manager.ts'
+import { findClientByExactId } from '../../src/storage/find_client_by_exact_id.ts'
+import { ClientIdMetadataDocumentService } from '../../src/services/client_id_metadata_document_service.ts'
+import { createTestConfig } from '../helpers/app.ts'
+import { FakeClientMetadataDocumentFetcher } from '../helpers/fake_client_metadata_fetcher.ts'
 
 /**
  * These tests use dedicated databases supplied through SESAME_TEST_POSTGRES_URL,
@@ -327,6 +332,60 @@ async function testUnusedClientPurge(store: SesameStore, assert: Assert) {
   await store.deleteClient(used.clientId)
 }
 
+/**
+ * MySQL and MariaDB compare `client_id` case-insensitively by default.
+ * A metadata document URL differing only by case must never resolve to,
+ * nor overwrite, another client.
+ */
+async function testClientIdCollation(store: SesameStore, assert: Assert) {
+  const aliceId = `https://host.example.com/~alice-${crypto.randomUUID()}/client.json`
+  const attackerId = aliceId.replace('~alice', '~Alice')
+  await store.createClient({
+    id: crypto.randomUUID(),
+    clientId: aliceId,
+    name: 'Alice',
+    redirectUris: ['https://alice.example.com/callback'],
+    scopes: [],
+    grantTypes: ['authorization_code'],
+    isPublic: true,
+    isDisabled: false,
+    requirePkce: true,
+    metadata: null,
+  })
+
+  assert.isNull(await findClientByExactId({ store, clientId: attackerId }))
+
+  const fetcher = new FakeClientMetadataDocumentFetcher()
+  fetcher.serve(attackerId, {
+    client_id: attackerId,
+    client_name: 'Totally Alice',
+    redirect_uris: ['https://attacker.example.com/callback'],
+  })
+  const manager = new SesameManager(
+    createTestConfig({ clientIdMetadataDocuments: true }),
+    {} as any,
+    store
+  )
+  const service = new ClientIdMetadataDocumentService({ manager, fetcher })
+
+  const result = await service.resolve({ clientId: attackerId, persist: true }).catch((err) => err)
+
+  /**
+   * Case-sensitive databases (Postgres) store the variant as its own client.
+   * Case-insensitive ones (MySQL, MariaDB) must reject it.
+   */
+  if (result instanceof Error) {
+    assert.equal((result as any).oauthCode, 'invalid_client')
+  } else {
+    assert.equal(result.clientId, attackerId)
+    await store.deleteClient(attackerId)
+  }
+
+  const alice = await findClientByExactId({ store, clientId: aliceId })
+  assert.deepEqual(alice?.redirectUris, ['https://alice.example.com/callback'])
+  assert.isTrue(await store.deleteClient(aliceId))
+}
+
 for (const dialect of ['postgres', 'mysql', 'mariadb'] as const) {
   const connectionUrl = process.env[`SESAME_TEST_${dialect.toUpperCase()}_URL`]
   const sqlTest = test(`Kysely ${dialect} | migration and OAuth persistence`, async ({
@@ -347,6 +406,7 @@ for (const dialect of ['postgres', 'mysql', 'mariadb'] as const) {
       await testTokenExchange(store, clientId, assert)
       await testCleanup(store, clientId, assert)
       await testUnusedClientPurge(store, assert)
+      await testClientIdCollation(store, assert)
       await down(db)
     } finally {
       await db.destroy()

@@ -217,5 +217,6 @@ No migration is needed. Metadata document clients are stored in the existing `oa
 
 - `client_id` URLs longer than 255 characters are rejected, matching the `oauth_clients.client_id` column size. If you need longer URLs, widen that column and the `client_id` foreign key columns yourself.
 - While the feature is disabled, any `client_id` starting with `https://` is rejected with `invalid_client`. Sésame never generates such ids.
+- On MySQL/MariaDB, client ids are compared case-insensitively by the default collations. Sésame now rejects a client whose stored `client_id` differs from the requested one, so URLs that only differ by case are refused. Use `utf8mb4_bin` on the `client_id` columns if you need them (see the [Client ID Metadata Documents security notes](../README.md#security)).
 - Update your consent page to display the document host and the redirect URI host (see [Consent screen](../README.md#consent-screen)). `GET /oauth/client-info` returns new fields for this: `client_uri`, `logo_uri`, `tos_uri`, `policy_uri`, `client_id_metadata_document`, and `client_id_host`.
 - Custom `SesameStore` implementations need no change. Sésame only uses `findClient`, `createClient`, and `updateClient`. When two requests insert the same client concurrently, `createClient` must throw, as with the unique `client_id` constraint.

@@ -6,6 +6,7 @@ import { describeInvalidScopes } from '../invalid_scope_description.ts'
 import { IssueAuthorizationCodeAction } from './issue_authorization_code.ts'
 import { assertGrantContext } from '../services/grant_service.ts'
 import { isRedirectUriAllowed } from '../redirect_uri.ts'
+import { findClientByExactId } from '../storage/find_client_by_exact_id.ts'
 import { assertClientIdMetadataDocumentsEnabled } from '../client_id_metadata_documents/client_id_url.ts'
 import {
   E_INVALID_CLIENT,
@@ -114,7 +115,7 @@ export class CompleteAuthorizationAction {
       config: manager.config,
     })
 
-    const client = await store.findClient(pendingRequest.clientId)
+    const client = await findClientByExactId({ store, clientId: pendingRequest.clientId })
     if (!client) throw new E_INVALID_CLIENT('Client not found')
     if (client.isDisabled) throw new E_INVALID_CLIENT('Client is disabled')
 

@@ -3,6 +3,7 @@ import type { HttpContext } from '@adonisjs/core/http'
 import { SesameManager } from '../sesame_manager.ts'
 import { E_INVALID_CLIENT, E_INVALID_REQUEST } from '../oauth_error.ts'
 import type { OAuthClientRecord } from '../storage/types.ts'
+import { findClientByExactId } from '../storage/find_client_by_exact_id.ts'
 import {
   assertClientIdMetadataDocumentsEnabled,
   isClientIdMetadataDocumentUrl,
@@ -47,8 +48,7 @@ export default class ClientInfoController {
     const manager = await ctx.containerResolver.make(SesameManager)
     assertClientIdMetadataDocumentsEnabled({ clientId: query.client_id, config: manager.config })
 
-    const store = manager.store
-    const client = await store.findClient(query.client_id)
+    const client = await findClientByExactId({ store: manager.store, clientId: query.client_id })
     if (!client) throw new E_INVALID_CLIENT('Client not found')
 
     const isMetadataDocument = isClientIdMetadataDocumentUrl(client.clientId)
