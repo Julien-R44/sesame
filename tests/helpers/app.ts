@@ -54,8 +54,9 @@ export function createManager(overrides?: Record<string, any>) {
 
 /**
  * Boots an AdonisJS app with in-memory SQLite for integration tests.
+ * Runs the test migrations unless other `migrationsPaths` are given.
  */
-export async function createApp() {
+export async function createApp(options?: { migrationsPaths?: string[] }) {
   const ignitor = new IgnitorFactory()
     .withCoreProviders()
     .withCoreConfig()
@@ -75,7 +76,9 @@ export async function createApp() {
               connection: { filename: ':memory:' },
               useNullAsDefault: true,
               migrations: {
-                paths: [resolve(import.meta.dirname!, '..', 'migrations')],
+                paths: options?.migrationsPaths ?? [
+                  resolve(import.meta.dirname!, '..', 'migrations'),
+                ],
               },
             },
           },
