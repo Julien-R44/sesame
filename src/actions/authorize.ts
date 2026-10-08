@@ -6,6 +6,7 @@ import { ClientService } from '../services/client_service.ts'
 import { TokenService } from '../services/token_service.ts'
 import type { OAuthClientRecord } from '../storage/types.ts'
 import { IssueAuthorizationCodeAction } from './issue_authorization_code.ts'
+import { rejectDeletedClient } from '../storage/foreign_key_violation.ts'
 import { E_INVALID_CLIENT, E_INVALID_REQUEST, E_UNSUPPORTED_RESPONSE_TYPE } from '../oauth_error.ts'
 
 export interface AuthorizeInput {
@@ -201,19 +202,21 @@ export class AuthorizeAction {
     const ttl = string.seconds.parse(manager.config.authorizationRequestTtl)
 
     const store = manager.store
-    await store.createPendingAuthorizationRequest({
-      id: crypto.randomUUID(),
-      token: tokenService.hashToken(rawToken),
-      userId: input.userId,
-      clientId,
-      redirectUri: input.redirectUri,
-      scopes,
-      state: input.state ?? null,
-      codeChallenge: input.codeChallenge ?? null,
-      codeChallengeMethod: input.codeChallengeMethod ?? null,
-      nonce: input.nonce ?? null,
-      expiresAt: DateTime.now().plus({ seconds: ttl }),
-    })
+    await rejectDeletedClient(() =>
+      store.createPendingAuthorizationRequest({
+        id: crypto.randomUUID(),
+        token: tokenService.hashToken(rawToken),
+        userId: input.userId,
+        clientId,
+        redirectUri: input.redirectUri,
+        scopes,
+        state: input.state ?? null,
+        codeChallenge: input.codeChallenge ?? null,
+        codeChallengeMethod: input.codeChallengeMethod ?? null,
+        nonce: input.nonce ?? null,
+        expiresAt: DateTime.now().plus({ seconds: ttl }),
+      })
+    )
 
     return rawToken
   }

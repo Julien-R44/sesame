@@ -3,6 +3,7 @@ import string from '@adonisjs/core/helpers/string'
 import type { SesameManager } from '../sesame_manager.ts'
 import type { OAuthClientRecord } from '../storage/types.ts'
 import { TokenService } from '../services/token_service.ts'
+import { rejectDeletedClient } from '../storage/foreign_key_violation.ts'
 
 export interface AuthorizationCodeInput {
   client: OAuthClientRecord
@@ -34,18 +35,20 @@ export class IssueAuthorizationCodeAction {
     const ttl = string.seconds.parse(manager.config.authorizationCodeTtl)
 
     const store = manager.store
-    await store.createAuthorizationCode({
-      id: crypto.randomUUID(),
-      code: hashed,
-      clientId: input.client.clientId,
-      userId: input.userId,
-      scopes: input.scopes,
-      redirectUri: input.redirectUri,
-      codeChallenge: input.codeChallenge ?? null,
-      codeChallengeMethod: input.codeChallengeMethod ?? null,
-      nonce: input.nonce ?? null,
-      expiresAt: DateTime.now().plus({ seconds: ttl }),
-    })
+    await rejectDeletedClient(() =>
+      store.createAuthorizationCode({
+        id: crypto.randomUUID(),
+        code: hashed,
+        clientId: input.client.clientId,
+        userId: input.userId,
+        scopes: input.scopes,
+        redirectUri: input.redirectUri,
+        codeChallenge: input.codeChallenge ?? null,
+        codeChallengeMethod: input.codeChallengeMethod ?? null,
+        nonce: input.nonce ?? null,
+        expiresAt: DateTime.now().plus({ seconds: ttl }),
+      })
+    )
 
     return raw
   }
