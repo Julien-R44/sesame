@@ -2,6 +2,7 @@ import type { HttpContext } from '@adonisjs/core/http'
 import { SesameManager } from '../sesame_manager.ts'
 import { TokenService } from '../services/token_service.ts'
 import { IdTokenService } from '../services/id_token_service.ts'
+import { hasActiveGrant } from '../services/grant_service.ts'
 import { E_INSUFFICIENT_SCOPE, E_INVALID_REQUEST, E_INVALID_TOKEN } from '../oauth_error.ts'
 
 /**
@@ -32,6 +33,7 @@ export default class UserinfoController {
     if (token.revokedAt) throw new E_INVALID_TOKEN('Access token has been revoked')
     if (token.expiresAt.toJSDate() < new Date())
       throw new E_INVALID_TOKEN('Access token has expired')
+    if (!hasActiveGrant(token)) throw new E_INVALID_TOKEN('Access token has been revoked')
     if (!token.scopes.includes('openid')) {
       throw new E_INSUFFICIENT_SCOPE(['openid'], 'Token does not have openid scope')
     }

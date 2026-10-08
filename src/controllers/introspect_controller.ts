@@ -2,6 +2,7 @@ import type { HttpContext } from '@adonisjs/core/http'
 import { SesameManager } from '../sesame_manager.ts'
 import { TokenService } from '../services/token_service.ts'
 import { ClientService } from '../services/client_service.ts'
+import { GrantService, hasActiveGrant } from '../services/grant_service.ts'
 
 const INACTIVE = { active: false }
 
@@ -14,7 +15,8 @@ const INACTIVE = { active: false }
  *
  * Supports the `token_type_hint` parameter to optimize lookup order.
  * Both access tokens and refresh tokens are opaque values looked up
- * by their SHA-256 hash in the database.
+ * by their SHA-256 hash in the database. Tokens whose grant was
+ * revoked or has expired are inactive.
  *
  * @see https://datatracker.ietf.org/doc/html/rfc7662
  */
@@ -42,7 +44,12 @@ export default class IntrospectController {
     if (!tokenTypeHint || tokenTypeHint === 'access_token') {
       const record = await store.findAccessToken({ hash: hashed, clientId: client.clientId })
 
-      if (record && !record.revokedAt && record.expiresAt.toJSDate() >= new Date()) {
+      const active =
+        record &&
+        !record.revokedAt &&
+        record.expiresAt.toJSDate() >= new Date() &&
+        hasActiveGrant(record)
+      if (record && active) {
         return {
           active: true,
           token_type: 'Bearer',
@@ -65,6 +72,7 @@ export default class IntrospectController {
       if (!refreshToken) return INACTIVE
       if (refreshToken.revokedAt) return INACTIVE
       if (refreshToken.expiresAt.toJSDate() < new Date()) return INACTIVE
+      if (!(await new GrantService(manager).isActive(refreshToken.grantId))) return INACTIVE
 
       return {
         active: true,
