@@ -171,4 +171,32 @@ test.group('CIMD | ClientIdMetadataDocumentService', (group) => {
     assert.lengthOf(fetcher.calls, 2)
     assert.equal(cache.size, 0)
   })
+
+  test('keeps custom metadata but overwrites document fields', async ({ assert }) => {
+    await createTestClient({
+      clientId: CLIENT_ID,
+      clientSecret: null,
+      isPublic: true,
+      name: 'Old name',
+      scopes: ['write'],
+      redirectUris: ['http://127.0.0.1/old'],
+      metadata: {
+        team: 'platform',
+        logo_uri: 'https://app.example.com/old-logo.png',
+        client_id_metadata_document: { expires_at: '2020-01-01T00:00:00.000Z' },
+      },
+    })
+
+    const client = await createService(lucidStore()).service.resolve({
+      clientId: CLIENT_ID,
+      persist: true,
+    })
+
+    assert.equal(client.name, 'Example Client')
+    assert.deepEqual(client.scopes, ['read'])
+    assert.deepEqual(client.redirectUris, ['http://127.0.0.1/callback'])
+    assert.equal(client.metadata?.team, 'platform')
+    assert.notProperty(client.metadata, 'logo_uri')
+    assert.isAbove(Date.parse(client.metadata?.client_id_metadata_document.expires_at), Date.now())
+  })
 })
