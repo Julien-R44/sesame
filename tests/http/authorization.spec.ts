@@ -96,7 +96,6 @@ test.group('HTTP | Authorization Flow', (group) => {
         auth_token: authToken,
         client_id: 'attacker-client',
         redirect_uri: 'https://attacker.example.com/callback',
-        scope: 'write offline_access',
         state: 'attacker-state',
         code_challenge: createHash('sha256').update('attacker-verifier').digest('base64url'),
         code_challenge_method: 'S256',
