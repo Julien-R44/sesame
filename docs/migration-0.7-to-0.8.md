@@ -4,7 +4,7 @@ This guide covers the changes needed in an existing AdonisJS application using S
 
 ## Guard challenges and unused client purge
 
-This release adds `scope` to the `WWW-Authenticate` challenges of the OAuth guard, exposes the authenticating access token on `guard.accessToken`, and lets `sesame:purge` delete dynamically registered clients that were never used. The database schema does not change.
+This release adds `scope` to the `WWW-Authenticate` challenges of the OAuth guard, exposes the authenticating access token on `guard.accessToken`, and lets `sesame:purge` delete dynamically registered clients that were never used. These changes do not alter the database schema; the [Grants](#grants) section below does.
 
 ### Custom stores must implement `purgeUnusedClients`
 
@@ -22,7 +22,7 @@ export class MyStore implements SesameStore {
     // - dynamically registered: metadata.registration === 'dynamic',
     //   or metadata.token_endpoint_auth_method is set (clients registered before 0.8.0)
     // - never authorized: metadata.first_authorized_at is not set
-    // - no access token, refresh token, authorization code, consent,
+    // - no access token, refresh token, authorization code, grant,
     //   or pending authorization request references the client
   }
 }
@@ -43,7 +43,7 @@ Clients created through `POST /oauth/register` now store `registration: 'dynamic
 
 ## Consent and the `prompt` parameter
 
-Sésame 0.8.0 lets your application drive consent and honors the OpenID Connect `prompt` parameter. No database migration, config change, or custom store change is required.
+Sésame 0.8.0 lets your application drive consent and honors the OpenID Connect `prompt` parameter. These changes need no config change. Remembered consent is now derived from grants, which require the database migration described in [Grants](#grants).
 
 ### New: approve or deny from your own controller
 
@@ -66,7 +66,72 @@ The official MCP TypeScript SDK sends `prompt=consent` whenever it requests `off
 Requests with `prompt=none` no longer redirect to your login or consent page:
 
 - When the user is not logged in, Sésame redirects to the client with `error=login_required`.
-- When the requested scopes are not covered by a remembered consent, Sésame redirects to the client with `error=consent_required`.
+- When the requested scopes are not covered by the user's active grants without context, Sésame redirects to the client with `error=consent_required`.
 - `prompt=none` combined with another value returns `error=invalid_request`.
 
 Other `prompt` values (`login`, `select_account`, `create`) are still ignored. Discovery documents now include `prompt_values_supported: ["none", "consent"]`. The authorization server metadata (`/.well-known/oauth-authorization-server`) also lists `scopes_supported` (RFC 8414), with the same values as the OpenID Connect discovery document.
+
+## Grants
+
+Sésame 0.8.0 records every authorization a user gives to a client as a **grant**. Authorization codes, access tokens, and refresh tokens reference the grant they were issued from, so a whole authorization can be listed, revoked, or carry application context. This change requires a database migration. Custom stores must also be updated.
+
+### 1. Publish and run the upgrade migration
+
+Publish the upgrade migration for your store, then run it before starting the application with 0.8.0:
+
+```bash title="Terminal"
+# Lucid
+node ace sesame:upgrade 0.8
+node ace migration:run
+
+# Kysely
+node ace sesame:upgrade 0.8 --store=kysely
+```
+
+The Kysely migration is written to `database/kysely_migrations/upgrade_0_8_add_oauth_grants.ts`. Move it next to the `create_oauth_tables.ts` migration you applied for 0.7.0, keep a filename that sorts after it, and run it with your Kysely migrator.
+
+The migration:
+
+- creates the `oauth_grants` table;
+- adds a nullable, indexed `grant_id` column to `oauth_authorization_codes`, `oauth_access_tokens`, and `oauth_refresh_tokens`, and a `consumed_at` column to `oauth_authorization_codes`;
+- drops the `oauth_consents` table.
+
+Rolling it back recreates an empty `oauth_consents` table.
+
+### 2. Existing tokens and remembered consents
+
+No data is copied. Instead:
+
+- Existing access and refresh tokens keep working without a grant. The guard exposes `grantId` as `undefined` and `context` as `null` for them.
+- An existing refresh token is attached to a new grant the next time it is used, so active clients appear in `listGrants()` after their next refresh. Replaying an old refresh token that has no grant still revokes the grant-less tokens of the same client and user, as in 0.7.0.
+- Remembered consents are dropped. Each user sees your consent page once more the next time a client starts a new authorization. Token refreshes are not affected.
+
+### 3. Behavior changes
+
+- **Remembered consent follows grants.** The consent page is skipped when the user's active grants without context cover the requested scopes. Revoking every grant of a client, or letting them expire, shows the consent page again. A grant with a context never skips the consent page.
+- **Every authorization creates a grant.** A user who connects the same client twice, for example from two devices sharing a [Client ID Metadata Document](https://datatracker.ietf.org/doc/draft-ietf-oauth-client-id-metadata-document/) `client_id`, now holds two grants.
+- **Refresh token replay only revokes the replayed grant.** Previously, every token of the client and user pair was revoked, which logged out other devices and contexts. The grant itself is now deleted, so that authorization has to be approved again (OAuth 2.1 §4.3.1).
+- **Reusing an authorization code revokes its grant.** Exchanged codes are kept with `consumed_at` instead of being deleted. A second exchange returns `invalid_grant` with `Authorization code has already been consumed` and revokes the tokens issued from the first exchange (OAuth 2.1 §4.1.3).
+- **`POST /oauth/revoke` with a refresh token revokes its whole grant**, including every access token issued from it (RFC 7009 §2.1). Revoking an access token still only revokes that token.
+- **Purge keeps revoked refresh tokens for the retention period** (`--hours`, 168 by default) instead of deleting them immediately, so a replay is still detected after a purge. Expired grants are purged too, and `purgeTokens()` returns an additional `grants` count.
+- **`revokeAllForUser()` and `deleteClient()`** delete grants instead of consents.
+
+### 4. Code changes
+
+- **Lucid models:** `OAuthConsent` is no longer exported from `@julr/sesame/drivers/lucid`. Use `OAuthGrant` instead.
+- **Records:** `OAuthAccessTokenRecord`, `OAuthRefreshTokenRecord`, and `OAuthAuthorizationCodeRecord` gain `grantId: string | null`, and authorization codes gain `consumedAt`. `OAuthConsentRecord` is replaced by `OAuthGrantRecord`.
+- **Custom stores:** update your `SesameStore` implementation. Both bundled stores (`src/storage/drivers/lucid.ts` and `src/storage/drivers/kysely.ts`) can serve as references.
+  - Remove `findConsent()` and `grantConsent()`.
+  - Rename `revokeTokenFamily()` to `revokeLegacyTokenFamily()`. It must only touch tokens whose `grant_id` is null.
+  - Add `createGrant()`, `findGrant()`, `listGrants()`, `updateGrant()`, `revokeGrant()`, and `revokeGrants()`.
+  - `findAccessToken()` returns the token joined with its `grant` (or `null`) in a single query.
+  - `exchangeAuthorizationCode()` receives `consumedAt` and must mark the code consumed instead of deleting it.
+  - `exchangeAuthorizationCode()`, `rotateRefreshToken()`, and `issueTokenPair()` receive an optional `grant` write (`extend` or `create`) to apply in the same transaction.
+  - `purgeTokens()` must keep revoked refresh tokens until the cutoff, delete expired grants, and return a `grants` count.
+
+### 5. New: grant context and grant management
+
+- Pass `context` to `approveAuthorization()` to store application data on the grant, and read it with `auth.use('oauth').context`. See [Attaching application context](../README.md#attaching-application-context).
+- Build a "connected applications" page with `listGrants()`, `revokeGrant()`, `revokeGrants()`, and `updateGrant()`. See [Grants](../README.md#grants).
+- `withGuard('oauth').loginAs(user, { scopes, context })` authenticates test requests with custom scopes and context.
+- `guard.accessToken` (and the `accessToken` of the `oauth_auth:authentication_succeeded` event) gains `grantId` and `context`, also available as `guard.grantId` and `guard.context`.

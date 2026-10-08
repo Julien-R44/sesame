@@ -294,7 +294,7 @@ export class OAuthGuard<
    *
    * @example
    * ```ts
-   * await client.get('/mcp').loginAs(user, { scopes: ['read'], context: { teamId: 1 } })
+   * await client.get('/mcp').withGuard('oauth').loginAs(user, { context: { teamId: 1 } })
    * ```
    *
    * @see https://docs.adonisjs.com/guides/auth/custom-auth-guard#implementing-the-guard

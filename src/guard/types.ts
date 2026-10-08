@@ -65,7 +65,7 @@ export interface OAuthUserProviderContract<RealUser> {
 }
 
 /**
- * Options of `loginAs(user, options)` in tests, forwarded to
+ * Options of `withGuard('oauth').loginAs(user, options)` in tests, forwarded to
  * `authenticateAsClient`. Defaults to the configured default scopes
  * and no context.
  */
