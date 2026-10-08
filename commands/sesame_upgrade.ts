@@ -5,12 +5,16 @@ import { args, BaseCommand, flags } from '@adonisjs/core/ace'
 
 const STUBS_ROOT = join(import.meta.dirname, '..', 'stubs')
 const STORES = ['lucid', 'kysely']
+const VERSION_PATTERN = /^(\d+)\.(\d+)(?:\.0)?$/
 
 /**
  * Publish the database migrations required to upgrade Sésame.
  *
- * Every stub of `stubs/migrations/upgrade_<version>/<store>/` is
+ * Every stub of `stubs/migrations/upgrade_<major>_<minor>/<store>/` is
  * published, in file name order, so new releases only add stubs.
+ * Kysely stubs are named `sesame_v<MMmmpp>_<name>.ts` (zero-padded
+ * version) so they sort after `create_oauth_tables.ts` and in release
+ * order.
  *
  * @example
  * ```sh
@@ -22,7 +26,7 @@ export default class SesameUpgrade extends BaseCommand {
   static commandName = 'sesame:upgrade'
   static description = 'Publish the database migrations needed to upgrade Sésame'
 
-  @args.string({ description: 'Sésame version you are upgrading to (e.g. 0.8)' })
+  @args.string({ description: 'Sésame version you are upgrading to (e.g. 0.8 or 0.8.0)' })
   declare version: string
 
   @flags.string({ description: 'Store driver used by the application (lucid or kysely)' })
@@ -32,7 +36,10 @@ export default class SesameUpgrade extends BaseCommand {
    * List the upgrade stubs of a version and store, relative to the stubs root.
    */
   async #upgradeStubs(store: string): Promise<string[] | null> {
-    const folder = join('migrations', `upgrade_${this.version.replaceAll('.', '_')}`, store)
+    const match = VERSION_PATTERN.exec(this.version)
+    if (!match) return null
+
+    const folder = join('migrations', `upgrade_${Number(match[1])}_${Number(match[2])}`, store)
     if (!existsSync(join(STUBS_ROOT, folder))) return null
 
     const files = await readdir(join(STUBS_ROOT, folder))
