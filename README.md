@@ -253,6 +253,8 @@ Both methods throw the standard Sésame OAuth errors, which render as JSON when 
 - `E_INVALID_SCOPE` when `scopes` is empty, contains a scope that was not requested, or contains `profile`/`email` without `openid`. These checks run before the request is consumed, so the user can still submit a valid decision
 - `E_INVALID_CLIENT` when the client was deleted or disabled in the meantime
 
+Declining `offline_access` does not prevent a refresh token: Sésame issues one whenever the `refresh_token` grant is enabled, regardless of that scope (RFC 6749 §5.1). The scope is only removed from the granted list. To stop issuing refresh tokens, remove `refresh_token` from `grantTypes`.
+
 Approved scopes are remembered per client and user, and merged with previously approved ones. Future requests covered by the remembered scopes skip the consent page, unless the client sends `prompt=consent`. Denying a request does not change the remembered consent.
 
 ### The `prompt` parameter
