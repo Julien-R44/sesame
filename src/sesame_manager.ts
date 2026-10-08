@@ -220,10 +220,15 @@ export class SesameManager {
    * authorization code, consent, or pending authorization request.
    *
    * Clients created with `createClient()` are never deleted. Returns the
-   * number of deleted clients.
+   * number of deleted clients. Throws when `olderThanDays` is not an
+   * integer of at least 1.
    */
   async purgeUnusedClients(options?: { olderThanDays?: number }): Promise<number> {
     const olderThanDays = options?.olderThanDays ?? 30
+    if (!Number.isInteger(olderThanDays) || olderThanDays < 1) {
+      throw new Error('olderThanDays must be a positive integer')
+    }
+
     const createdBefore = DateTime.now().minus({ days: olderThanDays })
 
     return this.#store.purgeUnusedClients({ createdBefore })
