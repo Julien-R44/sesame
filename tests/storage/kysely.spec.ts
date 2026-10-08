@@ -283,7 +283,7 @@ test.group('Kysely store | OAuth flows', () => {
     }
   })
 
-  test('authenticates a client, exchanges a code once, and rotates its refresh token', async ({
+  test('exchanges a legacy code once, rotates its refresh token, and revokes on reuse', async ({
     assert,
   }) => {
     const { db, manager } = await createKyselyManager()
@@ -326,23 +326,29 @@ test.group('Kysely store | OAuth flows', () => {
         redirectUri: 'https://app.example.com/callback',
         codeVerifier,
       }
-      const results = await Promise.allSettled([
-        exchange.execute(manager, input),
-        exchange.execute(manager, input),
-      ])
-      assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1)
-      assert.equal(results.filter((result) => result.status === 'rejected').length, 1)
-
-      const first = results.find((result) => result.status === 'fulfilled')
-      if (!first || first.status !== 'fulfilled') throw new Error('Code exchange did not succeed')
+      const first = await exchange.execute(manager, input)
       const refreshed = await new ExchangeRefreshTokenAction().execute(manager, {
         client: authenticated,
-        refreshToken: first.value.refresh_token!,
+        refreshToken: first.refresh_token!,
       })
       assert.isDefined(refreshed.access_token)
-      assert.notEqual(refreshed.refresh_token, first.value.refresh_token)
+      assert.notEqual(refreshed.refresh_token, first.refresh_token)
       assert.lengthOf(await db.selectFrom('oauth_access_tokens').selectAll().execute(), 2)
       assert.lengthOf(await db.selectFrom('oauth_refresh_tokens').selectAll().execute(), 2)
+
+      await assert.rejects(
+        () => exchange.execute(manager, input),
+        'Authorization code has already been consumed'
+      )
+      assert.lengthOf(await db.selectFrom('oauth_refresh_tokens').selectAll().execute(), 0)
+      assert.lengthOf(
+        await db
+          .selectFrom('oauth_access_tokens')
+          .selectAll()
+          .where('revoked_at', 'is', null)
+          .execute(),
+        0
+      )
 
       assert.isTrue(await manager.deleteClient(client.clientId))
       assert.lengthOf(await db.selectFrom('oauth_access_tokens').selectAll().execute(), 0)

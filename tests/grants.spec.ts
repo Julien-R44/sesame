@@ -1,16 +1,24 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
 import { HttpContextFactory, RequestFactory } from '@adonisjs/core/factories/http'
-import { createManager, setupIntegrationGroup } from './helpers/app.ts'
+import {
+  createManager,
+  createTestConfig,
+  setupHttpGroup,
+  setupIntegrationGroup,
+} from './helpers/app.ts'
+import { createTestAccessToken } from './helpers/create_test_access_token.ts'
+import { createAuthCodeExchange } from './helpers/create_auth_code_exchange.ts'
 import { createTestClient } from './helpers/create_test_client.ts'
 import { createTestGrant } from './helpers/create_test_grant.ts'
 import { createTestRefreshToken } from './helpers/create_test_refresh_token.ts'
 import { createPkce } from './helpers/create_pkce.ts'
 import { assertOAuthError } from './helpers/assert_oauth_error.ts'
-import { FakeUserProvider, createFakeEmitter } from './helpers/fakes.ts'
+import { FakeUserProvider, createFakeEmitter, getTestJwk } from './helpers/fakes.ts'
 import { TokenService } from '../src/services/token_service.ts'
 import { lucidStore } from '../src/storage/drivers/lucid.ts'
-import type { SesameManager } from '../src/sesame_manager.ts'
+import { SesameManager } from '../src/sesame_manager.ts'
+import type { OAuthGrantRecord, SesameStore } from '../src/storage/types.ts'
 import { OAuthGuard } from '../src/guard/guard.ts'
 import { AuthorizeAction } from '../src/actions/authorize.ts'
 import { ExchangeAuthorizationCodeAction } from '../src/actions/exchange_authorization_code.ts'
@@ -23,6 +31,7 @@ import { OAuthAuthorizationCode } from '../src/models/oauth_authorization_code.t
 import { testGrantRecords, testGrantRevocation } from './storage/grant_store_contract.ts'
 
 const REDIRECT_URI = 'https://app.example.com/callback'
+const testJwk = await getTestJwk()
 
 type AuthorizeOptions = {
   scopes?: string[]
@@ -479,5 +488,260 @@ test.group('Grants | Manager API', (group) => {
     await manager.deleteClient('other-client')
     assert.lengthOf(await OAuthGrant.all(), 0)
     assert.isNull(await OAuthClient.findBy('clientId', 'other-client'))
+  })
+})
+
+/**
+ * Wrap a store so `findGrant` keeps returning a grant revoked in the
+ * meantime, to simulate a revocation racing a token issuance.
+ */
+function withStaleGrant(store: SesameStore, grant: OAuthGrantRecord): SesameStore {
+  return new Proxy(store, {
+    get(target, property) {
+      if (property === 'findGrant') return async () => grant
+      const value = Reflect.get(target, property)
+
+      return typeof value === 'function' ? value.bind(target) : value
+    },
+  })
+}
+
+test.group('Grants | Legacy adoption', (group) => {
+  setupIntegrationGroup(group)
+
+  test('replaying an adopted legacy refresh token revokes its new grant', async ({ assert }) => {
+    const manager = createManager({ refreshTokenRotationGracePeriod: 0 })
+    const client = await createTestClient()
+    const legacy = await createTestRefreshToken({ scopes: ['read'], grantId: null })
+    const bystander = await createTestRefreshToken({ scopes: ['read'], grantId: null })
+    const action = new ExchangeRefreshTokenAction()
+
+    const rotated = await action.execute(manager, { client, refreshToken: legacy.rawRefreshToken })
+    const grantId = await grantIdOf(manager, rotated.access_token)
+    const adopted = await OAuthRefreshToken.query()
+      .where('token', new TokenService(manager).hashToken(legacy.rawRefreshToken))
+      .firstOrFail()
+    assert.equal(adopted.grantId, grantId)
+
+    await assertOAuthError(
+      assert,
+      () => action.execute(manager, { client, refreshToken: legacy.rawRefreshToken }),
+      'invalid_grant'
+    )
+
+    assert.isNull(await manager.findGrant(grantId!))
+    await assert.rejects(() => buildGuard(manager, rotated.access_token).authenticate())
+    await assertOAuthError(
+      assert,
+      () => action.execute(manager, { client, refreshToken: rotated.refresh_token }),
+      'invalid_grant'
+    )
+    const untouched = await action.execute(manager, {
+      client,
+      refreshToken: bystander.rawRefreshToken,
+    })
+    assert.isString(untouched.access_token)
+  })
+
+  test('reusing a legacy refresh token in the grace period keeps one grant', async ({ assert }) => {
+    const manager = createManager()
+    const client = await createTestClient()
+    const legacy = await createTestRefreshToken({ scopes: ['read'], grantId: null })
+    const action = new ExchangeRefreshTokenAction()
+
+    const rotated = await action.execute(manager, { client, refreshToken: legacy.rawRefreshToken })
+    const retried = await action.execute(manager, { client, refreshToken: legacy.rawRefreshToken })
+
+    assert.lengthOf(await OAuthGrant.all(), 1)
+    assert.equal(
+      await grantIdOf(manager, retried.access_token),
+      await grantIdOf(manager, rotated.access_token)
+    )
+  })
+
+  test('reusing an exchanged legacy code revokes its new grant', async ({ assert }) => {
+    await createTestClient()
+    const { client, rawCode, codeVerifier, redirectUri, manager } = await createAuthCodeExchange({
+      scopes: ['read'],
+      grantId: null,
+    })
+    const input = { client, code: rawCode, redirectUri, codeVerifier }
+
+    const tokens = await new ExchangeAuthorizationCodeAction().execute(manager, input)
+    const grantId = await grantIdOf(manager, tokens.access_token)
+    assert.equal((await OAuthAuthorizationCode.query().firstOrFail()).grantId, grantId)
+
+    await assert.rejects(
+      () => new ExchangeAuthorizationCodeAction().execute(manager, input),
+      'Authorization code has already been consumed'
+    )
+    assert.isNull(await manager.findGrant(grantId!))
+    await assert.rejects(() => buildGuard(manager, tokens.access_token).authenticate())
+  })
+})
+
+test.group('Grants | Concurrency', (group) => {
+  setupIntegrationGroup(group)
+
+  test('a concurrent code exchange revokes the tokens of the winner', async ({ assert }) => {
+    await createTestClient()
+    const { client, rawCode, codeVerifier, redirectUri, manager } = await createAuthCodeExchange({
+      scopes: ['read'],
+    })
+    const input = { client, code: rawCode, redirectUri, codeVerifier }
+    const action = new ExchangeAuthorizationCodeAction()
+
+    const results = await Promise.allSettled([
+      action.execute(manager, input),
+      action.execute(manager, input),
+    ])
+
+    const winner = results.find((result) => result.status === 'fulfilled')
+    const loser = results.find((result) => result.status === 'rejected')
+    if (winner?.status !== 'fulfilled' || loser?.status !== 'rejected') {
+      throw new Error('Expected exactly one successful exchange')
+    }
+    assert.include(loser.reason.message, 'Authorization code has already been consumed')
+    assert.lengthOf(await OAuthGrant.all(), 0)
+    await assert.rejects(() => buildGuard(manager, winner.value.access_token).authenticate())
+  })
+
+  test('rotation fails when the grant is revoked during the refresh', async ({ assert }) => {
+    const client = await createTestClient()
+    const { rawRefreshToken, grantId } = await createTestRefreshToken({ scopes: ['read'] })
+    const grant = (await createManager().findGrant(grantId!))!
+    await OAuthGrant.query().where('id', grantId!).delete()
+    const manager = new SesameManager(
+      createTestConfig(),
+      {} as any,
+      withStaleGrant(lucidStore(), grant)
+    )
+
+    await assertOAuthError(
+      assert,
+      () =>
+        new ExchangeRefreshTokenAction().execute(manager, {
+          client,
+          refreshToken: rawRefreshToken,
+        }),
+      'invalid_grant'
+    )
+    assert.lengthOf(await OAuthAccessToken.query().where('grantId', grantId!), 1)
+    assert.isNull(
+      (await OAuthRefreshToken.query().where('grantId', grantId!).firstOrFail()).revokedAt
+    )
+  })
+
+  test('grace-period reuse fails when the grant is revoked meanwhile', async ({ assert }) => {
+    const client = await createTestClient()
+    const { rawRefreshToken, grantId } = await createTestRefreshToken({
+      scopes: ['read'],
+      revokedAt: DateTime.now().minus({ seconds: 10 }),
+    })
+    const grant = (await createManager().findGrant(grantId!))!
+    await OAuthGrant.query().where('id', grantId!).delete()
+    const manager = new SesameManager(
+      createTestConfig(),
+      {} as any,
+      withStaleGrant(lucidStore(), grant)
+    )
+
+    await assertOAuthError(
+      assert,
+      () =>
+        new ExchangeRefreshTokenAction().execute(manager, {
+          client,
+          refreshToken: rawRefreshToken,
+        }),
+      'invalid_grant'
+    )
+    assert.lengthOf(await OAuthAccessToken.query().where('grantId', grantId!), 1)
+    assert.lengthOf(await OAuthRefreshToken.query().where('grantId', grantId!), 1)
+  })
+
+  test('code exchange fails when the grant is revoked meanwhile', async ({ assert }) => {
+    await createTestClient()
+    const exchange = await createAuthCodeExchange({ scopes: ['read'] })
+    const code = await OAuthAuthorizationCode.query().firstOrFail()
+    const grant = (await exchange.manager.findGrant(code.grantId!))!
+    await OAuthGrant.query().where('id', grant.id).delete()
+    const manager = new SesameManager(
+      createTestConfig(),
+      {} as any,
+      withStaleGrant(lucidStore(), grant)
+    )
+
+    await assert.rejects(
+      () =>
+        new ExchangeAuthorizationCodeAction().execute(manager, {
+          client: exchange.client,
+          code: exchange.rawCode,
+          redirectUri: exchange.redirectUri,
+          codeVerifier: exchange.codeVerifier,
+        }),
+      'Grant has been revoked or has expired'
+    )
+    assert.lengthOf(await OAuthAccessToken.all(), 0)
+    assert.isNull((await OAuthAuthorizationCode.findOrFail(code.id)).consumedAt)
+  })
+})
+
+test.group('Grants | Expiry', (group) => {
+  setupIntegrationGroup(group)
+
+  test('a refresh keeps the grant alive as long as its access token', async ({ assert }) => {
+    const manager = createManager({ accessTokenTtl: '1h', refreshTokenTtl: '5m' })
+    const client = await createTestClient()
+    const { rawRefreshToken, grantId } = await createTestRefreshToken({ scopes: ['read'] })
+    await OAuthGrant.query()
+      .where('id', grantId!)
+      .update({ expiresAt: DateTime.now().plus({ minutes: 1 }).toSQL() })
+
+    const result = await new ExchangeRefreshTokenAction().execute(manager, {
+      client,
+      refreshToken: rawRefreshToken,
+    })
+
+    const grant = await manager.findGrant(grantId!)
+    const token = await manager.store.findAccessToken({
+      hash: new TokenService(manager).hashToken(result.access_token),
+    })
+    assert.isAtLeast(grant!.expiresAt.toMillis(), token!.expiresAt.toMillis() - 1000)
+  })
+
+  test('ignores grant identifiers that are not UUIDs', async ({ assert }) => {
+    const manager = createManager()
+
+    assert.isNull(await manager.findGrant('abc'))
+    assert.isFalse(await manager.revokeGrant({ grantId: 'abc' }))
+    assert.isNull(await manager.updateGrant({ grantId: 'abc', context: null }))
+  })
+})
+
+test.group('Grants | Introspection and userinfo', (group) => {
+  const ctx = setupHttpGroup(group, {
+    jwk: testJwk,
+    oidcProvider: new FakeUserProvider([{ id: 'user-1', name: 'Test User' }]),
+  })
+
+  test('reports tokens of a revoked or expired grant as inactive', async ({ client, assert }) => {
+    await createTestClient({ scopes: ['read', 'openid', 'offline_access'] })
+    const revoked = await createTestGrant({ scopes: ['openid'] })
+    const expired = await createTestGrant({ expiresAt: DateTime.now().minus({ minutes: 1 }) })
+    const accessToken = await createTestAccessToken({ scopes: ['openid'], grantId: revoked.id })
+    const refreshToken = await createTestRefreshToken({ grantId: expired.id })
+    await OAuthGrant.query().where('id', revoked.id).delete()
+
+    for (const token of [accessToken.raw, refreshToken.rawRefreshToken]) {
+      const response = await client.post(`${ctx.baseUrl}/oauth/introspect`).json({
+        token,
+        client_id: 'test-client',
+        client_secret: 'test-secret',
+      })
+      assert.deepEqual(response.body(), { active: false })
+    }
+
+    const userinfo = await client.get(`${ctx.baseUrl}/oauth/userinfo`).bearerToken(accessToken.raw)
+    userinfo.assertStatus(401)
   })
 })

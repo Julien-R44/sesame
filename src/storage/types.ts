@@ -148,13 +148,26 @@ export interface SesamePurgeResult {
 }
 
 /**
- * Grant change applied in the same transaction as a token issuance:
- * extend the expiry of an existing grant, or create one for tokens
- * issued before grants existed.
+ * Pre-grant credentials attached to a newly created grant, so a later
+ * replay of them revokes that grant. Only rows whose grant_id is null change.
+ */
+export interface GrantAdoption {
+  codeId?: string
+  refreshTokenId?: string
+  accessTokenId?: string
+}
+
+/**
+ * Grant change applied in the same transaction as a token issuance.
+ *
+ * - `extend`: the grant must exist and be active, otherwise the whole
+ *   issuance fails. Its expiry moves to `expiresAt` but never backwards.
+ * - `create`: tokens issued before grants existed get a new grant, and
+ *   the presented credentials are adopted into it.
  */
 export type TokenGrantWrite =
   | { type: 'extend'; id: string; expiresAt: DateTime }
-  | { type: 'create'; grant: CreateGrantRecord }
+  | { type: 'create'; grant: CreateGrantRecord; adopt: GrantAdoption }
 
 export interface IssueTokenPairOptions {
   accessToken: CreateAccessTokenRecord
@@ -214,7 +227,8 @@ export interface ListStoredGrantsOptions {
 
 /**
  * OAuth-specific persistence operations. Callers never build database predicates.
- * Conditional exchanges and rotations return false when another request won.
+ * Conditional exchanges, rotations, and issuances return false when another
+ * request won or when the grant they extend is no longer active.
  */
 export interface SesameStore {
   findClient(clientId: string): Promise<OAuthClientRecord | null>
@@ -277,7 +291,7 @@ export interface SesameStore {
     options: PendingAuthorizationRequestLookupOptions
   ): Promise<OAuthPendingAuthorizationRequestRecord | null>
 
-  issueTokenPair(options: IssueTokenPairOptions): Promise<void>
+  issueTokenPair(options: IssueTokenPairOptions): Promise<boolean>
   rotateRefreshToken(options: RotateRefreshTokenOptions): Promise<boolean>
   revokeAllForUser(options: { userId: string; now: DateTime }): Promise<void>
   purgeTokens(options: PurgeTokensOptions): Promise<SesamePurgeResult>

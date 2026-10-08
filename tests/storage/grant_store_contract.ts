@@ -1,6 +1,6 @@
 import type { Assert } from '@japa/assert'
 import { DateTime } from 'luxon'
-import type { SesameStore } from '../../src/storage/types.ts'
+import type { SesameStore, TokenGrantWrite } from '../../src/storage/types.ts'
 
 /**
  * Assert two instants are equal, tolerating second-precision SQL timestamps.
@@ -11,18 +11,20 @@ function assertSameInstant(assert: Assert, actual: DateTime | undefined, expecte
 }
 
 /**
- * Persist a token pair for a user, optionally inside a grant.
+ * Persist a token pair for a user, optionally inside a grant or with a grant write.
  */
 async function issuePair(
   store: SesameStore,
-  options: { clientId: string; userId: string; grantId?: string }
+  options: { clientId: string; userId: string; grantId?: string; grant?: TokenGrantWrite }
 ) {
   const accessTokenId = crypto.randomUUID()
+  const refreshTokenId = crypto.randomUUID()
   const accessHash = `access-${crypto.randomUUID()}`
   const refreshHash = `refresh-${crypto.randomUUID()}`
   const expiresAt = DateTime.now().plus({ hours: 1 })
 
-  await store.issueTokenPair({
+  const issued = await store.issueTokenPair({
+    grant: options.grant,
     accessToken: {
       id: accessTokenId,
       tokenHash: accessHash,
@@ -33,7 +35,7 @@ async function issuePair(
       expiresAt,
     },
     refreshToken: {
-      id: crypto.randomUUID(),
+      id: refreshTokenId,
       token: refreshHash,
       accessTokenId,
       clientId: options.clientId,
@@ -44,7 +46,7 @@ async function issuePair(
     },
   })
 
-  return { accessHash, refreshHash }
+  return { issued, accessTokenId, refreshTokenId, accessHash, refreshHash }
 }
 
 /**
@@ -180,10 +182,42 @@ export async function testGrantRevocation(store: SesameStore, clientId: string, 
   assert.isTrue(DateTime.isDateTime(consumed?.consumedAt))
   assertSameInstant(assert, (await store.findGrant(grantId))?.expiresAt, now.plus({ days: 30 }))
 
-  const adoptedGrantId = crypto.randomUUID()
+  const shorter = await issuePair(store, {
+    clientId,
+    userId,
+    grantId,
+    grant: { type: 'extend', id: grantId, expiresAt: now.plus({ hours: 1 }) },
+  })
+  assert.isTrue(shorter.issued)
+  assertSameInstant(assert, (await store.findGrant(grantId))?.expiresAt, now.plus({ days: 30 }))
+
+  const expiredGrantId = crypto.randomUUID()
+  await store.createGrant({
+    id: expiredGrantId,
+    clientId,
+    userId,
+    scopes: ['read'],
+    expiresAt: now.minus({ minutes: 1 }),
+  })
+  for (const inactiveId of [expiredGrantId, crypto.randomUUID()]) {
+    const rejected = await issuePair(store, {
+      clientId,
+      userId,
+      grantId: inactiveId,
+      grant: { type: 'extend', id: inactiveId, expiresAt: now.plus({ days: 30 }) },
+    })
+    assert.isFalse(rejected.issued)
+    assert.isNull(await store.findAccessToken({ hash: rejected.accessHash }))
+    assert.isNull(await store.findRefreshToken({ hash: rejected.refreshHash, clientId }))
+  }
+
   const legacy = await issuePair(store, { clientId, userId })
-  const adoptedAccessTokenId = crypto.randomUUID()
-  await store.issueTokenPair({
+  const adopted = await issuePair(store, { clientId, userId })
+  const adoptedGrantId = crypto.randomUUID()
+  const adoption = await issuePair(store, {
+    clientId,
+    userId,
+    grantId: adoptedGrantId,
     grant: {
       type: 'create',
       grant: {
@@ -193,28 +227,17 @@ export async function testGrantRevocation(store: SesameStore, clientId: string, 
         scopes: ['read'],
         expiresAt: now.plus({ days: 30 }),
       },
-    },
-    accessToken: {
-      id: adoptedAccessTokenId,
-      tokenHash: `access-${crypto.randomUUID()}`,
-      clientId,
-      userId,
-      grantId: adoptedGrantId,
-      scopes: ['read'],
-      expiresAt: now.plus({ hours: 1 }),
-    },
-    refreshToken: {
-      id: crypto.randomUUID(),
-      token: `refresh-${crypto.randomUUID()}`,
-      accessTokenId: adoptedAccessTokenId,
-      clientId,
-      userId,
-      grantId: adoptedGrantId,
-      scopes: ['read'],
-      expiresAt: now.plus({ days: 30 }),
+      adopt: { refreshTokenId: adopted.refreshTokenId, accessTokenId: adopted.accessTokenId },
     },
   })
+  assert.isTrue(adoption.issued)
   assert.isNull((await store.findGrant(adoptedGrantId))?.context)
+  assert.equal(
+    (await store.findRefreshToken({ hash: adopted.refreshHash, clientId }))?.grantId,
+    adoptedGrantId
+  )
+  assert.equal((await store.findAccessToken({ hash: adopted.accessHash }))?.grantId, adoptedGrantId)
+  assert.isNull((await store.findRefreshToken({ hash: legacy.refreshHash, clientId }))?.grantId)
 
   assert.isTrue(await store.revokeGrant({ id: grantId, now }))
   assert.isFalse(await store.revokeGrant({ id: grantId, now }))
@@ -231,7 +254,7 @@ export async function testGrantRevocation(store: SesameStore, clientId: string, 
   assert.isNotNull((await store.findAccessToken({ hash: legacy.accessHash }))?.revokedAt)
   assert.isNotNull(await store.findGrant(adoptedGrantId))
 
-  assert.equal(await store.revokeGrants({ userId, clientId, now }), 1)
+  assert.equal(await store.revokeGrants({ userId, clientId, now }), 2)
   assert.equal(await store.revokeGrants({ userId, now }), 0)
   assert.lengthOf(await store.listGrants({ userId }), 0)
 }

@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import { BaseModel } from '@adonisjs/lucid/orm'
 import { CLIENT_USAGE_TABLES, chunkClientIds, isPurgeableClient } from '../unused_clients.js'
+import { falseOnInactiveGrant, InactiveGrantError } from '../inactive_grant.js'
 import { OAuthAccessToken } from '../../models/oauth_access_token.js'
 import { OAuthAuthorizationCode } from '../../models/oauth_authorization_code.js'
 import { OAuthClient } from '../../models/oauth_client.js'
@@ -14,6 +15,7 @@ import type {
   CreateGrantRecord,
   CreatePendingAuthorizationRequestRecord,
   ExchangeAuthorizationCodeOptions,
+  GrantAdoption,
   IssueTokenPairOptions,
   ListStoredGrantsOptions,
   OAuthAccessTokenRecord,
@@ -152,27 +154,67 @@ export class LucidStore implements SesameStore {
 
   /**
    * Extend or create the grant written alongside a token issuance.
+   * Must run inside a transaction.
    */
   async #applyGrantWrite(write?: TokenGrantWrite): Promise<void> {
     if (!write) return
     if (write.type === 'create') {
       await OAuthGrant.create(write.grant, { client: this.#client })
+      await this.#adoptIntoGrant(write.grant.id, write.adopt)
       return
     }
 
-    await this.#query(OAuthGrant).where('id', write.id).update({
-      expiresAt: write.expiresAt.toSQL(),
-      updatedAt: DateTime.now().toSQL(),
-    })
+    await this.#extendGrant(write)
+  }
+
+  /**
+   * Lock an active grant and move its expiry forward, or throw so the
+   * issuance rolls back when the grant was revoked or expired meanwhile.
+   */
+  async #extendGrant(write: { id: string; expiresAt: DateTime }): Promise<void> {
+    const now = DateTime.now()
+    const query = this.#query(OAuthGrant)
+      .where('id', write.id)
+      .where('expiresAt', '>', now.toSQL()!)
+    const isSqlite = String(this.#client?.dialect?.name ?? '').includes('sqlite')
+    const grant = await (isSqlite ? query : query.forUpdate()).first()
+    if (!grant) throw new InactiveGrantError()
+    if (this.#grantRecord(grant).expiresAt >= write.expiresAt) return
+
+    await this.#query(OAuthGrant)
+      .where('id', write.id)
+      .update({ expiresAt: write.expiresAt.toSQL(), updatedAt: now.toSQL() })
+  }
+
+  /**
+   * Attach pre-grant credentials to a newly created grant.
+   */
+  async #adoptIntoGrant(grantId: string, adopt: GrantAdoption): Promise<void> {
+    const targets = [
+      { model: OAuthAuthorizationCode, id: adopt.codeId },
+      { model: OAuthRefreshToken, id: adopt.refreshTokenId },
+      { model: OAuthAccessToken, id: adopt.accessTokenId },
+    ]
+
+    for (const target of targets) {
+      if (!target.id) continue
+
+      await this.#query(target.model)
+        .where('id', target.id)
+        .whereNull('grantId')
+        .update({ grantId })
+    }
   }
 
   /**
    * Delete grants with their codes and refresh tokens and revoke their
-   * access tokens. Must run inside a transaction.
+   * access tokens. Must run inside a transaction. The grants are deleted
+   * first so a concurrent issuance holding their lock cannot outlive them.
    */
   async #revokeGrantIds(ids: string[], now: DateTime): Promise<number> {
     if (ids.length === 0) return 0
 
+    const count = this.#affectedRows(await this.#query(OAuthGrant).whereIn('id', ids).delete())
     await this.#query(OAuthRefreshToken).whereIn('grantId', ids).delete()
     await this.#query(OAuthAuthorizationCode).whereIn('grantId', ids).delete()
     await this.#query(OAuthAccessToken)
@@ -180,7 +222,7 @@ export class LucidStore implements SesameStore {
       .whereNull('revokedAt')
       .update({ revokedAt: now.toSQL(), updatedAt: now.toSQL() })
 
-    return this.#affectedRows(await this.#query(OAuthGrant).whereIn('id', ids).delete())
+    return count
   }
 
   /**
@@ -429,26 +471,28 @@ export class LucidStore implements SesameStore {
    * Consume a code exactly once and issue its tokens in one transaction.
    */
   async exchangeAuthorizationCode(options: ExchangeAuthorizationCodeOptions): Promise<boolean> {
-    return this.#transaction(async (store) => {
-      const consumed = this.#affectedRows(
-        await store.#query(OAuthAuthorizationCode)
-          .where('id', options.codeId)
-          .whereNull('consumedAt')
-          .update({
-            consumedAt: options.consumedAt.toSQL(),
-            updatedAt: options.consumedAt.toSQL(),
-          })
-      )
-      if (consumed !== 1) return false
+    return falseOnInactiveGrant(() =>
+      this.#transaction(async (store) => {
+        const consumed = this.#affectedRows(
+          await store.#query(OAuthAuthorizationCode)
+            .where('id', options.codeId)
+            .whereNull('consumedAt')
+            .update({
+              consumedAt: options.consumedAt.toSQL(),
+              updatedAt: options.consumedAt.toSQL(),
+            })
+        )
+        if (consumed !== 1) return false
 
-      await store.#applyGrantWrite(options.grant)
-      await store.createAccessToken(options.accessToken)
-      if (options.refreshToken) {
-        await OAuthRefreshToken.create(options.refreshToken, { client: store.#client })
-      }
+        await store.#applyGrantWrite(options.grant)
+        await store.createAccessToken(options.accessToken)
+        if (options.refreshToken) {
+          await OAuthRefreshToken.create(options.refreshToken, { client: store.#client })
+        }
 
-      return true
-    })
+        return true
+      })
+    )
   }
 
   /**
@@ -579,37 +623,43 @@ export class LucidStore implements SesameStore {
   /**
    * Persist a new access/refresh pair atomically during the grace period.
    */
-  async issueTokenPair(options: IssueTokenPairOptions): Promise<void> {
-    await this.#transaction(async (store) => {
-      await store.#applyGrantWrite(options.grant)
-      await store.createAccessToken(options.accessToken)
-      await OAuthRefreshToken.create(options.refreshToken, { client: store.#client })
-    })
+  async issueTokenPair(options: IssueTokenPairOptions): Promise<boolean> {
+    return falseOnInactiveGrant(() =>
+      this.#transaction(async (store) => {
+        await store.#applyGrantWrite(options.grant)
+        await store.createAccessToken(options.accessToken)
+        await OAuthRefreshToken.create(options.refreshToken, { client: store.#client })
+
+        return true
+      })
+    )
   }
 
   /**
    * Conditionally consume a refresh token and persist its replacement pair.
    */
   async rotateRefreshToken(options: RotateRefreshTokenOptions): Promise<boolean> {
-    return this.#transaction(async (store) => {
-      const updated = this.#affectedRows(
-        await store.#query(OAuthRefreshToken)
-          .where('id', options.oldRefreshTokenId)
+    return falseOnInactiveGrant(() =>
+      this.#transaction(async (store) => {
+        const updated = this.#affectedRows(
+          await store.#query(OAuthRefreshToken)
+            .where('id', options.oldRefreshTokenId)
+            .whereNull('revokedAt')
+            .update({ revokedAt: options.revokedAt.toSQL(), updatedAt: options.revokedAt.toSQL() })
+        )
+        if (updated !== 1) return false
+
+        await store.#query(OAuthAccessToken)
+          .where('id', options.oldAccessTokenId)
           .whereNull('revokedAt')
           .update({ revokedAt: options.revokedAt.toSQL(), updatedAt: options.revokedAt.toSQL() })
-      )
-      if (updated !== 1) return false
+        await store.#applyGrantWrite(options.grant)
+        await store.createAccessToken(options.accessToken)
+        await OAuthRefreshToken.create(options.refreshToken, { client: store.#client })
 
-      await store.#query(OAuthAccessToken)
-        .where('id', options.oldAccessTokenId)
-        .whereNull('revokedAt')
-        .update({ revokedAt: options.revokedAt.toSQL(), updatedAt: options.revokedAt.toSQL() })
-      await store.#applyGrantWrite(options.grant)
-      await store.createAccessToken(options.accessToken)
-      await OAuthRefreshToken.create(options.refreshToken, { client: store.#client })
-
-      return true
-    })
+        return true
+      })
+    )
   }
 
   /**

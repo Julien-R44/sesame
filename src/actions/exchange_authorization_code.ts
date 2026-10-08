@@ -89,6 +89,7 @@ export class ExchangeAuthorizationCodeAction {
       expiresAt: refreshToken
         ? DateTime.max(accessTokenExpiresAt, refreshToken.expiresAt)
         : accessTokenExpiresAt,
+      adopt: { codeId: authCode.id },
     })
 
     /**
@@ -230,6 +231,22 @@ export class ExchangeAuthorizationCodeAction {
   }
 
   /**
+   * Explain why the conditional exchange failed. A concurrent request
+   * consumed the code first: that is a reuse, so the tokens it issued
+   * are revoked (OAuth 2.1 §4.1.3). Otherwise, the grant was revoked.
+   */
+  async #rejectLostExchange(manager: SesameManager, exchange: CodeExchange): Promise<never> {
+    const current = await manager.store.findAuthorizationCode({
+      code: exchange.authCode.code,
+      clientId: exchange.client.clientId,
+    })
+    if (!current?.consumedAt) throw new E_INVALID_GRANT('Grant has been revoked or has expired')
+
+    await new GrantService(manager).revokeFamily(current)
+    throw new E_INVALID_GRANT('Authorization code has already been consumed')
+  }
+
+  /**
    * Atomically consume the authorization code, persist the new
    * access token (and optionally refresh token), and extend the
    * grant inside a single transaction.
@@ -265,6 +282,6 @@ export class ExchangeAuthorizationCodeAction {
         : null,
     })
 
-    if (!exchanged) throw new E_INVALID_GRANT('Authorization code has already been consumed')
+    if (!exchanged) await this.#rejectLostExchange(manager, exchange)
   }
 }
