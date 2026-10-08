@@ -8,12 +8,18 @@ import type { ResolvedSesameConfig } from '../types.ts'
 export const MAX_CLIENT_ID_URL_LENGTH = 255
 
 /**
+ * URL schemes are case-insensitive, so `HTTPS://` must not bypass
+ * the metadata document checks.
+ */
+const HTTPS_SCHEME = /^https:\/\//i
+
+/**
  * Whether a `client_id` must be resolved through a Client ID Metadata
  * Document. Sésame-generated client ids are hex strings, so they never
  * start with `https://` (draft §7.1).
  */
 export function isClientIdMetadataDocumentUrl(clientId: string) {
-  return clientId.startsWith('https://')
+  return HTTPS_SCHEME.test(clientId)
 }
 
 /**

@@ -806,6 +806,14 @@ Fetching a URL supplied by a client exposes the server to SSRF. Sésame applies 
 
 Outbound proxies configured through `HTTPS_PROXY` are not used.
 
+Client ids are always compared exactly. With their default collations, MySQL and MariaDB compare `client_id` case-insensitively, so `https://host/~Alice/client.json` and `https://host/~alice/client.json` would hit the same row. Sésame rejects such a variant with `invalid_client` instead of using or updating the other client. Two clients that only differ by case therefore cannot coexist. To support them, use a binary collation such as `utf8mb4_bin` on `oauth_clients.client_id` and on every `client_id` foreign key column:
+
+```sql
+ALTER TABLE oauth_clients MODIFY client_id VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL;
+-- Repeat for client_id in oauth_access_tokens, oauth_refresh_tokens, oauth_authorization_codes,
+-- oauth_consents and oauth_pending_authorization_requests (drop and recreate the foreign keys around it).
+```
+
 Use `allowedHosts` on servers that should only accept known clients. To block a single client, disable it. It stays disabled when its document is refreshed:
 
 ```ts

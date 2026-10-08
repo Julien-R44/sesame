@@ -7,6 +7,8 @@ import { createTestClient } from '../helpers/create_test_client.ts'
 import { FakeClientMetadataDocumentFetcher } from '../helpers/fake_client_metadata_fetcher.ts'
 import { ClientMetadataDocumentFetcher } from '../../src/client_id_metadata_documents/fetcher.ts'
 import { OAuthClient } from '../../src/models/oauth_client.ts'
+import { lucidStore } from '../../src/storage/drivers/lucid.ts'
+import { caseInsensitiveClientStore } from '../helpers/store_overrides.ts'
 
 const CLAUDE_CODE_ID = 'https://claude.ai/oauth/claude-code-client-metadata'
 const VSCODE_ID = 'https://vscode.dev/oauth/client-metadata.json'
@@ -481,4 +483,106 @@ test.group('HTTP | Client ID Metadata Documents (disabled)', (group) => {
 
     response.assertStatus(401)
   })
+})
+
+test.group('HTTP | Client ID Metadata Documents (case-insensitive store)', (group) => {
+  const ctx = setupHttpGroup(
+    group,
+    { clientIdMetadataDocuments: true },
+    { store: caseInsensitiveClientStore(lucidStore()) }
+  )
+  const fetcher = useFakeFetcher(group, ctx)
+
+  test('rejects an uppercase scheme before any lookup or fetch', async ({ client, assert }) => {
+    await createTestClient({
+      clientId: CLAUDE_CODE_ID,
+      redirectUris: ['http://localhost/callback'],
+    })
+
+    const response = await authorize(client, {
+      baseUrl: ctx.baseUrl,
+      clientId: CLAUDE_CODE_ID.replace('https://', 'HTTPS://'),
+      redirectUri: 'http://localhost:3118/callback',
+      userId: 'user-1',
+    })
+
+    response.assertStatus(401)
+    assert.include(response.body().error_description, 'canonical form')
+    assert.lengthOf(fetcher.calls, 0)
+  })
+
+  test('does not hijack a client whose URL only differs by case', async ({ client, assert }) => {
+    const aliceId = 'https://host.example.com/~alice/client.json'
+    const attackerId = 'https://host.example.com/~Alice/client.json'
+    await createTestClient({
+      clientId: aliceId,
+      clientSecret: null,
+      isPublic: true,
+      redirectUris: ['https://alice.example.com/callback'],
+    })
+    fetcher.serve(attackerId, {
+      client_id: attackerId,
+      client_name: 'Totally Alice',
+      redirect_uris: ['https://attacker.example.com/callback'],
+    })
+
+    const response = await authorize(client, {
+      baseUrl: ctx.baseUrl,
+      clientId: attackerId,
+      redirectUri: 'https://attacker.example.com/callback',
+      userId: 'user-1',
+    })
+
+    response.assertStatus(401)
+    response.assertBodyContains({ error: 'invalid_client' })
+
+    const alice = await OAuthClient.query().where('clientId', aliceId).firstOrFail()
+    assert.deepEqual(alice.redirectUris, ['https://alice.example.com/callback'])
+  })
+
+  test('rejects case variants of a client_id at the token endpoint', async ({ client }) => {
+    await createTestClient({ clientSecret: null, isPublic: true })
+
+    const response = await client.post(`${ctx.baseUrl}/oauth/token`).form({
+      grant_type: 'refresh_token',
+      client_id: 'TEST-CLIENT',
+      refresh_token: 'whatever',
+    })
+
+    response.assertStatus(401)
+    response.assertBodyContains({ error: 'invalid_client' })
+  })
+})
+
+test.group('HTTP | Client ID Metadata Documents (disabled, case-insensitive store)', (group) => {
+  const ctx = setupHttpGroup(group, {}, { store: caseInsensitiveClientStore(lucidStore()) })
+
+  test('keeps the kill switch for an uppercase scheme ({0})')
+    .with(['authorize', 'token'] as const)
+    .run(async ({ client, assert }, endpoint) => {
+      await createTestClient({
+        clientId: CLAUDE_CODE_ID,
+        clientSecret: null,
+        isPublic: true,
+        redirectUris: ['http://localhost/callback'],
+      })
+      const clientId = CLAUDE_CODE_ID.replace('https://', 'HTTPS://')
+
+      const response =
+        endpoint === 'authorize'
+          ? await authorize(client, {
+              baseUrl: ctx.baseUrl,
+              clientId,
+              redirectUri: 'http://localhost:3118/callback',
+              userId: 'user-1',
+            })
+          : await client.post(`${ctx.baseUrl}/oauth/token`).form({
+              grant_type: 'refresh_token',
+              client_id: clientId,
+              refresh_token: 'whatever',
+            })
+
+      response.assertStatus(401)
+      assert.include(response.body().error_description, 'not supported')
+    })
 })

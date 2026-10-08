@@ -213,8 +213,24 @@ export class ClientIdMetadataDocumentService {
     }
   }
 
-  async #reload(clientId: string) {
+  /**
+   * Find the stored client for this exact URL. Stores with case-insensitive
+   * collations (MySQL/MariaDB) can return another client, e.g. `~alice`
+   * for `~Alice`: that client must never be used nor overwritten.
+   */
+  async #findStoredClient(clientId: string) {
     const client = await this.#manager.store.findClient(clientId)
+    if (!client) return null
+
+    if (client.clientId !== clientId) {
+      throw new E_INVALID_CLIENT('Client ID conflicts with a registered client')
+    }
+
+    return client
+  }
+
+  async #reload(clientId: string) {
+    const client = await this.#findStoredClient(clientId)
     if (!client) throw new E_INVALID_CLIENT('Client not found')
 
     return client
@@ -222,7 +238,8 @@ export class ClientIdMetadataDocumentService {
 
   /**
    * Insert or refresh the client row. A concurrent first insert for the
-   * same URL loses on the unique `client_id` and falls back to an update.
+   * same URL loses on the unique `client_id` and falls back to an update,
+   * unless the conflicting row belongs to another client id.
    * `isDisabled` is never touched so administrators keep their kill switch.
    */
   async #persist(options: {
@@ -251,7 +268,7 @@ export class ClientIdMetadataDocumentService {
         userId: null,
       })
     } catch (error) {
-      const concurrent = await store.findClient(options.clientId)
+      const concurrent = await this.#findStoredClient(options.clientId)
       if (!concurrent) throw error
 
       await store.updateClient({ id: concurrent.id, data: options.client })
@@ -268,7 +285,7 @@ export class ClientIdMetadataDocumentService {
   async resolve(options: { clientId: string; persist: boolean }): Promise<OAuthClientRecord> {
     const url = this.#parseClientId(options.clientId)
 
-    const existing = await this.#manager.store.findClient(options.clientId)
+    const existing = await this.#findStoredClient(options.clientId)
     if (existing?.isDisabled) throw new E_INVALID_CLIENT('Client is disabled')
     if (existing && this.#isFresh(existing)) return existing
 

@@ -3,6 +3,7 @@ import type { SesameManager } from '../sesame_manager.ts'
 import type { OAuthClientRecord } from '../storage/types.ts'
 import { E_INVALID_CLIENT, E_INVALID_REQUEST, E_INVALID_SCOPE } from '../oauth_error.ts'
 import { BUILTIN_SCOPES } from '../types.ts'
+import { findClientByExactId } from '../storage/find_client_by_exact_id.ts'
 import { assertClientIdMetadataDocumentsEnabled } from '../client_id_metadata_documents/client_id_url.ts'
 
 /**
@@ -106,8 +107,10 @@ export class ClientService {
       config: this.#manager.config,
     })
 
-    const store = this.#manager.store
-    const client = await store.findClient(credentials.clientId)
+    const client = await findClientByExactId({
+      store: this.#manager.store,
+      clientId: credentials.clientId,
+    })
     if (!client || client.isDisabled) throw new E_INVALID_CLIENT('Client authentication failed')
 
     if (!client.isPublic) {

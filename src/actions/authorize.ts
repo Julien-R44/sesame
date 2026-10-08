@@ -15,6 +15,7 @@ import {
   assertClientIdMetadataDocumentsEnabled,
   isClientIdMetadataDocumentUrl,
 } from '../client_id_metadata_documents/client_id_url.ts'
+import { findClientByExactId } from '../storage/find_client_by_exact_id.ts'
 import {
   E_INVALID_CLIENT,
   E_INVALID_REQUEST,
@@ -92,7 +93,7 @@ export class AuthorizeAction {
     assertClientIdMetadataDocumentsEnabled({ clientId: input.clientId, config: manager.config })
 
     if (!isClientIdMetadataDocumentUrl(input.clientId)) {
-      return manager.store.findClient(input.clientId)
+      return findClientByExactId({ store: manager.store, clientId: input.clientId })
     }
 
     const service = new ClientIdMetadataDocumentService({ manager, fetcher: this.#fetcher })
