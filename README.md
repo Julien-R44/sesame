@@ -189,6 +189,81 @@ The authorization code flow works in three steps. All clients must use PKCE with
 
 3. The consuming app passes the access token as a `Bearer` token in the `Authorization` header when calling your API.
 
+### Consent page
+
+Sésame redirects authenticated users to your `consentPage` with the original authorize query parameters plus an `auth_token`. Use `findPendingAuthorizationRequest` to display the stored request: always render the client and scopes from the stored record, never from the editable query string.
+
+The simplest consent page posts a form to the built-in `POST /oauth/consent` route:
+
+| Field        | Description                                                                                            |
+| ------------ | ------------------------------------------------------------------------------------------------------ |
+| `auth_token` | Required. The raw token received by the consent page                                                   |
+| `accept`     | Any truthy value approves. Omit it (or send JSON `false`) to deny                                      |
+| `scope`      | Optional. Space-delimited string or array of scopes to grant. Must be a subset of the requested scopes |
+
+When `scope` is omitted, every requested scope is granted. With checkboxes, an unchecked box is simply not sent: if the user can uncheck everything, handle the decision in your own controller as shown below rather than posting an empty form.
+
+### Handling consent in your own controller
+
+When you need more control (granting fewer scopes than requested, an Inertia page, extra checks before approving), call `approveAuthorization` and `denyAuthorization` from your own controller. Both consume the pending request atomically and return the client redirect URL instead of redirecting, so you can use `response.redirect()` or `inertia.location()`.
+
+```ts title="app/controllers/oauth_consent_controller.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+import sesame from '@julr/sesame/services/main'
+
+export default class OauthConsentController {
+  async show({ auth, request, response, view }: HttpContext) {
+    const authToken = request.input('auth_token')
+    const userId = String(auth.getUserOrFail().id)
+
+    const pending = await sesame.findPendingAuthorizationRequest({ token: authToken, userId })
+    if (!pending) return response.badRequest('Authorization request not found or expired')
+
+    const client = await sesame.findClient(pending.clientId)
+
+    return view.render('oauth/consent', { authToken, client, scopes: pending.scopes })
+  }
+
+  async decide({ auth, request, response }: HttpContext) {
+    const authToken = request.input('auth_token')
+    const userId = String(auth.getUserOrFail().id)
+
+    if (request.input('decision') !== 'approve') {
+      const { redirectUrl } = await sesame.denyAuthorization({ authToken, userId })
+      return response.redirect(redirectUrl)
+    }
+
+    const readOnly = request.input('read_only') === 'on'
+    const { redirectUrl } = await sesame.approveAuthorization({
+      authToken,
+      userId,
+      scopes: readOnly ? ['read'] : undefined,
+    })
+
+    return response.redirect(redirectUrl)
+  }
+}
+```
+
+`approveAuthorization` returns `{ redirectUrl, clientId, scopes }`, where `scopes` lists the scopes actually granted. The authorization code only carries those scopes, and the token endpoint returns them in its `scope` field so the client knows what it received (OAuth 2.1 §1.4.1). `denyAuthorization` returns the same shape with an `access_denied` redirect URL and an empty `scopes` list.
+
+Both methods throw the standard Sésame OAuth errors, which render as JSON when left uncaught:
+
+- `E_INVALID_GRANT` when the request is unknown, expired, already used, or belongs to another user
+- `E_INVALID_SCOPE` when `scopes` is empty, contains a scope that was not requested, or contains `profile`/`email` without `openid`. These checks run before the request is consumed, so the user can still submit a valid decision
+- `E_INVALID_CLIENT` when the client was deleted or disabled in the meantime
+
+Approved scopes are remembered per client and user, and merged with previously approved ones. Future requests covered by the remembered scopes skip the consent page, unless the client sends `prompt=consent`. Denying a request does not change the remembered consent.
+
+### The `prompt` parameter
+
+Sésame supports two values of the OpenID Connect `prompt` parameter, with or without the `openid` scope, and advertises them in `prompt_values_supported`:
+
+- `prompt=consent` always shows the consent page, even when the user already approved the requested scopes.
+- `prompt=none` never shows a page. Sésame redirects back to the client with `error=login_required` when the user is not logged in, or `error=consent_required` when the requested scopes are not covered by a remembered consent. Combining `none` with another value returns `error=invalid_request`.
+
+Other values (`login`, `select_account`, `create`) and `max_age` are ignored.
+
 ## Authentication Guard
 
 Sésame provides an OAuth guard for `@adonisjs/auth` that verifies opaque Bearer tokens against the database, checks revocation and expiry, and resolves the user. In a Lucid application configured with the session guard, add the OAuth guard while keeping `web` as the default. Sésame uses that default guard to identify the logged-in user during authorization and consent:
@@ -679,6 +754,8 @@ This creates a `/.well-known/oauth-protected-resource/api/mcp` endpoint. MCP cli
 Point the OAuth guard at the same resource with `oauthGuard({ provider, resource: '/api/mcp' })`. Its 401 responses then reference this metadata URL and advertise the declared `scopes` in the `WWW-Authenticate` header (see [Scope challenges](#scope-challenges)).
 
 MCP clients typically need to self-register, so you will want to enable dynamic client registration with public access (see the [Dynamic Client Registration](#dynamic-client-registration) section above).
+
+The official MCP TypeScript SDK sends `prompt=consent` whenever it requests the `offline_access` scope, and adds `offline_access` itself when it is advertised (Sésame always advertises it). Since Sésame honors `prompt=consent`, these clients show your consent page on every new connection, even if the user approved them before. Token refreshes are not affected.
 
 ## Events
 
