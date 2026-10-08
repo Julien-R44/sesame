@@ -1,6 +1,7 @@
 {{{
-  exports: { migration: "import { BaseSchema } from '@adonisjs/lucid/schema'" }
+  exports({ to: app.migrationsPath(`${prefix}_create_oauth_consents_table.ts`) })
 }}}
+import { BaseSchema } from '@adonisjs/lucid/schema'
 
 export default class extends BaseSchema {
   protected tableName = 'oauth_consents'
