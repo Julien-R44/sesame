@@ -738,6 +738,128 @@ Set `allowDynamicRegistration: true` in `config/sesame.ts`. Also set `allowPubli
 
 Registered clients store `registration: 'dynamic'` in their `metadata` (not returned in the registration response), then `first_authorized_at` once they first obtain tokens. With public registration, clients that register but never complete an authorization pile up; delete them with `node ace sesame:purge --clients` (see [Token Cleanup](#token-cleanup)).
 
+## Client ID Metadata Documents
+
+The MCP specification (2025-11-25) recommends [Client ID Metadata Documents](https://datatracker.ietf.org/doc/draft-ietf-oauth-client-id-metadata-document/) (CIMD) over dynamic client registration. Instead of registering, the client uses an HTTPS URL as its `client_id`, and that URL serves a JSON document describing the client. Claude Code (`https://claude.ai/oauth/claude-code-client-metadata`) and VS Code (`https://vscode.dev/oauth/client-metadata.json`) work this way.
+
+The feature is disabled by default because it makes your server fetch URLs chosen by the client. Enable it in `config/sesame.ts`:
+
+```ts title="config/sesame.ts"
+const sesameConfig = defineConfig({
+  // ...
+  clientIdMetadataDocuments: true,
+})
+```
+
+Pass an object to customize the policy. Every option is optional:
+
+```ts title="config/sesame.ts"
+const sesameConfig = defineConfig({
+  // ...
+  clientIdMetadataDocuments: {
+    // Only accept documents served by these hosts. A leading `*.` matches subdomains.
+    // When omitted, any public HTTPS host is accepted.
+    allowedHosts: ['claude.ai', 'vscode.dev', '*.example.com'],
+
+    // Bounds applied to the document's Cache-Control / Expires headers.
+    cache: { minTtl: '5m', maxTtl: '24h' },
+
+    fetchTimeout: '5s',
+    maxResponseSize: 5120,
+  },
+})
+```
+
+Once enabled, the authorization server metadata advertises `client_id_metadata_document_supported: true`, and MCP clients that support CIMD stop using `/oauth/register`. Keep dynamic registration enabled if you also need older clients.
+
+### How it works
+
+When `/oauth/authorize` receives a `client_id` starting with `https://`, Sésame:
+
+1. Validates the URL. It must use `https`, have a path other than `/`, be in canonical form, and have no query, fragment, userinfo, or IP address host. It must not exceed 255 characters, the size of the `oauth_clients.client_id` column.
+2. Checks `allowedHosts`.
+3. Fetches the document if no fresh copy is stored, then validates it. The rules are listed below.
+4. Stores the client in `oauth_clients` as a public client with mandatory PKCE, but only once the user is authenticated. Anonymous requests are validated without writing anything.
+
+The token, introspection, and revocation endpoints use the stored client and never fetch the document. The stored client is reused until the cache lifetime expires, then refreshed on the next authorization request. The cache lifetime comes from `Cache-Control: max-age` or `Expires`, clamped to `[minTtl, maxTtl]`. Responses with `no-store`, `no-cache`, or no freshness information use `minTtl`. If the document can no longer be fetched or validated, the authorization request fails even when a stored copy exists.
+
+Any failure returns an `invalid_client` error to the browser. Sésame does not redirect to the `redirect_uri` because it cannot be trusted yet.
+
+A document must:
+
+- Contain a `client_id` that is exactly the URL it was fetched from
+- Contain a non-empty `client_name` and at least one `redirect_uris` entry. Redirect URIs follow the same rules as dynamic registration.
+- Omit `token_endpoint_auth_method` or set it to `none`. Shared-secret methods are forbidden by the specification. `private_key_jwt` is not supported yet.
+- Not contain `client_secret` or `client_secret_expires_at`
+- Include `code` in `response_types` when that field is present
+
+Grant types default to `authorization_code` and `refresh_token`. Unsupported grant types listed by the document (such as the device code grant) are ignored. The document's `scope` is intersected with your configured scopes; without it, the client gets `defaultScopes`. `client_uri`, `logo_uri`, `tos_uri`, and `policy_uri` must be HTTPS URLs and are stored in the client `metadata` for display.
+
+### Security
+
+Fetching a URL supplied by a client exposes the server to SSRF. Sésame applies the protections required by the specification:
+
+- Every IP address the host resolves to is checked at connection time. Loopback, private, link-local, carrier-grade NAT, multicast, documentation, and other special-use ranges (RFC 6890) are refused, including IPv4-mapped IPv6 addresses. Checking at connection time also prevents DNS rebinding.
+- Redirects are never followed, and any status other than `200` is an error.
+- The response must be served as `application/json` (or `application/*+json`) without content encoding, within `fetchTimeout` and `maxResponseSize`.
+- URLs inside the document, such as `logo_uri`, are never fetched by Sésame.
+
+Outbound proxies configured through `HTTPS_PROXY` are not used.
+
+Use `allowedHosts` on servers that should only accept known clients. To block a single client, disable it. It stays disabled when its document is refreshed:
+
+```ts
+await sesame.updateClient('https://claude.ai/oauth/claude-code-client-metadata', {
+  isDisabled: true,
+})
+```
+
+Turning `clientIdMetadataDocuments` off rejects every URL `client_id` on all endpoints, even clients already stored. Access tokens that were already issued stay valid until they expire. Call `sesame.deleteClient(url)` to delete a client together with its tokens.
+
+### Consent screen
+
+Anyone can reuse a public client's metadata URL. On desktop clients that use loopback redirect URIs, a local process could also claim to be that client. Your consent page should show:
+
+- the host serving the document
+- the host of the `redirect_uri`
+- a warning when the redirect URI is a loopback address
+
+Read the values from the pending request rather than from the query string:
+
+```ts title="app/controllers/oauth_consent_controller.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+import sesame from '@julr/sesame/services/main'
+
+const LOOPBACK_HOSTS = ['localhost', '127.0.0.1', '[::1]']
+
+export default class OAuthConsentController {
+  async show({ request, auth, view }: HttpContext) {
+    const user = auth.getUserOrFail()
+    const pending = await sesame.findPendingAuthorizationRequest({
+      token: request.qs().auth_token,
+      userId: String(user.id),
+    })
+    if (!pending) return view.render('oauth/expired')
+
+    const client = await sesame.findClient(pending.clientId)
+    const redirectUri = new URL(pending.redirectUri)
+    const isMetadataDocument = pending.clientId.startsWith('https://')
+
+    return view.render('oauth/consent', {
+      authToken: request.qs().auth_token,
+      scopes: pending.scopes,
+      clientName: client?.name,
+      logoUri: client?.metadata?.logo_uri,
+      clientHost: isMetadataDocument ? new URL(pending.clientId).host : null,
+      redirectHost: redirectUri.host,
+      isLoopbackRedirect: LOOPBACK_HOSTS.includes(redirectUri.hostname),
+    })
+  }
+}
+```
+
+`GET /oauth/client-info` also returns `client_uri`, `logo_uri`, `tos_uri`, `policy_uri`, `client_id_metadata_document`, and `client_id_host` for metadata document clients. Sésame does not proxy logos: rendering `logo_uri` directly lets the client's host see when the consent screen is displayed.
+
 ## Managing Clients
 
 ### Creating clients from the CLI
@@ -889,7 +1011,7 @@ After authentication, `guard.audience` contains the resource the token is bound 
 
 A guard compares tokens with its `resource` mapped the same way as the `resource` parameter. Register the guard path with `registerProtectedResource()`: otherwise it maps to the closest registered resource (often the issuer), the guard accepts tokens issued for that broader resource, and Sésame logs a warning once.
 
-MCP clients typically need to self-register, so you will want to enable dynamic client registration with public access (see the [Dynamic Client Registration](#dynamic-client-registration) section above).
+MCP clients identify themselves through [Client ID Metadata Documents](#client-id-metadata-documents) (preferred by the MCP specification) or by self-registering. Enable `clientIdMetadataDocuments`, and keep dynamic client registration with public access for clients that do not support metadata documents yet (see [Dynamic Client Registration](#dynamic-client-registration)).
 
 The official MCP TypeScript SDK requests the scopes listed in the `scope` of the `WWW-Authenticate` challenge, and only falls back to `scopes_supported` of the protected resource metadata when the challenge has none. The OAuth guard lists the resource and route scopes in its 401 challenge (see [Scope challenges](#scope-challenges)), so the SDK requests exactly those scopes. It does not add `offline_access`, and since it only sends `prompt=consent` together with `offline_access`, it does not send `prompt=consent` either. A returning user whose grants without context already cover these scopes skips your consent page. Sésame still issues a refresh token whenever the `refresh_token` grant type is enabled, with or without `offline_access`. When the challenge has no `scope` (no scopes declared on the resource nor on the route), the SDK requests `scopes_supported`, which includes `offline_access`, and sends `prompt=consent`: your consent page is then shown on every new connection.
 
@@ -1011,6 +1133,7 @@ const deleted = await sesame.purgeUnusedClients({ olderThanDays: 30 })
 - Refresh tokens use **rotation**. The old token is revoked immediately on use.
 - **Replay detection**: if a revoked refresh token or an already exchanged authorization code is presented, its whole grant is revoked to mitigate stolen token reuse (OAuth 2.1 §4.1.3 and §4.3.1).
 - Client secret verification uses **timing-safe comparison**.
+- Client ID Metadata Documents are opt-in and fetched with **SSRF protections**: special-use IP ranges are refused at connection time, redirects are not followed, and responses are bounded in time and size.
 - ID tokens are signed with **RS256** using the configured JWK. The JWKS endpoint only exposes public key components.
 - Protocol-managed claims (`sub`, `iss`, `aud`, `exp`, `iat`, `nonce`, `at_hash`) cannot be overridden by `getOidcClaims()`.
 - OAuth errors follow the standard JSON format with proper HTTP status codes and `WWW-Authenticate` headers.

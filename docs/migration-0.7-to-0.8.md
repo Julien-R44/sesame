@@ -201,3 +201,21 @@ Tokens that are not bound to a resource are still accepted by default. Once your
 Redirect URIs on `http://127.0.0.1`, `http://[::1]` and `http://localhost` now match regardless of the port used in the authorization request, as required by OAuth 2.1 and RFC 8252 §7.3. Host, path and query must still match exactly. This allows native and CLI clients to bind an ephemeral port.
 
 No action is required. If you relied on the port to distinguish two loopback redirect URIs, register different paths instead.
+
+## Client ID Metadata Documents (opt-in)
+
+Sésame can now resolve HTTPS `client_id` URLs through [Client ID Metadata Documents](../README.md#client-id-metadata-documents), the registration method preferred by the MCP specification. The feature is disabled by default. Enable it in `config/sesame.ts`:
+
+```ts title="config/sesame.ts"
+const sesameConfig = defineConfig({
+  // ...
+  clientIdMetadataDocuments: true,
+})
+```
+
+No migration is needed. Metadata document clients are stored in the existing `oauth_clients` table. Keep in mind:
+
+- `client_id` URLs longer than 255 characters are rejected, matching the `oauth_clients.client_id` column size. If you need longer URLs, widen that column and the `client_id` foreign key columns yourself.
+- While the feature is disabled, any `client_id` starting with `https://` is rejected with `invalid_client`. Sésame never generates such ids.
+- Update your consent page to display the document host and the redirect URI host (see [Consent screen](../README.md#consent-screen)). `GET /oauth/client-info` returns new fields for this: `client_uri`, `logo_uri`, `tos_uri`, `policy_uri`, `client_id_metadata_document`, and `client_id_host`.
+- Custom `SesameStore` implementations need no change. Sésame only uses `findClient`, `createClient`, and `updateClient`. When two requests insert the same client concurrently, `createClient` must throw, as with the unique `client_id` constraint.
