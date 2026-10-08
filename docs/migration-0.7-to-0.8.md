@@ -21,6 +21,7 @@ export class MyStore implements SesameStore {
     // - created before options.createdBefore
     // - dynamically registered: metadata.registration === 'dynamic',
     //   or metadata.token_endpoint_auth_method is set (clients registered before 0.8.0)
+    // - never authorized: metadata.first_authorized_at is not set
     // - no access token, refresh token, authorization code, consent,
     //   or pending authorization request references the client
   }
@@ -38,4 +39,4 @@ Update tests that compare these headers exactly.
 
 ### Dynamic registrations are marked
 
-Clients created through `POST /oauth/register` now store `registration: 'dynamic'` in their `metadata`. The marker is not returned in the registration response. Clients created with `sesame.createClient()` or `node ace sesame:client` are never purged; do not add `registration` or `token_endpoint_auth_method` to their `metadata`.
+Clients created through `POST /oauth/register` now store `registration: 'dynamic'` in their `metadata`. The marker is not returned in the registration response. The first time such a client obtains tokens, Sésame also writes `first_authorized_at` in its `metadata`; clients with this marker are never purged. Clients registered before 0.8.0 get the marker on their next code exchange or refresh. Clients created with `sesame.createClient()` or `node ace sesame:client` are never purged; do not add `registration` or `token_endpoint_auth_method` to their `metadata`.

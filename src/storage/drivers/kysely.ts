@@ -8,7 +8,7 @@ import {
 } from 'kysely'
 import { DateTime } from 'luxon'
 import { retryConsentConflict } from '../consent_retry.js'
-import { CLIENT_USAGE_TABLES, chunkClientIds, isDynamicallyRegistered } from '../unused_clients.js'
+import { CLIENT_USAGE_TABLES, chunkClientIds, isPurgeableClient } from '../unused_clients.js'
 import type {
   CreateAccessTokenRecord,
   CreateAuthorizationCodeRecord,
@@ -833,7 +833,7 @@ export class KyselyStore implements SesameStore {
   }
 
   /**
-   * Delete dynamically registered clients that were never used.
+   * Delete dynamically registered clients that were never authorized and are unused.
    */
   async purgeUnusedClients(options: PurgeUnusedClientsOptions): Promise<number> {
     return this.#transaction(async (store) => {
@@ -856,7 +856,7 @@ export class KyselyStore implements SesameStore {
         .map((row: Row) =>
           decodeRow<Pick<OAuthClientRecord, 'clientId' | 'metadata'>>(row, tables.clients)
         )
-        .filter((client) => isDynamicallyRegistered(client.metadata))
+        .filter((client) => isPurgeableClient(client.metadata))
         .map((client) => client.clientId)
 
       let deleted = 0

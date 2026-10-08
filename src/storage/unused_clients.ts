@@ -1,3 +1,6 @@
+import { DateTime } from 'luxon'
+import type { OAuthClientRecord, SesameStore } from './types.ts'
+
 /**
  * Marker written in `metadata.registration` by the dynamic client
  * registration endpoint (RFC 7591).
@@ -5,7 +8,13 @@
 export const DYNAMIC_REGISTRATION = 'dynamic'
 
 /**
- * Tables whose rows mean a client has been used at least once.
+ * Metadata key holding the ISO date of a client's first successful
+ * token issuance. It survives token purges and user revocations.
+ */
+export const FIRST_AUTHORIZED_AT = 'first_authorized_at'
+
+/**
+ * Tables whose rows mean a client is currently in use.
  */
 export const CLIENT_USAGE_TABLES = [
   'oauth_access_tokens',
@@ -29,6 +38,31 @@ export function isDynamicallyRegistered(metadata: Record<string, any> | null): b
   if (metadata.registration === DYNAMIC_REGISTRATION) return true
 
   return metadata.token_endpoint_auth_method !== undefined
+}
+
+/**
+ * Whether a client may be deleted by the unused client purge: dynamically
+ * registered and never authorized. Usage tables are checked by the store.
+ */
+export function isPurgeableClient(metadata: Record<string, any> | null): boolean {
+  if (!isDynamicallyRegistered(metadata)) return false
+
+  return metadata![FIRST_AUTHORIZED_AT] === undefined
+}
+
+/**
+ * Record the first successful token issuance of a dynamically registered
+ * client, once, so the unused client purge never deletes it.
+ */
+export async function markFirstAuthorization(options: {
+  store: SesameStore
+  client: OAuthClientRecord
+}): Promise<void> {
+  const { client } = options
+  if (!isPurgeableClient(client.metadata)) return
+
+  const metadata = { ...client.metadata, [FIRST_AUTHORIZED_AT]: DateTime.now().toISO() }
+  await options.store.updateClient({ id: client.id, data: { metadata } })
 }
 
 /**
