@@ -108,6 +108,52 @@ test.group('Integration | Approve and deny authorization', (group) => {
     )
   })
 
+  test('rejects an explicit empty list even when no scope was requested', async ({ assert }) => {
+    const manager = createManager()
+    await createTestClient()
+    const authToken = await createPendingRequest(manager, [])
+
+    await assertOAuthError(
+      assert,
+      () => manager.approveAuthorization({ authToken, userId: 'user-1', scopes: [] }),
+      'invalid_scope',
+      'denyAuthorization()'
+    )
+    assert.lengthOf(await OAuthAuthorizationCode.all(), 0)
+
+    const decision = await manager.approveAuthorization({ authToken, userId: 'user-1' })
+    assert.deepEqual(decision.scopes, [])
+  })
+
+  test('deduplicates requested scopes granted by default', async ({ assert }) => {
+    const manager = createManager()
+    await createTestClient()
+    const authToken = await createPendingRequest(manager, ['read', 'read'])
+
+    const decision = await manager.approveAuthorization({ authToken, userId: 'user-1' })
+
+    assert.deepEqual(decision.scopes, ['read'])
+    const code = await OAuthAuthorizationCode.query().firstOrFail()
+    assert.deepEqual(code.scopes, ['read'])
+  })
+
+  test('revalidates requested scopes granted by default against the current config', async ({
+    assert,
+  }) => {
+    const manager = createManager()
+    await createTestClient()
+    const authToken = await createPendingRequest(manager, ['read', 'removed'])
+
+    await assertOAuthError(
+      assert,
+      () => manager.approveAuthorization({ authToken, userId: 'user-1' }),
+      'invalid_scope',
+      'removed'
+    )
+    assert.lengthOf(await OAuthPendingAuthorizationRequest.all(), 1)
+    assert.lengthOf(await OAuthAuthorizationCode.all(), 0)
+  })
+
   test('rejects OIDC scopes granted without openid', async ({ assert }) => {
     const manager = createManager()
     await createTestClient()

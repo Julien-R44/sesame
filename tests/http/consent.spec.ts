@@ -71,6 +71,14 @@ test.group('HTTP | Consent submission', (group) => {
     assert.deepEqual(consent.scopes, ['read'])
   })
 
+  test('deduplicates requested scopes', async ({ client, assert }) => {
+    await createTestClient()
+    await startAuthorization({ client, baseUrl: ctx.baseUrl, scope: 'read read' })
+
+    const pending = await OAuthPendingAuthorizationRequest.query().firstOrFail()
+    assert.deepEqual(pending.scopes, ['read'])
+  })
+
   test('accepts the granted scopes as an array', async ({ client, assert }) => {
     await createTestClient()
     const authToken = await startAuthorization({

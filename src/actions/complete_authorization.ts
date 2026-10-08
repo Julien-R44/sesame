@@ -45,8 +45,10 @@ interface ConsumedAuthorization {
  */
 export class CompleteAuthorizationAction {
   /**
-   * Resolve the scopes actually granted. They must be a non-empty
-   * subset of the requested scopes and pass server validation.
+   * Resolve the scopes actually granted, defaulting to the requested
+   * ones. They are deduplicated, must be a subset of the requested
+   * scopes, and are revalidated against the current server config.
+   * An explicit empty list is always rejected.
    *
    * @see https://datatracker.ietf.org/doc/html/rfc6749#section-3.3
    */
@@ -55,14 +57,13 @@ export class CompleteAuthorizationAction {
     requested: string[]
     granted?: string[]
   }): string[] {
-    if (!options.granted) return options.requested
-
-    const granted = [...new Set(options.granted)]
-    if (granted.length === 0 && options.requested.length > 0) {
+    if (options.granted?.length === 0) {
       throw new E_INVALID_SCOPE(
         'At least one scope must be granted. Use denyAuthorization() to refuse the request'
       )
     }
+
+    const granted = [...new Set(options.granted ?? options.requested)]
 
     const requested = new Set(options.requested)
     const notRequested = granted.filter((scope) => !requested.has(scope))

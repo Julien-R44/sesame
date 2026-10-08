@@ -71,7 +71,9 @@ export class AuthorizeAction {
       }
     }
 
-    const requestedScopes = input.scope ? input.scope.split(' ') : manager.config.defaultScopes
+    const requestedScopes = [
+      ...new Set(input.scope ? input.scope.split(' ') : manager.config.defaultScopes),
+    ]
 
     const scopeError = this.#validateScopes(manager, requestedScopes, client)
     if (scopeError) return scopeError
