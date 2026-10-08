@@ -197,6 +197,43 @@ test.group('Integration | Approve and deny authorization', (group) => {
     )
   })
 
+  test('lets only one of two concurrent approvals succeed', async ({ assert }) => {
+    const manager = createManager()
+    await createTestClient()
+    const authToken = await createPendingRequest(manager, ['read'])
+    const options = { authToken, userId: 'user-1' }
+
+    const results = await Promise.allSettled([
+      manager.approveAuthorization(options),
+      manager.approveAuthorization(options),
+    ])
+
+    const rejected = results.filter((result) => result.status === 'rejected')
+    assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1)
+    assert.lengthOf(rejected, 1)
+    assert.equal(rejected[0].reason.oauthCode, 'invalid_grant')
+    assert.lengthOf(await OAuthAuthorizationCode.all(), 1)
+  })
+
+  test('lets only one of a concurrent approval and denial succeed', async ({ assert }) => {
+    const manager = createManager()
+    await createTestClient()
+    const authToken = await createPendingRequest(manager, ['read'])
+    const options = { authToken, userId: 'user-1' }
+
+    const [approval, denial] = await Promise.allSettled([
+      manager.approveAuthorization(options),
+      manager.denyAuthorization(options),
+    ])
+
+    const rejected = [approval, denial].filter((result) => result.status === 'rejected')
+    assert.lengthOf(rejected, 1)
+    assert.equal(rejected[0].reason.oauthCode, 'invalid_grant')
+
+    const codes = await OAuthAuthorizationCode.all()
+    assert.lengthOf(codes, approval.status === 'fulfilled' ? 1 : 0)
+  })
+
   test('rejects approval for a disabled client', async ({ assert }) => {
     const manager = createManager()
     await createTestClient({ isDisabled: true })
