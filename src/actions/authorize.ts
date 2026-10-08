@@ -32,6 +32,17 @@ export type AuthorizeResult =
 type RedirectError = AuthorizeResult & { type: 'redirect_error' }
 
 /**
+ * Inputs needed to decide between issuing a code and asking for consent.
+ */
+interface ResolveConsentOptions {
+  manager: SesameManager
+  input: AuthorizeInput & { userId: string }
+  client: OAuthClientRecord
+  scopes: string[]
+  prompts: Set<string>
+}
+
+/**
  * Handles the OAuth 2.0 authorization request business logic.
  *
  * Validates the client, scopes, PKCE, and `prompt` parameters,
@@ -87,12 +98,13 @@ export class AuthorizeAction {
 
     if (!input.userId) return this.#requireLogin(prompts)
 
-    return this.#resolveConsent(
+    return this.#resolveConsent({
       manager,
-      { ...input, userId: input.userId },
+      input: { ...input, userId: input.userId },
       client,
-      requestedScopes
-    )
+      scopes: requestedScopes,
+      prompts,
+    })
   }
 
   /**
@@ -211,33 +223,31 @@ export class AuthorizeAction {
    * create a pending authorization request for the consent page,
    * or fail with `consent_required` under `prompt=none`.
    */
-  async #resolveConsent(
-    manager: SesameManager,
-    input: AuthorizeInput & { userId: string },
-    client: OAuthClientRecord,
-    scopes: string[]
-  ): Promise<AuthorizeResult> {
-    const prompts = parsePrompt(input.prompt)
+  async #resolveConsent(options: ResolveConsentOptions): Promise<AuthorizeResult> {
     const consented =
-      !prompts.has('consent') &&
-      (await this.#hasConsent(manager, { clientId: client.clientId, userId: input.userId, scopes }))
+      !options.prompts.has('consent') &&
+      (await this.#hasConsent(options.manager, {
+        clientId: options.client.clientId,
+        userId: options.input.userId,
+        scopes: options.scopes,
+      }))
 
     if (consented) {
       const action = new IssueAuthorizationCodeAction()
-      const code = await action.execute(manager, {
-        client,
-        userId: input.userId,
-        scopes,
-        redirectUri: input.redirectUri,
-        codeChallenge: input.codeChallenge,
-        codeChallengeMethod: input.codeChallengeMethod,
-        nonce: input.nonce,
+      const code = await action.execute(options.manager, {
+        client: options.client,
+        userId: options.input.userId,
+        scopes: options.scopes,
+        redirectUri: options.input.redirectUri,
+        codeChallenge: options.input.codeChallenge,
+        codeChallengeMethod: options.input.codeChallengeMethod,
+        nonce: options.input.nonce,
       })
 
       return { type: 'authorized', code }
     }
 
-    if (prompts.has('none')) {
+    if (options.prompts.has('none')) {
       return {
         type: 'redirect_error',
         error: 'consent_required',
@@ -245,9 +255,14 @@ export class AuthorizeAction {
       }
     }
 
-    const authToken = await this.#createPendingRequest(manager, input, client.clientId, scopes)
+    const authToken = await this.#createPendingRequest(
+      options.manager,
+      options.input,
+      options.client.clientId,
+      options.scopes
+    )
 
-    return { type: 'consent_required', authToken, scopes }
+    return { type: 'consent_required', authToken, scopes: options.scopes }
   }
 
   /**
