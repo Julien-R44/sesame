@@ -47,6 +47,17 @@ const DISPLAY_PROPERTIES = [
 ] as const
 
 /**
+ * Metadata keys derived from the document. Any other key (added by an
+ * administrator) is preserved when the document is refreshed.
+ */
+const DOCUMENT_METADATA_KEYS = new Set<string>([
+  ...DISPLAY_PROPERTIES,
+  'token_endpoint_auth_method',
+  'response_types',
+  'client_id_metadata_document',
+])
+
+/**
  * How long a failed anonymous resolution is remembered. Short on purpose:
  * it only throttles repeated anonymous requests for the same URL.
  */
@@ -281,6 +292,25 @@ export class ClientIdMetadataDocumentService {
     return client
   }
 
+  /**
+   * Update a stored client from a refreshed document. Document-derived
+   * metadata is replaced (so removed properties disappear) while custom
+   * metadata keys are kept. `isDisabled` is not part of the update.
+   */
+  async #refresh(options: { stored: OAuthClientRecord; client: ClientMetadataDocumentClient }) {
+    const customMetadata = Object.entries(options.stored.metadata ?? {}).filter(
+      ([key]) => !DOCUMENT_METADATA_KEYS.has(key)
+    )
+    const metadata = { ...Object.fromEntries(customMetadata), ...options.client.metadata }
+
+    await this.#manager.store.updateClient({
+      id: options.stored.id,
+      data: { ...options.client, metadata },
+    })
+
+    return this.#reload(options.stored.clientId)
+  }
+
   async #reload(clientId: string) {
     const client = await this.#findStoredClient(clientId)
     if (!client) throw new E_INVALID_CLIENT('Client not found')
@@ -292,7 +322,6 @@ export class ClientIdMetadataDocumentService {
    * Insert or refresh the client row. A concurrent first insert for the
    * same URL loses on the unique `client_id` and falls back to an update,
    * unless the conflicting row belongs to another client id.
-   * `isDisabled` is never touched so administrators keep their kill switch.
    */
   async #persist(options: {
     clientId: string
@@ -301,11 +330,7 @@ export class ClientIdMetadataDocumentService {
   }) {
     const store = this.#manager.store
 
-    if (options.existing) {
-      await store.updateClient({ id: options.existing.id, data: options.client })
-
-      return this.#reload(options.clientId)
-    }
+    if (options.existing) return this.#refresh({ stored: options.existing, client: options.client })
 
     try {
       return await store.createClient({
@@ -323,9 +348,7 @@ export class ClientIdMetadataDocumentService {
       const concurrent = await this.#findStoredClient(options.clientId)
       if (!concurrent) throw error
 
-      await store.updateClient({ id: concurrent.id, data: options.client })
-
-      return this.#reload(options.clientId)
+      return this.#refresh({ stored: concurrent, client: options.client })
     }
   }
 
