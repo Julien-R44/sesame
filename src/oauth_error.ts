@@ -125,6 +125,18 @@ export const E_INVALID_TOKEN = class extends OAuthError {
 }
 
 /**
+ * The requested resource is invalid, missing, unknown, or malformed.
+ *
+ * @see https://datatracker.ietf.org/doc/html/rfc8707#section-2
+ */
+export const E_INVALID_TARGET = class extends OAuthError {
+  static readonly status: number = 400
+  static readonly code: string = 'E_INVALID_TARGET'
+  static readonly message: string = 'Invalid target'
+  static readonly oauthCode: string = 'invalid_target'
+}
+
+/**
  * The authorization grant type is not supported by the
  * authorization server.
  *

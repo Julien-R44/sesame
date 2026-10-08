@@ -12,6 +12,11 @@ import { markFirstAuthorization } from '../storage/unused_clients.ts'
 export interface ExchangeClientCredentialsInput {
   client: OAuthClientRecord
   scope?: string
+
+  /**
+   * Raw `resource` parameter (RFC 8707). A string, or an array when repeated.
+   */
+  resource?: unknown
 }
 
 /**
@@ -40,6 +45,7 @@ export class ExchangeClientCredentialsAction {
     }
 
     const scopes = this.#resolveScopes(manager, input, clientService)
+    const resource = manager.resolveResource(input.resource)
 
     if (!input.client.userId) {
       throw new E_INVALID_CLIENT(
@@ -60,6 +66,7 @@ export class ExchangeClientCredentialsAction {
       clientId: input.client.clientId,
       userId: input.client.userId,
       scopes,
+      resource,
       expiresAt: DateTime.fromJSDate(expiresAt),
     })
 

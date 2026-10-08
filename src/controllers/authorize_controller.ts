@@ -52,6 +52,7 @@ export default class AuthorizeController {
       codeChallengeMethod: query.code_challenge_method,
       nonce: query.nonce,
       prompt: query.prompt,
+      resource: ctx.request.qs().resource,
       userId: user ? String(user.id) : undefined,
     })
 
@@ -74,6 +75,7 @@ export default class AuthorizeController {
       const params = this.#buildDisplayParams(ctx)
       params.set('auth_token', result.authToken)
       params.set('scope', result.scopes.join(' '))
+      if (result.resource) params.set('resource', result.resource)
       const url = this.#resolvePageUrl(manager.config.consentPage, ctx, params)
       return ctx.response.redirect().toPath(url)
     }

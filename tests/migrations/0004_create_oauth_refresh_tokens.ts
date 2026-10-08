@@ -17,6 +17,7 @@ export default class extends BaseSchema {
       table.string('user_id').notNullable()
       table.uuid('grant_id').nullable().index()
       table.json('scopes').notNullable()
+      table.text('resource').nullable()
       table.timestamp('expires_at').notNullable()
       table.timestamp('revoked_at').nullable()
       table.timestamp('created_at').notNullable()

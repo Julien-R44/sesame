@@ -156,6 +156,7 @@ export class CompleteAuthorizationAction {
       codeChallengeMethod: pendingRequest.codeChallengeMethod ?? undefined,
       nonce: pendingRequest.nonce ?? undefined,
       context: options.context ?? null,
+      resource: pendingRequest.resource ?? null,
     })
 
     const redirectUrl = buildClientRedirectUrl({

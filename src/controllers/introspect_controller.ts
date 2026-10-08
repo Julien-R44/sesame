@@ -14,6 +14,7 @@ const INACTIVE = { active: false }
  * always includes at least `{ active: boolean }`.
  *
  * Supports the `token_type_hint` parameter to optimize lookup order.
+ * Tokens bound to a resource (RFC 8707) expose it as `aud`.
  * Both access tokens and refresh tokens are opaque values looked up
  * by their SHA-256 hash in the database. Tokens whose grant was
  * revoked or has expired are inactive.
@@ -56,6 +57,7 @@ export default class IntrospectController {
           client_id: record.clientId,
           sub: record.userId || undefined,
           scope: record.scopes.join(' '),
+          ...(record.resource ? { aud: record.resource } : {}),
           iss: manager.config.issuer,
           iat: Math.floor(record.createdAt.toMillis() / 1000),
           exp: Math.floor(record.expiresAt.toMillis() / 1000),
@@ -80,6 +82,7 @@ export default class IntrospectController {
         client_id: refreshToken.clientId,
         sub: refreshToken.userId,
         scope: refreshToken.scopes.join(' '),
+        ...(refreshToken.resource ? { aud: refreshToken.resource } : {}),
         iss: manager.config.issuer,
         iat: Math.floor(refreshToken.createdAt.toMillis() / 1000),
         exp: Math.floor(refreshToken.expiresAt.toMillis() / 1000),

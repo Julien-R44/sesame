@@ -21,6 +21,7 @@ export async function createTestAccessToken(options?: {
   expiresAt?: DateTime
   revokedAt?: DateTime | null
   grantId?: string | null
+  resource?: string | null
 }) {
   const manager = options?.manager ?? createManager()
   const tokenService = new TokenService(manager)
@@ -36,6 +37,7 @@ export async function createTestAccessToken(options?: {
     scopes: options?.scopes ?? ['read', 'write'],
     expiresAt: options?.expiresAt ?? DateTime.now().plus({ hours: 1 }),
     revokedAt: options?.revokedAt ?? null,
+    resource: options?.resource ?? null,
   })
 
   return { id, raw, hash, manager }

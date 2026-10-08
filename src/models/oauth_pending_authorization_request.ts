@@ -48,6 +48,9 @@ export class OAuthPendingAuthorizationRequest extends BaseModel {
   @column()
   declare nonce: string | null
 
+  @column()
+  declare resource: string | null
+
   @column.dateTime()
   declare expiresAt: DateTime
 

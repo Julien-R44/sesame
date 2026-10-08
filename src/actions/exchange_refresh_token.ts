@@ -7,6 +7,7 @@ import { TokenService } from '../services/token_service.ts'
 import { IdTokenService } from '../services/id_token_service.ts'
 import { ClientService } from '../services/client_service.ts'
 import { GrantService, type ResolvedTokenGrant } from '../services/grant_service.ts'
+import { resolveGrantResource } from '../resource_indicators.ts'
 import {
   E_INVALID_CLIENT,
   E_INVALID_GRANT,
@@ -19,6 +20,11 @@ export interface ExchangeRefreshTokenInput {
   client: OAuthClientRecord
   refreshToken: string
   scope?: string
+
+  /**
+   * Raw `resource` parameter (RFC 8707). A string, or an array when repeated.
+   */
+  resource?: unknown
 }
 
 /**
@@ -40,6 +46,7 @@ interface RefreshRotation {
   newRefreshToken: { raw: string; hash: string; expiresAt: DateTime }
   scopes: string[]
   grant: ResolvedTokenGrant
+  resource: string | null
 }
 
 /**
@@ -135,6 +142,7 @@ export class ExchangeRefreshTokenAction {
     await markFirstAuthorization({ store, client: input.client })
 
     const scopes = this.#resolveScopes(manager, input, refreshToken, clientService)
+    const resource = this.#resolveResource(manager, input, refreshToken)
 
     const accessToken = tokenService.createAccessToken()
     const newRefreshToken = this.#prepareRefreshToken(manager, tokenService)
@@ -158,6 +166,7 @@ export class ExchangeRefreshTokenAction {
       newRefreshToken,
       scopes,
       grant,
+      resource,
     })
 
     const ttlSeconds = string.seconds.parse(manager.config.accessTokenTtl)
@@ -204,6 +213,7 @@ export class ExchangeRefreshTokenAction {
     const clientService = new ClientService()
     await new GrantService(manager).assertActive(revokedRefreshToken.grantId)
     const scopes = this.#resolveScopes(manager, input, revokedRefreshToken, clientService)
+    const resource = this.#resolveResource(manager, input, revokedRefreshToken)
 
     const accessToken = tokenService.createAccessToken()
     const newRefreshToken = this.#prepareRefreshToken(manager, tokenService)
@@ -232,6 +242,7 @@ export class ExchangeRefreshTokenAction {
         userId: revokedRefreshToken.userId,
         grantId: grant.grantId,
         scopes,
+        resource,
         expiresAt: DateTime.fromJSDate(accessToken.expiresAt),
       },
       refreshToken: {
@@ -242,6 +253,7 @@ export class ExchangeRefreshTokenAction {
         userId: revokedRefreshToken.userId,
         grantId: grant.grantId,
         scopes,
+        resource,
         expiresAt: newRefreshToken.expiresAt,
       },
     })
@@ -277,6 +289,22 @@ export class ExchangeRefreshTokenAction {
         options.refreshTokenExpiresAt
       ),
       adopt: { refreshTokenId: refreshToken.id, accessTokenId: refreshToken.accessTokenId },
+    })
+  }
+
+  /**
+   * Resolve the resource (RFC 8707) of the new token pair. A bound
+   * refresh token keeps its resource. An unbound one, issued before
+   * resource indicators were supported, is bound to the requested one.
+   */
+  #resolveResource(
+    manager: SesameManager,
+    input: ExchangeRefreshTokenInput,
+    refreshToken: OAuthRefreshTokenRecord
+  ): string | null {
+    return resolveGrantResource({
+      requested: manager.resolveResource(input.resource),
+      granted: refreshToken.resource ?? null,
     })
   }
 
@@ -364,7 +392,8 @@ export class ExchangeRefreshTokenAction {
    * single transaction.
    */
   async #atomicRotation(manager: SesameManager, rotation: RefreshRotation) {
-    const { client, oldRefreshToken, accessToken, newRefreshToken, scopes, grant } = rotation
+    const { client, oldRefreshToken, accessToken, newRefreshToken, scopes, grant, resource } =
+      rotation
     const store = manager.store
     const accessTokenId = crypto.randomUUID()
     const rotated = await store.rotateRefreshToken({
@@ -379,6 +408,7 @@ export class ExchangeRefreshTokenAction {
         userId: oldRefreshToken.userId,
         grantId: grant.grantId,
         scopes,
+        resource,
         expiresAt: DateTime.fromJSDate(accessToken.expiresAt),
       },
       refreshToken: {
@@ -389,6 +419,7 @@ export class ExchangeRefreshTokenAction {
         userId: oldRefreshToken.userId,
         grantId: grant.grantId,
         scopes,
+        resource,
         expiresAt: newRefreshToken.expiresAt,
       },
     })
