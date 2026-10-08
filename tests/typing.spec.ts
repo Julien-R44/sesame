@@ -3,7 +3,16 @@ import { defineConfig } from '../src/define_config.ts'
 import { stores } from '../src/stores.ts'
 import { SesameManager } from '../src/sesame_manager.ts'
 import { OAuthGuard } from '../src/guard/guard.ts'
-import type { Scope, InferScopes, SesameScopes, SesameStore } from '../src/types.ts'
+import type {
+  ApproveAuthorizationOptions,
+  AuthorizationDecision,
+  BuiltinScope,
+  GrantableScope,
+  InferScopes,
+  Scope,
+  SesameScopes,
+  SesameStore,
+} from '../src/types.ts'
 
 const lucidStoreConfig = { store: stores.lucid() }
 
@@ -37,6 +46,15 @@ test.group('Typing | Scope types', () => {
 
   test('SesameScopes is an empty interface by default', ({ expectTypeOf }) => {
     expectTypeOf<keyof SesameScopes>().toBeNever()
+  }).skip()
+
+  test('authorization decisions accept built-in scopes', ({ expectTypeOf }) => {
+    expectTypeOf<BuiltinScope>().toEqualTypeOf<'openid' | 'profile' | 'email' | 'offline_access'>()
+    expectTypeOf<GrantableScope>().toEqualTypeOf<Scope | BuiltinScope>()
+    expectTypeOf<ApproveAuthorizationOptions['scopes']>().toEqualTypeOf<
+      GrantableScope[] | undefined
+    >()
+    expectTypeOf<AuthorizationDecision['scopes']>().toEqualTypeOf<GrantableScope[]>()
   }).skip()
 })
 

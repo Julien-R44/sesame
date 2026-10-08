@@ -15,6 +15,7 @@ import type {
   ApproveAuthorizationOptions,
   AuthorizationDecision,
   DenyAuthorizationOptions,
+  GrantableScope,
 } from '../types.ts'
 import type { OAuthClientRecord, OAuthPendingAuthorizationRequestRecord } from '../storage/types.ts'
 
@@ -56,7 +57,7 @@ export class CompleteAuthorizationAction {
     manager: SesameManager
     requested: string[]
     granted?: string[]
-  }): string[] {
+  }): GrantableScope[] {
     if (options.granted?.length === 0) {
       throw new E_INVALID_SCOPE(
         'At least one scope must be granted. Use denyAuthorization() to refuse the request'
@@ -74,7 +75,7 @@ export class CompleteAuthorizationAction {
     const invalidScopes = options.manager.validateScopes(granted)
     if (invalidScopes.length > 0) throw new E_INVALID_SCOPE(describeInvalidScopes(invalidScopes))
 
-    return granted
+    return granted as GrantableScope[]
   }
 
   /**
