@@ -411,6 +411,66 @@ test.group('HTTP | Authorization Flow', (group) => {
     const pending = await OAuthPendingAuthorizationRequest.query()
     assert.lengthOf(pending, 0)
   })
+  test('accepts any port for a registered loopback redirect URI (RFC 8252 §7.3)', async ({
+    client,
+    assert,
+  }) => {
+    await createTestClient({
+      clientSecret: null,
+      isPublic: true,
+      type: 'public',
+      redirectUris: ['http://127.0.0.1/callback'],
+    })
+    const { codeChallenge } = createPkce('loopback-verifier')
+
+    const authorizeResponse = await client
+      .get(`${ctx.baseUrl}/oauth/authorize`)
+      .qs({
+        client_id: 'test-client',
+        response_type: 'code',
+        redirect_uri: 'http://127.0.0.1:51234/callback',
+        scope: 'read',
+        code_challenge: codeChallenge,
+        code_challenge_method: 'S256',
+      })
+      .header('X-Test-User-Id', 'user-1')
+      .redirects(0)
+
+    authorizeResponse.assertStatus(302)
+    const consentUrl = new URL(authorizeResponse.header('location')!, 'https://auth.example.com')
+    const authToken = consentUrl.searchParams.get('auth_token')
+
+    const consentResponse = await client
+      .post(`${ctx.baseUrl}/oauth/consent`)
+      .json({ accept: true, auth_token: authToken })
+      .header('X-Test-User-Id', 'user-1')
+      .redirects(0)
+
+    consentResponse.assertStatus(302)
+    const redirectUrl = new URL(consentResponse.header('location')!)
+    assert.equal(redirectUrl.origin + redirectUrl.pathname, 'http://127.0.0.1:51234/callback')
+    assert.isString(redirectUrl.searchParams.get('code'))
+  })
+
+  test('rejects a loopback redirect URI with a different path', async ({ client }) => {
+    await createTestClient({ redirectUris: ['http://127.0.0.1/callback'] })
+    const { codeChallenge } = createPkce('loopback-verifier')
+
+    const response = await client
+      .get(`${ctx.baseUrl}/oauth/authorize`)
+      .qs({
+        client_id: 'test-client',
+        response_type: 'code',
+        redirect_uri: 'http://127.0.0.1:51234/other',
+        code_challenge: codeChallenge,
+        code_challenge_method: 'S256',
+      })
+      .header('X-Test-User-Id', 'user-1')
+      .redirects(0)
+
+    response.assertStatus(400)
+    response.assertBodyContains({ error: 'invalid_request' })
+  })
 })
 
 test.group('HTTP | Authorization Flow (openid)', (group) => {

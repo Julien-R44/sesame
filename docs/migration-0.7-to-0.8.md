@@ -195,3 +195,9 @@ Tokens that are not bound to a resource are still accepted by default. Once your
 - **Records:** `OAuthAccessTokenRecord`, `OAuthRefreshTokenRecord`, `OAuthAuthorizationCodeRecord`, and `OAuthPendingAuthorizationRequestRecord` gain `resource: string | null`. Custom stores must persist and return it; no store method signature changed. A store that drops the field returns tokens as unbound.
 - **Scope middleware:** `scopes` and `anyScope` accept a `guard` option naming the OAuth guard to use. It defaults to `oauth`, the only guard they used in 0.7.0.
 - **Guard:** `guard.audience` and `guard.accessToken.resource` expose the resource of the authenticating token. Code that instantiates `OAuthGuard` directly must pass the resource as an options object: `new OAuthGuard(name, ctx, emitter, provider, manager, { resource: '/api/mcp' })` instead of a string.
+
+## Loopback redirect URIs accept any port
+
+Redirect URIs on `http://127.0.0.1`, `http://[::1]` and `http://localhost` now match regardless of the port used in the authorization request, as required by OAuth 2.1 and RFC 8252 §7.3. Host, path and query must still match exactly. This allows native and CLI clients to bind an ephemeral port.
+
+No action is required. If you relied on the port to distinguish two loopback redirect URIs, register different paths instead.

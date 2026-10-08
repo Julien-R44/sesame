@@ -8,6 +8,7 @@ import { TokenService } from '../services/token_service.ts'
 import type { OAuthClientRecord } from '../storage/types.ts'
 import { IssueAuthorizationCodeAction } from './issue_authorization_code.ts'
 import { rejectDeletedClient } from '../storage/foreign_key_violation.ts'
+import { isRedirectUriAllowed } from '../redirect_uri.ts'
 import {
   E_INVALID_CLIENT,
   E_INVALID_REQUEST,
@@ -85,7 +86,7 @@ export class AuthorizeAction {
     if (!client) throw new E_INVALID_CLIENT('Client not found')
     if (client.isDisabled) throw new E_INVALID_CLIENT('Client is disabled')
 
-    if (!client.redirectUris.includes(input.redirectUri)) {
+    if (!isRedirectUriAllowed({ registered: client.redirectUris, requested: input.redirectUri })) {
       throw new E_INVALID_REQUEST('Invalid redirect_uri')
     }
 
