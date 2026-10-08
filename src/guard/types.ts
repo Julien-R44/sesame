@@ -1,3 +1,4 @@
+import type { DateTime } from 'luxon'
 import type { HttpContext } from '@adonisjs/core/http'
 import type { Exception } from '@adonisjs/core/exceptions'
 import { symbols } from '@adonisjs/auth'
@@ -9,6 +10,22 @@ import type { Scope } from '../types.ts'
 export type OAuthGuardUser<RealUser> = {
   getId(): string | number | BigInt
   getOriginal(): RealUser
+}
+
+/**
+ * Access token that authenticated the current request, exposed on
+ * `guard.accessToken`. It never contains the token value or its hash.
+ */
+export interface OAuthGuardAccessToken {
+  /**
+   * Stable identifier of the access token record, useful for audit logs.
+   */
+  id: string
+  clientId: string
+  userId: string
+  scopes: Scope[]
+  expiresAt: DateTime
+  createdAt: DateTime
 }
 
 /**
@@ -48,6 +65,7 @@ export type OAuthGuardEvents<RealUser> = {
     ctx: HttpContext
     guardName: string
     user: RealUser
+    accessToken: OAuthGuardAccessToken
   }
   'oauth_auth:authentication_failed': {
     ctx: HttpContext

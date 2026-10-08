@@ -300,7 +300,7 @@ declare module '@adonisjs/core/types' {
 
 Use the same `kyselyOAuthUserProvider` as `oidcProvider` in `config/sesame.ts` if you enable OIDC. The `getOidcClaims()` method above includes the email claim when the client has the `email` scope.
 
-Then use the guard in your controllers. After authentication, you have access to the user, the granted scopes, and the client ID.
+Then use the guard in your controllers. After authentication, you have access to the user, the granted scopes, the client ID, and the access token that authenticated the request.
 
 ```ts title="app/controllers/api_controller.ts"
 import type { HttpContext } from '@adonisjs/core/http'
@@ -313,11 +313,16 @@ export default class ApiController {
     const user = auth.user!
     const scopes = guard.scopes // e.g. ['read', 'write']
     const clientId = guard.clientId // e.g. 'my-app-client-id'
+    const tokenId = guard.accessToken!.id // e.g. '0b6f…' (access token record id)
 
-    return { user, scopes, clientId }
+    return { user, scopes, clientId, tokenId }
   }
 }
 ```
+
+`guard.accessToken` holds `id`, `clientId`, `userId`, `scopes`, `expiresAt`, and `createdAt`. It never contains the token value or its hash. Use the `id` to correlate audit logs with a token.
+
+Sésame does not track a "last used" date. Access tokens are short-lived and rotated on refresh, and writing on every request has a cost. If you need it, listen to `oauth_auth:authentication_succeeded` (see [Events](#events)) and record usage in your app, ideally throttled.
 
 ## Scopes
 
@@ -687,6 +692,17 @@ import logger from '@adonisjs/core/services/logger'
 
 emitter.on('oauth_auth:authentication_failed', (event) => {
   logger.warn({ guardName: event.guardName, err: event.error }, 'OAuth authentication failed')
+})
+```
+
+The `oauth_auth:authentication_succeeded` payload also includes `accessToken`, the same object as `guard.accessToken`:
+
+```ts title="start/events.ts"
+emitter.on('oauth_auth:authentication_succeeded', (event) => {
+  logger.info(
+    { tokenId: event.accessToken.id, clientId: event.accessToken.clientId },
+    'OAuth request authenticated'
+  )
 })
 ```
 

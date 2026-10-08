@@ -11,7 +11,7 @@ import { createManager } from './app.ts'
  *
  * Defaults: clientId='test-client', userId='user-1', scopes=['read','write'], expiresAt=+1h
  *
- * Returns `{ raw, hash, manager }` — raw is the bearer token, hash is what's stored.
+ * Returns `{ id, raw, hash, manager }` — raw is the bearer token, hash is what's stored.
  */
 export async function createTestAccessToken(options?: {
   manager?: SesameManager
@@ -24,9 +24,10 @@ export async function createTestAccessToken(options?: {
   const manager = options?.manager ?? createManager()
   const tokenService = new TokenService(manager)
   const { raw, hash } = tokenService.createAccessToken()
+  const id = crypto.randomUUID()
 
   await OAuthAccessToken.create({
-    id: crypto.randomUUID(),
+    id,
     tokenHash: hash,
     clientId: options?.clientId ?? 'test-client',
     userId: options?.userId === undefined ? 'user-1' : options.userId,
@@ -35,5 +36,5 @@ export async function createTestAccessToken(options?: {
     revokedAt: options?.revokedAt ?? null,
   })
 
-  return { raw, hash, manager }
+  return { id, raw, hash, manager }
 }
