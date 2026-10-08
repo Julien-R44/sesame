@@ -11,6 +11,8 @@ import { rejectDeletedClient } from '../storage/foreign_key_violation.ts'
 import { isRedirectUriAllowed } from '../redirect_uri.ts'
 import { ClientIdMetadataDocumentService } from '../services/client_id_metadata_document_service.ts'
 import { ClientMetadataDocumentFetcher } from '../client_id_metadata_documents/fetcher.ts'
+import { ClientMetadataDocumentResolutionCache } from '../client_id_metadata_documents/resolution_cache.ts'
+import type { ClientMetadataDocumentDependencies } from '../client_id_metadata_documents/types.ts'
 import {
   assertClientIdMetadataDocumentAllowed,
   isClientIdMetadataDocumentUrl,
@@ -78,10 +80,13 @@ type ValidatedAuthorizeInput = AuthorizeInput & { userId: string; resource: stri
  * controller can redirect back to the client per spec.
  */
 export class AuthorizeAction {
-  #fetcher: ClientMetadataDocumentFetcher
+  #clientMetadataDocuments: ClientMetadataDocumentDependencies
 
-  constructor(options?: { fetcher?: ClientMetadataDocumentFetcher }) {
-    this.#fetcher = options?.fetcher ?? new ClientMetadataDocumentFetcher()
+  constructor(options?: { clientMetadataDocuments?: ClientMetadataDocumentDependencies }) {
+    this.#clientMetadataDocuments = options?.clientMetadataDocuments ?? {
+      fetcher: new ClientMetadataDocumentFetcher(),
+      cache: new ClientMetadataDocumentResolutionCache(),
+    }
   }
 
   /**
@@ -96,7 +101,10 @@ export class AuthorizeAction {
       return findClientByExactId({ store: manager.store, clientId: input.clientId })
     }
 
-    const service = new ClientIdMetadataDocumentService({ manager, fetcher: this.#fetcher })
+    const service = new ClientIdMetadataDocumentService({
+      manager,
+      ...this.#clientMetadataDocuments,
+    })
 
     return service.resolve({ clientId: input.clientId, persist: !!input.userId })
   }

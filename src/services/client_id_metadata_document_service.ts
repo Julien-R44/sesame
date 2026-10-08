@@ -17,7 +17,11 @@ import {
   ClientMetadataDocumentFetchError,
   type ClientMetadataDocumentFetcher,
 } from '../client_id_metadata_documents/fetcher.ts'
-import type { ClientMetadataDocumentClient } from '../client_id_metadata_documents/types.ts'
+import type { ClientMetadataDocumentResolutionCache } from '../client_id_metadata_documents/resolution_cache.ts'
+import type {
+  ClientMetadataDocumentClient,
+  ClientMetadataDocumentDependencies,
+} from '../client_id_metadata_documents/types.ts'
 
 /**
  * Grant types a metadata document client can use. Other values listed
@@ -43,14 +47,22 @@ const DISPLAY_PROPERTIES = [
 ] as const
 
 /**
+ * How long a failed anonymous resolution is remembered. Short on purpose:
+ * it only throttles repeated anonymous requests for the same URL.
+ */
+const FAILED_RESOLUTION_TTL_MS = 5000
+
+/**
  * Resolves `client_id` URLs into OAuth clients by fetching and validating
  * their Client ID Metadata Document.
  *
  * The client row in `oauth_clients` doubles as the cache: it is reused
  * until `metadata.client_id_metadata_document.expires_at`, then refreshed.
  * Rows are only written for authenticated requests so anonymous hits on
- * the authorize endpoint never create clients. Fetch and validation
- * failures abort the request and are never cached.
+ * the authorize endpoint never create clients. Anonymous resolutions are
+ * kept in a bounded in-memory cache instead (`minTtl` on success, a few
+ * seconds on failure) so they cannot be used to amplify fetches.
+ * Fetch failure details are logged, never returned to the client.
  *
  * @see https://datatracker.ietf.org/doc/draft-ietf-oauth-client-id-metadata-document/
  */
@@ -58,14 +70,18 @@ export class ClientIdMetadataDocumentService {
   #manager: SesameManager
   #config: ResolvedClientIdMetadataDocumentsConfig
   #fetcher: ClientMetadataDocumentFetcher
+  #cache: ClientMetadataDocumentResolutionCache
+  #logger?: ClientMetadataDocumentDependencies['logger']
 
-  constructor(options: { manager: SesameManager; fetcher: ClientMetadataDocumentFetcher }) {
+  constructor(options: ClientMetadataDocumentDependencies & { manager: SesameManager }) {
     const config = options.manager.config.clientIdMetadataDocuments
     if (!config) throw new E_INVALID_CLIENT('Client ID Metadata Documents are not supported')
 
     this.#manager = options.manager
     this.#config = config
     this.#fetcher = options.fetcher
+    this.#cache = options.cache
+    this.#logger = options.logger
   }
 
   /**
@@ -100,7 +116,11 @@ export class ClientIdMetadataDocumentService {
     } catch (error) {
       if (!(error instanceof ClientMetadataDocumentFetchError)) throw error
 
-      throw new E_INVALID_CLIENT(`Unable to fetch client metadata document: ${error.message}`)
+      this.#logger?.warn(
+        { err: error, clientId: url.href },
+        'Unable to fetch client metadata document'
+      )
+      throw new E_INVALID_CLIENT('Unable to fetch client metadata document')
     }
   }
 
@@ -186,6 +206,37 @@ export class ClientIdMetadataDocumentService {
       scopes: this.#resolveScopes(document),
       grantTypes: this.#resolveGrantTypes(document),
       metadata: this.#buildMetadata({ document, ttl }),
+    }
+  }
+
+  /**
+   * Load the client fields, going through the in-memory cache. Only
+   * anonymous (non-persisted) resolutions are written to the cache;
+   * authenticated ones persist the client row instead.
+   */
+  async #resolveDocument(options: { url: URL; clientId: string; persist: boolean }) {
+    const cached = this.#cache.get(options.clientId)
+    if (cached && 'error' in cached) throw new E_INVALID_CLIENT(cached.error)
+    if (cached) return cached.client
+
+    try {
+      const client = await this.#loadClient(options)
+      if (!options.persist) {
+        const ttlMs = string.milliseconds.parse(this.#config.cache.minTtl)
+        this.#cache.setClient({ clientId: options.clientId, client, ttlMs })
+      }
+
+      return client
+    } catch (error) {
+      if (!options.persist && error instanceof E_INVALID_CLIENT) {
+        this.#cache.setError({
+          clientId: options.clientId,
+          message: error.message,
+          ttlMs: FAILED_RESOLUTION_TTL_MS,
+        })
+      }
+
+      throw error
     }
   }
 
@@ -290,7 +341,7 @@ export class ClientIdMetadataDocumentService {
     if (existing?.isDisabled) throw new E_INVALID_CLIENT('Client is disabled')
     if (existing && this.#isFresh(existing)) return existing
 
-    const client = await this.#loadClient({ url, clientId: options.clientId })
+    const client = await this.#resolveDocument({ url, ...options })
     if (!options.persist) {
       return this.#transientClient({ clientId: options.clientId, client, existing })
     }

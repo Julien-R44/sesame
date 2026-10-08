@@ -1,5 +1,6 @@
 import type { ApplicationService } from '@adonisjs/core/types'
 import { SesameManager } from '../src/sesame_manager.ts'
+import { ClientMetadataDocumentResolutionCache } from '../src/client_id_metadata_documents/resolution_cache.ts'
 import type { ResolvedSesameConfig } from '../src/types.ts'
 
 /**
@@ -15,6 +16,9 @@ export default class SesameProvider {
   /**
    * Register `SesameManager` as a singleton binding.
    * The manager is resolved from the `sesame` config key.
+   *
+   * The Client ID Metadata Document resolution cache is a process-wide
+   * singleton so anonymous resolutions are shared across requests.
    */
   register() {
     this.#app.container.singleton(SesameManager, async () => {
@@ -24,5 +28,10 @@ export default class SesameProvider {
 
       return new SesameManager(config, router, store)
     })
+
+    this.#app.container.singleton(
+      ClientMetadataDocumentResolutionCache,
+      () => new ClientMetadataDocumentResolutionCache()
+    )
   }
 }

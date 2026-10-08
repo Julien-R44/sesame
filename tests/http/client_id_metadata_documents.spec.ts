@@ -6,6 +6,7 @@ import { createPkce } from '../helpers/create_pkce.ts'
 import { createTestClient } from '../helpers/create_test_client.ts'
 import { FakeClientMetadataDocumentFetcher } from '../helpers/fake_client_metadata_fetcher.ts'
 import { ClientMetadataDocumentFetcher } from '../../src/client_id_metadata_documents/fetcher.ts'
+import { ClientMetadataDocumentResolutionCache } from '../../src/client_id_metadata_documents/resolution_cache.ts'
 import { OAuthClient } from '../../src/models/oauth_client.ts'
 import { lucidStore } from '../../src/storage/drivers/lucid.ts'
 import { caseInsensitiveClientStore } from '../helpers/store_overrides.ts'
@@ -78,8 +79,10 @@ function useFakeFetcher(
 ) {
   const fetcher = new FakeClientMetadataDocumentFetcher()
 
-  group.each.setup(() => {
+  group.each.setup(async () => {
     fetcher.reset()
+    const cache = await ctx.app.container.make(ClientMetadataDocumentResolutionCache)
+    cache.clear()
     ctx.app.container.swap(ClientMetadataDocumentFetcher, () => fetcher)
 
     return () => ctx.app.container.restore(ClientMetadataDocumentFetcher)
@@ -177,6 +180,40 @@ test.group('HTTP | Client ID Metadata Documents', (group) => {
     assert.isNull(await OAuthClient.query().where('clientId', CLAUDE_CODE_ID).first())
   })
 
+  test('caches anonymous resolutions across requests', async ({ client, assert }) => {
+    fetcher.serve(CLAUDE_CODE_ID, claudeCodeDocument)
+    const options = {
+      baseUrl: ctx.baseUrl,
+      clientId: CLAUDE_CODE_ID,
+      redirectUri: 'http://127.0.0.1:4000/callback',
+    }
+
+    await authorize(client, options)
+    await authorize(client, options)
+    const response = await authorize(client, { ...options, userId: 'user-1' })
+
+    response.assertStatus(302)
+    assert.deepEqual(fetcher.calls, [CLAUDE_CODE_ID])
+    assert.isNotNull(await OAuthClient.query().where('clientId', CLAUDE_CODE_ID).first())
+  })
+
+  test('throttles repeated anonymous failures', async ({ client, assert }) => {
+    fetcher.fail(CLAUDE_CODE_ID, 'connect ECONNREFUSED 203.0.113.10:443')
+    const options = {
+      baseUrl: ctx.baseUrl,
+      clientId: CLAUDE_CODE_ID,
+      redirectUri: 'http://127.0.0.1:4000/callback',
+    }
+
+    const first = await authorize(client, options)
+    const second = await authorize(client, options)
+
+    first.assertStatus(401)
+    second.assertStatus(401)
+    assert.equal(second.body().error_description, 'Unable to fetch client metadata document')
+    assert.lengthOf(fetcher.calls, 1)
+  })
+
   test('rejects an unknown redirect_uri without redirecting', async ({ client }) => {
     fetcher.serve(CLAUDE_CODE_ID, claudeCodeDocument)
 
@@ -221,7 +258,7 @@ test.group('HTTP | Client ID Metadata Documents', (group) => {
     })
 
     response.assertStatus(401)
-    assert.include(response.body().error_description, 'Unable to fetch client metadata document')
+    assert.equal(response.body().error_description, 'Unable to fetch client metadata document')
   })
 
   test('rejects {0} before fetching')
@@ -301,7 +338,7 @@ test.group('HTTP | Client ID Metadata Documents', (group) => {
     })
 
     response.assertStatus(401)
-    assert.include(response.body().error_description, 'received HTTP 500')
+    assert.equal(response.body().error_description, 'Unable to fetch client metadata document')
   })
 
   test('keeps an administrator-disabled client disabled without fetching', async ({

@@ -15,6 +15,7 @@ import { findClientByExactId } from '../../src/storage/find_client_by_exact_id.t
 import { ClientIdMetadataDocumentService } from '../../src/services/client_id_metadata_document_service.ts'
 import { createTestConfig } from '../helpers/app.ts'
 import { FakeClientMetadataDocumentFetcher } from '../helpers/fake_client_metadata_fetcher.ts'
+import { ClientMetadataDocumentResolutionCache } from '../../src/client_id_metadata_documents/resolution_cache.ts'
 
 /**
  * These tests use dedicated databases supplied through SESAME_TEST_POSTGRES_URL,
@@ -366,7 +367,11 @@ async function testClientIdCollation(store: SesameStore, assert: Assert) {
     {} as any,
     store
   )
-  const service = new ClientIdMetadataDocumentService({ manager, fetcher })
+  const service = new ClientIdMetadataDocumentService({
+    manager,
+    fetcher,
+    cache: new ClientMetadataDocumentResolutionCache(),
+  })
 
   const result = await service.resolve({ clientId: attackerId, persist: true }).catch((err) => err)
 

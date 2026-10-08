@@ -1,4 +1,7 @@
 import type { LookupAddress } from 'node:dns'
+import type { Logger } from '@adonisjs/core/logger'
+import type { ClientMetadataDocumentFetcher } from './fetcher.ts'
+import type { ClientMetadataDocumentResolutionCache } from './resolution_cache.ts'
 
 /**
  * Limits applied when fetching a Client ID Metadata Document.
@@ -64,4 +67,32 @@ export interface ClientMetadataDocumentClient {
   scopes: string[]
   grantTypes: string[]
   metadata: Record<string, any>
+}
+
+/**
+ * Cached outcome of a non-persisted resolution: the resolved client
+ * fields, or the error description returned to the client.
+ */
+export type ResolutionCacheEntry = { expiresAt: number } & (
+  | { client: ClientMetadataDocumentClient }
+  | { error: string }
+)
+
+/**
+ * Options of the resolution cache. `now` is injectable for tests.
+ */
+export interface ResolutionCacheOptions {
+  maxEntries?: number
+  now?: () => number
+}
+
+/**
+ * Collaborators used to resolve Client ID Metadata Documents.
+ * Fetch failures are logged on `logger` (when provided) since their
+ * details are not exposed to clients.
+ */
+export interface ClientMetadataDocumentDependencies {
+  fetcher: ClientMetadataDocumentFetcher
+  cache: ClientMetadataDocumentResolutionCache
+  logger?: Logger
 }
