@@ -366,6 +366,8 @@ HTTP/1.1 401 Unauthorized
 WWW-Authenticate: Bearer resource_metadata="https://app.example.com/.well-known/oauth-protected-resource/mcp", scope="read"
 ```
 
+The route scopes can only be advertised when the scope middleware raises the 401. It also works when the guard already ran without them earlier in the request (for example `ctx.auth.check()` with `oauth` as the default guard): the challenge is rewritten. However, if an `auth` middleware such as `middleware.auth({ guards: ['oauth'] })` runs before `middleware.scopes()` and rejects the request, the scope middleware never runs and the 401 only lists the resource scopes. The scope middleware authenticates OAuth requests by itself, so drop the `auth` middleware on those routes, or declare the scopes on the resource with `registerProtectedResource()`.
+
 To advertise route scopes when calling the guard yourself, pass them to `authenticate()`:
 
 ```ts

@@ -344,6 +344,34 @@ test.group('OAuthGuard | WWW-Authenticate scope', (group) => {
     )
   })
 
+  test('rewrites the challenge when a failed guard is called again with scopes', async ({
+    assert,
+  }) => {
+    const { guard, ctx } = buildResourceGuard({ bearerToken: 'nope', resourceScopes: ['read'] })
+
+    assert.isFalse(await guard.check())
+    await assert.rejects(() => guard.authenticate({ scopes: ['write'] }))
+
+    assert.equal(
+      ctx.response.getHeader('www-authenticate'),
+      `Bearer resource_metadata="${metadataUrl}", scope="read write", error="invalid_token", error_description="Invalid or expired token"`
+    )
+  })
+
+  test('keeps the challenge when a failed guard is called again without options', async ({
+    assert,
+  }) => {
+    const { guard, ctx } = buildResourceGuard({ resourceScopes: ['read'] })
+
+    await guard.check()
+    await assert.rejects(() => guard.authenticate())
+
+    assert.equal(
+      ctx.response.getHeader('www-authenticate'),
+      `Bearer resource_metadata="${metadataUrl}", scope="read"`
+    )
+  })
+
   test('insufficientScopeError lists granted and required scopes', async ({ assert }) => {
     await createTestClient()
     const { raw } = await createTestAccessToken({ scopes: ['read'] })

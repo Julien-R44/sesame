@@ -1,4 +1,5 @@
 import { test } from '@japa/runner'
+import { AuthManager } from '@adonisjs/auth'
 import { setupHttpGroup } from '../helpers/app.ts'
 import { createTestClient } from '../helpers/create_test_client.ts'
 import { createTestAccessToken } from '../helpers/create_test_access_token.ts'
@@ -193,5 +194,66 @@ test.group('HTTP | AnyScopeMiddleware', (group) => {
 
     response.assertStatus(200)
     response.assertBodyContains({ ok: true })
+  })
+})
+
+test.group('HTTP | ScopeMiddleware with @adonisjs/auth', (group) => {
+  const metadata =
+    'resource_metadata="https://auth.example.com/.well-known/oauth-protected-resource"'
+
+  const ctx = setupHttpGroup(group, undefined, {
+    createAuth: ({ ctx: httpCtx, guard }) =>
+      new AuthManager({ default: 'oauth', guards: { oauth: () => guard } }).createAuthenticator(
+        httpCtx
+      ),
+    setupRoutes(router) {
+      router
+        .get('/test/scoped', async () => ({ ok: true }))
+        .use(async (mCtx: any, next: any) => {
+          await new ScopeMiddleware().handle(mCtx, next, { scopes: ['read', 'write'] })
+        })
+
+      /**
+       * Mirrors `middleware.auth({ guards: ['oauth'] })` placed before the scope middleware.
+       */
+      router
+        .get('/test/auth-then-scoped', async () => ({ ok: true }))
+        .use(async (mCtx: any, next: any) => {
+          await mCtx.auth.authenticateUsing(['oauth'])
+          await next()
+        })
+        .use(async (mCtx: any, next: any) => {
+          await new ScopeMiddleware().handle(mCtx, next, { scopes: ['read', 'write'] })
+        })
+    },
+  })
+
+  test('401 lists the route scopes when the default guard was checked first', async ({
+    client,
+  }) => {
+    const response = await client.get(`${ctx.baseUrl}/test/scoped`)
+
+    response.assertStatus(401)
+    response.assertHeader('www-authenticate', `Bearer ${metadata}, scope="read write"`)
+  })
+
+  test('401 raised by the auth middleware cannot list the route scopes', async ({ client }) => {
+    const response = await client.get(`${ctx.baseUrl}/test/auth-then-scoped`)
+
+    response.assertStatus(401)
+    response.assertHeader('www-authenticate', `Bearer ${metadata}`)
+  })
+
+  test('403 after the auth middleware lists granted and required scopes', async ({
+    client,
+    assert,
+  }) => {
+    await createTestClient()
+    const { raw } = await createTestAccessToken({ scopes: ['read'] })
+
+    const response = await client.get(`${ctx.baseUrl}/test/auth-then-scoped`).bearerToken(raw)
+
+    response.assertStatus(403)
+    assert.include(response.header('www-authenticate'), 'scope="read write"')
   })
 })

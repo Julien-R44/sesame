@@ -138,6 +138,11 @@ export async function createHttpServer(
     skipDiscoveryRoutes?: boolean
     setupRoutes?: (router: any, manager: SesameManager) => void
     store?: SesameStore
+    /**
+     * Build `ctx.auth` from the request's OAuth guard instead of the fake
+     * authenticator, e.g. a real `@adonisjs/auth` Authenticator.
+     */
+    createAuth?: (options: { ctx: any; guard: OAuthGuard<any> }) => unknown
   }
 ) {
   const adonisServer = await app.container.make('server')
@@ -164,6 +169,11 @@ export async function createHttpServer(
           const provider = new FakeUserProvider(users)
           const emitter = createFakeEmitter()
           const guard = new OAuthGuard('oauth', ctx, emitter, provider, mgr)
+
+          if (options?.createAuth) {
+            ctx.auth = options.createAuth({ ctx, guard })
+            return next()
+          }
 
           const userId = ctx.request.header('x-test-user-id')
           ctx.auth = {
