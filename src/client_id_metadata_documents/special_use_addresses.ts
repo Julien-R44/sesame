@@ -29,8 +29,8 @@ const IPV4_RANGES: Array<[string, number]> = [
 ]
 
 const IPV6_RANGES: Array<[string, number]> = [
-  ['::', 128],
-  ['::1', 128],
+  // Unspecified, loopback and deprecated IPv4-compatible addresses (`::7f00:1`)
+  ['::', 96],
   ['64:ff9b::', 96],
   ['64:ff9b:1::', 48],
   ['100::', 64],
