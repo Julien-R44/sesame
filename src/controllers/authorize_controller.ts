@@ -4,6 +4,7 @@ import vine from '@vinejs/vine'
 import type { HttpContext } from '@adonisjs/core/http'
 import { SesameManager } from '../sesame_manager.ts'
 import { AuthorizeAction } from '../actions/authorize.ts'
+import { buildClientRedirectUrl, type ClientRedirectUrlOptions } from '../client_redirect_url.ts'
 import { E_INVALID_REQUEST } from '../oauth_error.ts'
 
 /**
@@ -24,6 +25,7 @@ export default class AuthorizeController {
     code_challenge: vine.string().optional(),
     code_challenge_method: vine.string().optional(),
     nonce: vine.string().optional(),
+    prompt: vine.string().optional(),
   })
 
   /**
@@ -49,6 +51,7 @@ export default class AuthorizeController {
       codeChallenge: query.code_challenge,
       codeChallengeMethod: query.code_challenge_method,
       nonce: query.nonce,
+      prompt: query.prompt,
       userId: user ? String(user.id) : undefined,
     })
 
@@ -87,21 +90,8 @@ export default class AuthorizeController {
    * Build a redirect URL with OAuth params, state, and issuer,
    * then redirect the user agent to the client's redirect_uri.
    */
-  #redirectToClient(
-    ctx: HttpContext,
-    options: {
-      issuer: string
-      redirectUri: string
-      state?: string
-      params: Record<string, string>
-    }
-  ) {
-    const url = new URL(options.redirectUri)
-    for (const [key, value] of Object.entries(options.params)) url.searchParams.set(key, value)
-    if (options.state) url.searchParams.set('state', options.state)
-    url.searchParams.set('iss', options.issuer)
-
-    return ctx.response.redirect().toPath(url.toString())
+  #redirectToClient(ctx: HttpContext, options: ClientRedirectUrlOptions) {
+    return ctx.response.redirect().toPath(buildClientRedirectUrl(options))
   }
 
   /**

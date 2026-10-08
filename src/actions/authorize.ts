@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 import string from '@adonisjs/core/helpers/string'
 import type { SesameManager } from '../sesame_manager.ts'
 import { describeInvalidScopes } from '../invalid_scope_description.ts'
+import { parsePrompt } from '../prompt.ts'
 import { ClientService } from '../services/client_service.ts'
 import { TokenService } from '../services/token_service.ts'
 import type { OAuthClientRecord } from '../storage/types.ts'
@@ -18,6 +19,7 @@ export interface AuthorizeInput {
   codeChallenge?: string
   codeChallengeMethod?: string
   nonce?: string
+  prompt?: string
   userId?: string
 }
 
@@ -32,9 +34,10 @@ type RedirectError = AuthorizeResult & { type: 'redirect_error' }
 /**
  * Handles the OAuth 2.0 authorization request business logic.
  *
- * Validates the client, scopes, and PKCE parameters, checks
- * existing consent, and either issues an authorization code
- * or signals that login/consent is required.
+ * Validates the client, scopes, PKCE, and `prompt` parameters,
+ * checks existing consent, and either issues an authorization code
+ * or signals that login/consent is required. Only `prompt=none`
+ * and `prompt=consent` change the flow; other values are ignored.
  *
  * Errors before redirect_uri validation are thrown as exceptions.
  * Errors after are returned as `redirect_error` results so the
@@ -76,7 +79,11 @@ export class AuthorizeAction {
     const pkceError = this.#validatePkce(input)
     if (pkceError) return pkceError
 
-    if (!input.userId) return { type: 'login_required' }
+    const prompts = parsePrompt(input.prompt)
+    const promptError = this.#validatePrompt(prompts)
+    if (promptError) return promptError
+
+    if (!input.userId) return this.#requireLogin(prompts)
 
     return this.#resolveConsent(
       manager,
@@ -148,9 +155,59 @@ export class AuthorizeAction {
   }
 
   /**
-   * Check if the user has already consented to all requested
-   * scopes. If so, issue the code directly. Otherwise, create
-   * a pending authorization request for the consent page.
+   * `prompt=none` cannot be combined with any other value.
+   *
+   * @see https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest
+   */
+  #validatePrompt(prompts: Set<string>): RedirectError | null {
+    if (!prompts.has('none') || prompts.size === 1) return null
+
+    return {
+      type: 'redirect_error',
+      error: 'invalid_request',
+      description: 'prompt=none cannot be combined with other prompt values',
+    }
+  }
+
+  /**
+   * Send unauthenticated users to the login page, unless the
+   * client asked for no user interaction with `prompt=none`.
+   *
+   * @see https://openid.net/specs/openid-connect-core-1_0.html#AuthError
+   */
+  #requireLogin(prompts: Set<string>): AuthorizeResult {
+    if (!prompts.has('none')) return { type: 'login_required' }
+
+    return {
+      type: 'redirect_error',
+      error: 'login_required',
+      description: 'The user must be authenticated',
+    }
+  }
+
+  /**
+   * Check whether a stored consent already covers every requested scope.
+   */
+  async #hasConsent(
+    manager: SesameManager,
+    options: { clientId: string; userId: string; scopes: string[] }
+  ): Promise<boolean> {
+    const consent = await manager.store.findConsent({
+      clientId: options.clientId,
+      userId: options.userId,
+    })
+    if (!consent) return false
+
+    const consentedSet = new Set(consent.scopes)
+
+    return options.scopes.every((scope) => consentedSet.has(scope))
+  }
+
+  /**
+   * Issue the code directly when a stored consent covers the
+   * requested scopes and `prompt=consent` was not sent. Otherwise,
+   * create a pending authorization request for the consent page,
+   * or fail with `consent_required` under `prompt=none`.
    */
   async #resolveConsent(
     manager: SesameManager,
@@ -158,27 +215,31 @@ export class AuthorizeAction {
     client: OAuthClientRecord,
     scopes: string[]
   ): Promise<AuthorizeResult> {
-    const store = manager.store
-    const existingConsent = await store.findConsent({
-      clientId: client.clientId,
-      userId: input.userId,
-    })
+    const prompts = parsePrompt(input.prompt)
+    const consented =
+      !prompts.has('consent') &&
+      (await this.#hasConsent(manager, { clientId: client.clientId, userId: input.userId, scopes }))
 
-    if (existingConsent) {
-      const consentedSet = new Set(existingConsent.scopes)
-      if (scopes.every((s: string) => consentedSet.has(s))) {
-        const action = new IssueAuthorizationCodeAction()
-        const code = await action.execute(manager, {
-          client,
-          userId: input.userId,
-          scopes,
-          redirectUri: input.redirectUri,
-          codeChallenge: input.codeChallenge,
-          codeChallengeMethod: input.codeChallengeMethod,
-          nonce: input.nonce,
-        })
+    if (consented) {
+      const action = new IssueAuthorizationCodeAction()
+      const code = await action.execute(manager, {
+        client,
+        userId: input.userId,
+        scopes,
+        redirectUri: input.redirectUri,
+        codeChallenge: input.codeChallenge,
+        codeChallengeMethod: input.codeChallengeMethod,
+        nonce: input.nonce,
+      })
 
-        return { type: 'authorized', code }
+      return { type: 'authorized', code }
+    }
+
+    if (prompts.has('none')) {
+      return {
+        type: 'redirect_error',
+        error: 'consent_required',
+        description: 'The user must consent to the requested scopes',
       }
     }
 
