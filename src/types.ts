@@ -146,6 +146,63 @@ export interface FindPendingAuthorizationRequestOptions {
 }
 
 /**
+ * Approve a pending authorization request on behalf of its owner.
+ */
+export interface ApproveAuthorizationOptions {
+  /**
+   * Raw `auth_token` received by the consent page.
+   */
+  authToken: string
+
+  /**
+   * Authenticated user who owns the pending request.
+   */
+  userId: string
+
+  /**
+   * Scopes granted by the user. Must be a non-empty subset of the
+   * requested scopes. Defaults to every requested scope.
+   */
+  scopes?: Scope[]
+}
+
+/**
+ * Deny a pending authorization request on behalf of its owner.
+ */
+export interface DenyAuthorizationOptions {
+  /**
+   * Raw `auth_token` received by the consent page.
+   */
+  authToken: string
+
+  /**
+   * Authenticated user who owns the pending request.
+   */
+  userId: string
+}
+
+/**
+ * Outcome of an approved or denied authorization request.
+ */
+export interface AuthorizationDecision {
+  /**
+   * Client redirect URL carrying either `code` or `error=access_denied`,
+   * plus `state` and `iss`. Redirect the user agent to it.
+   */
+  redirectUrl: string
+
+  /**
+   * Public client_id of the client that made the request.
+   */
+  clientId: string
+
+  /**
+   * Scopes granted to the client. Empty when the request was denied.
+   */
+  scopes: string[]
+}
+
+/**
  * Options for creating an OAuth client programmatically.
  */
 export interface CreateClientOptions {

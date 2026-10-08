@@ -3,7 +3,10 @@ import type { HttpContext, Router } from '@adonisjs/core/http'
 import {
   BUILTIN_SCOPES,
   OIDC_SCOPES,
+  type ApproveAuthorizationOptions,
+  type AuthorizationDecision,
   type CreateClientOptions,
+  type DenyAuthorizationOptions,
   type CreateClientResult,
   type FindPendingAuthorizationRequestOptions,
   type ResolvedSesameConfig,
@@ -12,6 +15,7 @@ import {
   type UpdateClientOptions,
 } from './types.ts'
 import { ClientService } from './services/client_service.ts'
+import { CompleteAuthorizationAction } from './actions/complete_authorization.ts'
 import { KeyService } from './services/key_service.ts'
 import { TokenService } from './services/token_service.ts'
 import { registerOAuthRoutes, registerWellKnownRoutes as registerWellKnown } from './routes.ts'
@@ -114,6 +118,27 @@ export class SesameManager {
       userId: options.userId,
       now: DateTime.now(),
     })
+  }
+
+  /**
+   * Approve a pending authorization request from your own consent
+   * controller. Pass `scopes` to grant fewer scopes than requested.
+   * Returns the client redirect URL carrying the authorization code.
+   *
+   * @see https://datatracker.ietf.org/doc/html/rfc6749#section-3.3
+   */
+  async approveAuthorization(options: ApproveAuthorizationOptions): Promise<AuthorizationDecision> {
+    return new CompleteAuthorizationAction().approve(this, options)
+  }
+
+  /**
+   * Deny a pending authorization request from your own consent
+   * controller. Returns the client redirect URL carrying `access_denied`.
+   *
+   * @see https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2.1
+   */
+  async denyAuthorization(options: DenyAuthorizationOptions): Promise<AuthorizationDecision> {
+    return new CompleteAuthorizationAction().deny(this, options)
   }
 
   /**
