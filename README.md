@@ -1007,6 +1007,7 @@ const deleted = await sesame.purgeUnusedClients({ olderThanDays: 30 })
 
 - All tokens (access tokens, refresh tokens, authorization codes, client secrets) are stored as **SHA-256 hashes**. Raw values are never persisted in the database.
 - PKCE with **S256** is mandatory for all clients (OAuth 2.1).
+- Redirect URIs are matched exactly. Loopback redirect URIs (`http://127.0.0.1`, `http://[::1]`, `http://localhost`) accept any port at request time, so native and CLI clients can bind an ephemeral port (RFC 8252 §7.3).
 - Refresh tokens use **rotation**. The old token is revoked immediately on use.
 - **Replay detection**: if a revoked refresh token or an already exchanged authorization code is presented, its whole grant is revoked to mitigate stolen token reuse (OAuth 2.1 §4.1.3 and §4.3.1).
 - Client secret verification uses **timing-safe comparison**.

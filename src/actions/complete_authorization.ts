@@ -5,6 +5,7 @@ import { buildClientRedirectUrl } from '../client_redirect_url.ts'
 import { describeInvalidScopes } from '../invalid_scope_description.ts'
 import { IssueAuthorizationCodeAction } from './issue_authorization_code.ts'
 import { assertGrantContext } from '../services/grant_service.ts'
+import { isRedirectUriAllowed } from '../redirect_uri.ts'
 import {
   E_INVALID_CLIENT,
   E_INVALID_GRANT,
@@ -110,7 +111,9 @@ export class CompleteAuthorizationAction {
     const client = await store.findClient(pendingRequest.clientId)
     if (!client) throw new E_INVALID_CLIENT('Client not found')
     if (client.isDisabled) throw new E_INVALID_CLIENT('Client is disabled')
-    if (!client.redirectUris.includes(pendingRequest.redirectUri)) {
+
+    const registered = client.redirectUris
+    if (!isRedirectUriAllowed({ registered, requested: pendingRequest.redirectUri })) {
       throw new E_INVALID_REQUEST('Invalid redirect_uri')
     }
 
