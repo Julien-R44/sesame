@@ -839,7 +839,8 @@ The guard also points MCP clients to `/.well-known/oauth-protected-resource/api/
 
 MCP clients send a `resource` parameter ([RFC 8707](https://datatracker.ietf.org/doc/html/rfc8707)) to `/oauth/authorize` and `/oauth/token` to name the server they will call. Sésame binds the issued tokens to that resource:
 
-- The resource must be an absolute `http(s)` URI without a fragment. It is mapped to the most specific resource served by Sésame: the issuer itself, or a path registered with `registerProtectedResource()`. For example, `https://app.com/api/mcp/` and `https://app.com/api/mcp/tools` both map to `https://app.com/api/mcp`. Any other value, a resource on another origin, or a repeated `resource` parameter is rejected with an `invalid_target` error.
+- The resource must be an absolute `http(s)` URI without a fragment, whitespace, control characters, or backslashes. It is mapped to the most specific resource served by Sésame on the issuer's origin: a path registered with `registerProtectedResource()`, or the issuer itself. For example, `https://app.com/api/mcp/` and `https://app.com/api/mcp/tools` both map to `https://app.com/api/mcp`, while `https://app.com/other` maps to the issuer `https://app.com` because no registered path covers it.
+- A malformed value, a resource on another origin (scheme, host, or port), or a repeated `resource` parameter is rejected with an `invalid_target` error.
 - The authorization code, the access token, and the refresh token store the resource. A refresh keeps it, and requesting another resource at the token endpoint than the one granted is rejected with `invalid_target`.
 - Requests without `resource` (regular OAuth clients, older MCP clients) still work and produce tokens that are not bound to any resource. Tokens issued before the upgrade are also unbound; the first refresh that sends a `resource` binds the new tokens to it.
 - The consent page receives the resolved `resource` query parameter, and `sesame.findPendingAuthorizationRequest()` exposes it as `resource`, so you can show which server the client wants to access.
@@ -855,6 +856,8 @@ mcp: oauthGuard({
 ```
 
 After authentication, `guard.audience` contains the resource the token is bound to, or `null`. Guards without `resource` never check the audience. In tests, `loginAs()` binds its token to the guard's resource.
+
+A guard compares tokens with its `resource` mapped the same way as the `resource` parameter. Register the guard path with `registerProtectedResource()`: otherwise it maps to the closest registered resource (often the issuer), the guard accepts tokens issued for that broader resource, and Sésame logs a warning once.
 
 MCP clients typically need to self-register, so you will want to enable dynamic client registration with public access (see the [Dynamic Client Registration](#dynamic-client-registration) section above).
 
