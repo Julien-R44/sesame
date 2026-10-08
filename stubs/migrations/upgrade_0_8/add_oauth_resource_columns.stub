@@ -1,0 +1,38 @@
+{{{
+  exports({
+    to: app.makePath('database/migrations', Date.now() + '_add_oauth_resource_columns.ts')
+  })
+}}}
+import { BaseSchema } from '@adonisjs/lucid/schema'
+
+/**
+ * Tables whose records can be bound to an RFC 8707 resource indicator.
+ */
+const TABLES = [
+  'oauth_pending_authorization_requests',
+  'oauth_authorization_codes',
+  'oauth_access_tokens',
+  'oauth_refresh_tokens',
+]
+
+/**
+ * Sésame 0.8: store the resource (RFC 8707) that authorization requests,
+ * codes, and tokens are bound to. Existing rows stay unbound (null).
+ */
+export default class extends BaseSchema {
+  async up() {
+    for (const tableName of TABLES) {
+      this.schema.alterTable(tableName, (table) => {
+        table.text('resource').nullable()
+      })
+    }
+  }
+
+  async down() {
+    for (const tableName of TABLES) {
+      this.schema.alterTable(tableName, (table) => {
+        table.dropColumn('resource')
+      })
+    }
+  }
+}
