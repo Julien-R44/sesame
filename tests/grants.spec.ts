@@ -710,7 +710,19 @@ test.group('Grants | Expiry', (group) => {
   })
 
   test('ignores grant identifiers that are not UUIDs', async ({ assert }) => {
-    const manager = createManager()
+    const strictStore = new Proxy(lucidStore(), {
+      get(target, property) {
+        if (property === 'findGrant') {
+          return async () => {
+            throw new Error('invalid input syntax for type uuid')
+          }
+        }
+        const value = Reflect.get(target, property)
+
+        return typeof value === 'function' ? value.bind(target) : value
+      },
+    })
+    const manager = new SesameManager(createTestConfig(), {} as any, strictStore)
 
     assert.isNull(await manager.findGrant('abc'))
     assert.isFalse(await manager.revokeGrant({ grantId: 'abc' }))
