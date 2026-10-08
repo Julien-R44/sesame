@@ -1,6 +1,6 @@
 import { test } from '@japa/runner'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { basename, join } from 'node:path'
 import type { ApplicationService } from '@adonisjs/core/types'
 import Database from 'better-sqlite3'
 import { Kysely, SqliteDialect } from 'kysely'
@@ -44,10 +44,37 @@ test.group('Upgrade 0.8 | resource columns', (group) => {
     await rm(TMP_DIR, { recursive: true, force: true })
   })
 
+  test('keeps stub bodies free of template literal syntax', async ({ assert }) => {
+    for (const stubPath of [
+      'migrations/upgrade_0_8/lucid/add_oauth_resource_columns.stub',
+      'migrations/upgrade_0_8/kysely/add_oauth_resource_columns.stub',
+    ]) {
+      const contents = await readFile(join(STUBS_ROOT, stubPath), 'utf8')
+      const body = contents.slice(contents.indexOf('}}}') + 3)
+
+      assert.notInclude(body, '`', stubPath)
+      assert.notInclude(body, '${', stubPath)
+    }
+  })
+
+  test('sorts the Kysely migration after the create-table migration', async ({ assert }) => {
+    const prepared = await renderStub(
+      ctx.app,
+      'migrations/upgrade_0_8/kysely/add_oauth_resource_columns.stub'
+    )
+    const fileName = basename(prepared.destination)
+
+    assert.equal(fileName, 'sesame_v000800_add_oauth_resource_columns.ts')
+    assert.deepEqual([fileName, 'create_oauth_tables.ts'].sort(), [
+      'create_oauth_tables.ts',
+      fileName,
+    ])
+  })
+
   test('publishes the Lucid migration in the migrations folder', async ({ assert }) => {
     const prepared = await renderStub(
       ctx.app,
-      'migrations/upgrade_0_8/add_oauth_resource_columns.stub'
+      'migrations/upgrade_0_8/lucid/add_oauth_resource_columns.stub'
     )
 
     assert.match(prepared.destination, /database\/migrations\/\d+_add_oauth_resource_columns\.ts$/)
@@ -57,7 +84,7 @@ test.group('Upgrade 0.8 | resource columns', (group) => {
   test('adds and removes the Lucid resource columns', async ({ assert }) => {
     const prepared = await renderStub(
       ctx.app,
-      'migrations/upgrade_0_8/add_oauth_resource_columns.stub'
+      'migrations/upgrade_0_8/lucid/add_oauth_resource_columns.stub'
     )
     const { filePath, module } = await importMigration('lucid_upgrade.ts', prepared.contents)
     const db = await ctx.app.container.make('lucid.db')
@@ -106,7 +133,7 @@ test.group('Upgrade 0.8 | resource columns', (group) => {
 
     assert.match(
       prepared.destination,
-      /database\/kysely_migrations\/upgrade_0_8_add_oauth_resource_columns\.ts$/
+      /database\/kysely_migrations\/sesame_v000800_add_oauth_resource_columns\.ts$/
     )
   })
 })
