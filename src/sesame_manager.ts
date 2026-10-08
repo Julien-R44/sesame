@@ -21,7 +21,7 @@ import {
 } from './types.ts'
 import { ClientService } from './services/client_service.ts'
 import { CompleteAuthorizationAction } from './actions/complete_authorization.ts'
-import { assertGrantContext } from './services/grant_service.ts'
+import { assertGrantContext, isGrantId } from './services/grant_service.ts'
 import { KeyService } from './services/key_service.ts'
 import { TokenService } from './services/token_service.ts'
 import { registerOAuthRoutes, registerWellKnownRoutes as registerWellKnown } from './routes.ts'
@@ -75,7 +75,7 @@ export class SesameManager {
    * Load a grant, optionally only when it belongs to the given user.
    */
   async #findOwnedGrant(options: { grantId: string; userId?: string }) {
-    const grant = await this.#store.findGrant(options.grantId)
+    const grant = await this.findGrant(options.grantId)
     if (!grant) return null
     if (options.userId !== undefined && grant.userId !== options.userId) return null
 
@@ -264,8 +264,11 @@ export class SesameManager {
 
   /**
    * Find a grant by its identifier, including expired ones.
+   * Returns null for identifiers that are not UUIDs (e.g. a bad route param).
    */
   async findGrant(grantId: string): Promise<OAuthGrantRecord | null> {
+    if (!isGrantId(grantId)) return null
+
     return this.#store.findGrant(grantId)
   }
 
