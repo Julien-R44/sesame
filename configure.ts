@@ -25,8 +25,9 @@ export async function configure(command: Configure) {
   const migrationStubs =
     store === 'kysely' ? ['migrations/kysely/create_oauth_tables.stub'] : lucidMigrations
 
-  for (const stub of migrationStubs) {
-    await codemods.makeUsingStub(stubsRoot, stub, {})
+  const timestamp = Date.now()
+  for (const [index, stub] of migrationStubs.entries()) {
+    await codemods.makeUsingStub(stubsRoot, stub, { prefix: timestamp + index })
   }
 
   // Register provider and commands
