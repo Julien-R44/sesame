@@ -60,7 +60,7 @@ In 0.7.0, a `scope` field posted to `/oauth/consent` was ignored. It is now the 
 
 Previously, Sésame ignored `prompt` and skipped the consent page whenever a remembered consent covered the requested scopes. Requests with `prompt=consent` now always show the consent page.
 
-The official MCP TypeScript SDK requests the scopes listed in the `scope` of the 401 challenge, which the OAuth guard now includes (see [Header changes](#header-changes)). With 0.7.0, the challenge had no `scope`, so the SDK requested `scopes_supported` from the protected resource metadata, including `offline_access`, and sent `prompt=consent` along with it. With 0.8.0, it requests only the challenge scopes, without `offline_access` nor `prompt=consent`, so a returning user whose grants without context cover these scopes skips the consent page. Sésame still issues a refresh token whenever the `refresh_token` grant type is enabled. Tokens issued to these clients no longer list `offline_access` in their `scope`.
+The official MCP TypeScript SDK requests the scopes listed in the `scope` of the 401 challenge, which the OAuth guard now includes (see [Header changes](#header-changes)). With 0.7.0, the challenge had no `scope`, so the SDK requested `scopes_supported` from the protected resource metadata, including `offline_access`, and sent `prompt=consent` along with it. With 0.8.0, it requests only the challenge scopes, without `offline_access` nor `prompt=consent`, so a returning user whose grants without context cover these scopes skips the consent page (except with Client ID Metadata Document clients). Sésame still issues a refresh token whenever the `refresh_token` grant type is enabled. Tokens issued to these clients no longer list `offline_access` in their `scope`.
 
 The SDK still sends `prompt=consent` when the challenge has no `scope`, that is when neither the resource nor the route declares scopes. See [MCP Support](../README.md#mcp-support) for the step-up limitation of the current SDK.
 
@@ -69,7 +69,7 @@ The SDK still sends `prompt=consent` when the challenge has no `scope`, that is 
 Requests with `prompt=none` no longer redirect to your login or consent page:
 
 - When the user is not logged in, Sésame redirects to the client with `error=login_required`.
-- When the requested scopes are not covered by the user's active grants without context, Sésame redirects to the client with `error=consent_required`.
+- When the requested scopes are not covered by the user's active grants without context, or when the client is a Client ID Metadata Document client, Sésame redirects to the client with `error=consent_required`.
 - `prompt=none` combined with another value returns `error=invalid_request`.
 
 Other `prompt` values (`login`, `select_account`, `create`) are still ignored. Discovery documents now include `prompt_values_supported: ["none", "consent"]`. The authorization server metadata (`/.well-known/oauth-authorization-server`) also lists `scopes_supported` (RFC 8414), with the same values as the OpenID Connect discovery document.
@@ -113,7 +113,7 @@ No data is copied. Instead:
 
 ### 3. Behavior changes
 
-- **Remembered consent follows grants.** The consent page is skipped when the user's active grants without context cover the requested scopes. Revoking every grant of a client, or letting them expire, shows the consent page again. A grant with a context never skips the consent page.
+- **Remembered consent follows grants.** The consent page is skipped when the user's active grants without context cover the requested scopes. Revoking every grant of a client, or letting them expire, shows the consent page again. A grant with a context never skips the consent page, and neither does any grant of a [Client ID Metadata Document](#client-id-metadata-documents-opt-in) client.
 - **Every authorization creates a grant.** A user who connects the same client twice, for example from two devices sharing a [Client ID Metadata Document](https://datatracker.ietf.org/doc/draft-ietf-oauth-client-id-metadata-document/) `client_id`, now holds two grants.
 - **Refresh token replay only revokes the replayed grant.** Previously, every token of the client and user pair was revoked, which logged out other devices and contexts. The grant itself is now deleted, so that authorization has to be approved again (OAuth 2.1 §4.3.1).
 - **Reusing an authorization code revokes its grant.** Exchanged codes are kept with `consumed_at` instead of being deleted. A second exchange returns `invalid_grant` with `Authorization code has already been consumed` and revokes the tokens issued from the first exchange (OAuth 2.1 §4.1.3). This includes two concurrent exchanges of the same code: the slower one revokes the tokens of the faster one.
@@ -219,6 +219,7 @@ No migration is needed. Metadata document clients are stored in the existing `oa
 - `client_id` URLs longer than 255 characters are rejected, matching the `oauth_clients.client_id` column size. If you need longer URLs, widen that column and the `client_id` foreign key columns yourself.
 - While the feature is disabled, any `client_id` starting with `https://` is rejected with `invalid_client`. Sésame never generates such ids.
 - On MySQL/MariaDB, client ids are compared case-insensitively by the default collations. Sésame now rejects a client whose stored `client_id` differs from the requested one, so URLs that only differ by case are refused. Use `utf8mb4_bin` on the `client_id` columns if you need them (see the [Client ID Metadata Documents security notes](../README.md#security)).
+- The consent page is shown on every authorization of a metadata document client, even when the user's grants cover the requested scopes: anyone can reuse its public `client_id`. `prompt=none` returns `consent_required` for these clients.
 - Update your consent page to display the document host and the redirect URI host (see [Consent screen](../README.md#consent-screen)). `GET /oauth/client-info` returns new fields for this: `client_uri`, `logo_uri`, `tos_uri`, `policy_uri`, `client_id_metadata_document`, and `client_id_host`. For a metadata document client, it returns `invalid_client` until an authenticated user has authorized it once.
 - `sesame:purge` never deletes metadata document clients: they carry neither `registration: 'dynamic'` nor `token_endpoint_auth_method` in their `metadata`. Delete one with `sesame.deleteClient(url)`.
 - Custom `SesameStore` implementations need no change. Sésame only uses `findClient`, `createClient`, and `updateClient`. When two requests insert the same client concurrently, `createClient` must throw, as with the unique `client_id` constraint.

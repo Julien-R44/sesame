@@ -516,6 +516,54 @@ test.group('HTTP | Client ID Metadata Documents (installations)', (group) => {
     desktopRefresh.assertStatus(200)
     assert.lengthOf(await manager.listGrants({ userId: 'user-1' }), 1)
   })
+
+  test('always shows the consent page, even when a grant covers the scopes', async ({
+    client,
+    assert,
+  }) => {
+    fetcher.serve(CLAUDE_CODE_ID, claudeCodeDocument)
+    await connectInstallation(client, {
+      baseUrl: ctx.baseUrl,
+      redirectUri: 'http://localhost:3118/callback',
+    })
+
+    const response = await authorize(client, {
+      baseUrl: ctx.baseUrl,
+      clientId: CLAUDE_CODE_ID,
+      redirectUri: 'http://127.0.0.1:4000/callback',
+      userId: 'user-1',
+    })
+
+    response.assertStatus(302)
+    const location = new URL(response.header('location')!, 'https://auth.example.com')
+    assert.equal(location.pathname, '/oauth/consent')
+    assert.isString(location.searchParams.get('auth_token'))
+  })
+
+  test('prompt=none returns consent_required, even when a grant covers the scopes', async ({
+    client,
+    assert,
+  }) => {
+    fetcher.serve(CLAUDE_CODE_ID, claudeCodeDocument)
+    await connectInstallation(client, {
+      baseUrl: ctx.baseUrl,
+      redirectUri: 'http://localhost:3118/callback',
+    })
+
+    const response = await authorize(client, {
+      baseUrl: ctx.baseUrl,
+      clientId: CLAUDE_CODE_ID,
+      redirectUri: 'http://127.0.0.1:4000/callback',
+      userId: 'user-1',
+      prompt: 'none',
+    })
+
+    response.assertStatus(302)
+    const location = new URL(response.header('location')!)
+    assert.equal(location.origin, 'http://127.0.0.1:4000')
+    assert.equal(location.searchParams.get('error'), 'consent_required')
+    assert.isNull(location.searchParams.get('code'))
+  })
 })
 
 test.group('HTTP | Client ID Metadata Documents (allowedHosts)', (group) => {
