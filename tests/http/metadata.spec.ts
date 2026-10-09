@@ -34,6 +34,18 @@ test.group('HTTP | Metadata Endpoints', (group) => {
     })
   })
 
+  test('advertises the configured and built-in scopes', async ({ client, assert }) => {
+    const response = await client.get(`${ctx.baseUrl}/.well-known/oauth-authorization-server`)
+
+    response.assertStatus(200)
+    assert.sameMembers(response.body().scopes_supported, [
+      'read',
+      'write',
+      'openid',
+      'offline_access',
+    ])
+  })
+
   test('advertises none auth method for all endpoints', async ({ client, assert }) => {
     const response = await client.get(`${ctx.baseUrl}/.well-known/oauth-authorization-server`)
 
@@ -78,6 +90,14 @@ test.group('HTTP | Metadata — OIDC configured', (group) => {
     assert.equal(body.issuer, 'https://auth.example.com')
     assert.deepEqual(body.subject_types_supported, ['public'])
     assert.include(body.scopes_supported, 'offline_access')
+  })
+
+  test('advertises the same scopes in both discovery documents', async ({ client, assert }) => {
+    const oidc = await client.get(`${ctx.baseUrl}/.well-known/openid-configuration`)
+    const authServer = await client.get(`${ctx.baseUrl}/.well-known/oauth-authorization-server`)
+
+    assert.deepEqual(authServer.body().scopes_supported, oidc.body().scopes_supported)
+    assert.includeMembers(authServer.body().scopes_supported, ['openid', 'profile', 'email'])
   })
 })
 
