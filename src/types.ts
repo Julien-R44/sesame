@@ -173,6 +173,22 @@ export function collectOidcClaims(
 export type GrantType = 'authorization_code' | 'refresh_token' | 'client_credentials'
 
 /**
+ * Options of the `scopes` and `anyScope` middleware.
+ */
+export interface ScopeMiddlewareOptions {
+  /**
+   * Scopes checked on the OAuth access token.
+   */
+  scopes: Scope[]
+
+  /**
+   * Name of the OAuth guard that authenticates the request. Use the guard
+   * declaring the `resource` of the route. Defaults to `oauth`.
+   */
+  guard?: string
+}
+
+/**
  * Read a pending authorization request using its raw token and authenticated owner.
  */
 export interface FindPendingAuthorizationRequestOptions {

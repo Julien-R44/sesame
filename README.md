@@ -461,6 +461,12 @@ Use these middleware on routes that are allowed to accept either:
 
 If you want to require OAuth scopes strictly, authenticate with `auth.use('oauth').authenticate()` in your controller or route pipeline and check scopes on that guard explicitly.
 
+Both middleware authenticate with the guard named `oauth`. Pass the `guard` option to use another OAuth guard, for example the guard of an [MCP resource](#mcp-support):
+
+```ts title="start/routes.ts"
+router.post('/api/mcp', [McpController]).use(middleware.scopes({ scopes: ['read'], guard: 'mcp' }))
+```
+
 ### Scope challenges
 
 When a request is rejected, the `WWW-Authenticate` header tells the client which scopes to request (RFC 6750, MCP authorization spec):
@@ -834,6 +840,30 @@ mcp: oauthGuard({
 ```
 
 The guard also points MCP clients to `/.well-known/oauth-protected-resource/api/mcp` in its `WWW-Authenticate` 401 responses and advertises the declared `scopes` there (see [Scope challenges](#scope-challenges)), so clients request tokens for that resource.
+
+When the MCP route uses the `scopes` or `anyScope` middleware, pass that guard with the `guard` option. Without it, the middleware authenticates with the `oauth` guard: its 401 challenge points to the metadata of another resource, and it rejects tokens issued for `/api/mcp` when the `oauth` guard declares another `resource`. Each resource of your application gets its own guard:
+
+```ts title="config/auth.ts"
+guards: {
+  web: sessionGuard({ ... }),
+  oauth: oauthGuard({ provider: userProvider }),
+  mcp: oauthGuard({ provider: userProvider, resource: '/api/mcp' }),
+  mcpAdmin: oauthGuard({ provider: userProvider, resource: '/api/admin/mcp' }),
+}
+```
+
+```ts title="start/routes.ts"
+sesame.registerProtectedResource({ resource: '/api/mcp', scopes: ['read'] })
+sesame.registerProtectedResource({ resource: '/api/admin/mcp', scopes: ['admin'] })
+
+router.post('/api/mcp', [McpController]).use(middleware.scopes({ scopes: ['read'], guard: 'mcp' }))
+
+router
+  .post('/api/admin/mcp', [AdminMcpController])
+  .use(middleware.scopes({ scopes: ['admin'], guard: 'mcpAdmin' }))
+```
+
+In the controller, read the authenticated token from the same guard, for example `auth.use('mcp').context`.
 
 ### Resource indicators and token audience
 

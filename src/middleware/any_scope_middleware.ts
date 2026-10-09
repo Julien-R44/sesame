@@ -2,7 +2,7 @@
 
 import type { HttpContext } from '@adonisjs/core/http'
 import type { NextFn } from '@adonisjs/core/types/http'
-import type { Scope } from '../types.ts'
+import type { ScopeMiddlewareOptions } from '../types.ts'
 import type { OAuthGuard } from '../guard/guard.ts'
 
 /**
@@ -11,10 +11,13 @@ import type { OAuthGuard } from '../guard/guard.ts'
  *
  * @example
  * router.get('/data', [DataController]).use(middleware.anyScope({ scopes: ['read', 'read-all'] }))
+ *
+ * // Resource with its own guard, e.g. `mcp: oauthGuard({ resource: '/mcp', ... })`
+ * router.post('/mcp', [McpController]).use(middleware.anyScope({ scopes: ['read'], guard: 'mcp' }))
  */
 export default class AnyScopeMiddleware {
-  async handle(ctx: HttpContext, next: NextFn, options: { scopes: Scope[] }) {
-    const guard = ctx.auth.use('oauth') as OAuthGuard<any>
+  async handle(ctx: HttpContext, next: NextFn, options: ScopeMiddlewareOptions) {
+    const guard = ctx.auth.use(options.guard ?? 'oauth') as OAuthGuard<any>
     const challenge = { scopes: options.scopes, match: 'any' } as const
 
     // Fast path: OAuth guard already ran and succeeded

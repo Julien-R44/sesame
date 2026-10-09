@@ -171,13 +171,19 @@ const userProvider = oauthUserProvider({ model: () => import('#models/user') })
 
 guards: {
   web: sessionGuard({ ... }),
-  api: oauthGuard({ provider: userProvider }),
+  oauth: oauthGuard({ provider: userProvider }),
   mcp: oauthGuard({ provider: userProvider, resource: '/api/mcp' }),
 }
 ```
 
+The `scopes` and `anyScope` middleware authenticate with the guard named `oauth` unless you pass the new `guard` option. Pass it on the routes of each resource, so the middleware checks the audience of that resource and its 401 challenge points to the right protected resource metadata:
+
 ```ts title="start/routes.ts"
 sesame.registerProtectedResource({ resource: '/api/mcp', scopes: ['read'] })
+
+router
+  .post('/api/mcp', [McpController])
+  .use(middleware.scopes({ scopes: ['read'], guard: 'mcp' }))
 ```
 
 Tokens that are not bound to a resource are still accepted by default. Once your clients send `resource`, set `requireAudience: true` on the guard to reject them, as the MCP specification requires.
@@ -187,4 +193,5 @@ Tokens that are not bound to a resource are still accepted by default. Once your
 - **Guards that already declared `resource` in 0.7.0 now check the token audience.** In 0.7.0, `resource` only built the `WWW-Authenticate` header. Check that each such path is registered with `registerProtectedResource()`. If it is not, the guard keeps working but matches tokens against the closest registered resource (usually the issuer), so it also accepts tokens issued for the whole application, and Sésame logs a warning once. Register the path to restrict the guard to tokens issued for it.
 - **Introspection** returns the resource of bound tokens as `aud`.
 - **Records:** `OAuthAccessTokenRecord`, `OAuthRefreshTokenRecord`, `OAuthAuthorizationCodeRecord`, and `OAuthPendingAuthorizationRequestRecord` gain `resource: string | null`. Custom stores must persist and return it; no store method signature changed. A store that drops the field returns tokens as unbound.
+- **Scope middleware:** `scopes` and `anyScope` accept a `guard` option naming the OAuth guard to use. It defaults to `oauth`, the only guard they used in 0.7.0.
 - **Guard:** `guard.audience` and `guard.accessToken.resource` expose the resource of the authenticating token. Code that instantiates `OAuthGuard` directly must pass the resource as an options object: `new OAuthGuard(name, ctx, emitter, provider, manager, { resource: '/api/mcp' })` instead of a string.
