@@ -59,7 +59,9 @@ In 0.7.0, a `scope` field posted to `/oauth/consent` was ignored. It is now the 
 
 Previously, Sésame ignored `prompt` and skipped the consent page whenever a remembered consent covered the requested scopes. Requests with `prompt=consent` now always show the consent page.
 
-The official MCP TypeScript SDK sends `prompt=consent` whenever it requests `offline_access`, and adds `offline_access` itself because Sésame advertises it. Users of these clients will see your consent page on every new connection, even for a client they approved before. Token refreshes are not affected.
+The official MCP TypeScript SDK requests the scopes listed in the `scope` of the 401 challenge, which the OAuth guard now includes (see [Header changes](#header-changes)). With 0.7.0, the challenge had no `scope`, so the SDK requested `scopes_supported` from the protected resource metadata, including `offline_access`, and sent `prompt=consent` along with it. With 0.8.0, it requests only the challenge scopes, without `offline_access` nor `prompt=consent`, so a returning user whose grants without context cover these scopes skips the consent page. Sésame still issues a refresh token whenever the `refresh_token` grant type is enabled. Tokens issued to these clients no longer list `offline_access` in their `scope`.
+
+The SDK still sends `prompt=consent` when the challenge has no `scope`, that is when neither the resource nor the route declares scopes. See [MCP Support](../README.md#mcp-support) for the step-up limitation of the current SDK.
 
 ### Behavior change: `prompt=none` returns errors to the client
 

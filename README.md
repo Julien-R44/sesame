@@ -827,7 +827,9 @@ Point the OAuth guard at the same resource with `oauthGuard({ provider, resource
 
 MCP clients typically need to self-register, so you will want to enable dynamic client registration with public access (see the [Dynamic Client Registration](#dynamic-client-registration) section above).
 
-The official MCP TypeScript SDK sends `prompt=consent` whenever it requests the `offline_access` scope, and adds `offline_access` itself when it is advertised (Sésame always advertises it). Since Sésame honors `prompt=consent`, these clients show your consent page on every new connection, even if the user approved them before. Token refreshes are not affected.
+The official MCP TypeScript SDK requests the scopes listed in the `scope` of the `WWW-Authenticate` challenge, and only falls back to `scopes_supported` of the protected resource metadata when the challenge has none. The OAuth guard lists the resource and route scopes in its 401 challenge (see [Scope challenges](#scope-challenges)), so the SDK requests exactly those scopes. It does not add `offline_access`, and since it only sends `prompt=consent` together with `offline_access`, it does not send `prompt=consent` either. A returning user whose grants without context already cover these scopes skips your consent page. Sésame still issues a refresh token whenever the `refresh_token` grant type is enabled, with or without `offline_access`. When the challenge has no `scope` (no scopes declared on the resource nor on the route), the SDK requests `scopes_supported`, which includes `offline_access`, and sends `prompt=consent`: your consent page is then shown on every new connection.
+
+When a tool needs a scope the token lacks, reject the request with `guard.insufficientScopeError(['write'])`. The 403 challenge lists the scopes to request, and Sésame handles the new authorization like any other. However, the current MCP TypeScript SDK first refreshes its token on a 403, which cannot add scopes, then gives up when the server answers 403 again. With that SDK, the client must drop its tokens (for example by reconnecting the server) to obtain the wider scopes.
 
 ## Events
 
