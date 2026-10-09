@@ -71,7 +71,8 @@ interface RefreshRotation {
  * To handle this, we allow a recently-rotated refresh token to be
  * reused within a short configurable window (`refreshTokenRotationGracePeriod`,
  * defaults to 120 s). During that window the old token issues fresh
- * tokens without triggering replay-attack revocation.
+ * tokens without triggering replay-attack revocation. Tokens rotated
+ * before grants existed (no `grant_id`) get no grace period.
  *
  * This is the same approach used by Auth0 ("reuse interval") and
  * Cloudflare workers-oauth-provider ("previous token"). It provides
@@ -109,10 +110,7 @@ export class ExchangeRefreshTokenAction {
     if (!refreshToken) throw new E_INVALID_GRANT('Refresh token not found')
 
     if (refreshToken.revokedAt) {
-      const gracePeriodSeconds = manager.config.refreshTokenRotationGracePeriod
-      const revokedSecondsAgo = DateTime.now().diff(refreshToken.revokedAt, 'seconds').seconds
-
-      if (gracePeriodSeconds <= 0 || revokedSecondsAgo > gracePeriodSeconds) {
+      if (!this.#isInGracePeriod(manager, refreshToken)) {
         await new GrantService(manager).revokeFamily(refreshToken)
         throw new E_INVALID_GRANT('Refresh token has been revoked (possible replay attack)')
       }
@@ -172,6 +170,23 @@ export class ExchangeRefreshTokenAction {
       refresh_token: newRefreshToken.raw,
       ...(idToken ? { id_token: idToken } : {}),
     }
+  }
+
+  /**
+   * Whether a revoked refresh token can still be reused. Tokens rotated
+   * before grants existed never can: their successor may already belong
+   * to a new grant, and reusing them would fork the authorization into a
+   * second grant that replay detection on the first one cannot revoke.
+   */
+  #isInGracePeriod(manager: SesameManager, refreshToken: OAuthRefreshTokenRecord): boolean {
+    if (!refreshToken.grantId || !refreshToken.revokedAt) return false
+
+    const gracePeriodSeconds = manager.config.refreshTokenRotationGracePeriod
+    if (gracePeriodSeconds <= 0) return false
+
+    const revokedSecondsAgo = DateTime.now().diff(refreshToken.revokedAt, 'seconds').seconds
+
+    return revokedSecondsAgo <= gracePeriodSeconds
   }
 
   /**
