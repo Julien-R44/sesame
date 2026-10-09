@@ -73,6 +73,16 @@ test.group('CIMD | document validation', () => {
         document({ token_endpoint_auth_method: 'private_key_jwt' }),
         'private_key_jwt client authentication is not supported',
       ],
+      [
+        'an auth method named like an Object.prototype member',
+        document({ token_endpoint_auth_method: 'toString' }),
+        'must be "none"',
+      ],
+      [
+        'a non-string auth method',
+        document({ token_endpoint_auth_method: { method: 'none' } }),
+        'must be "none"',
+      ],
       ['a missing client_name', document({ client_name: undefined }), 'client_name'],
       ['an empty client_name', document({ client_name: '  ' }), 'client_name'],
       ['missing redirect_uris', document({ redirect_uris: undefined }), 'redirect_uris'],
