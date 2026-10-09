@@ -37,6 +37,6 @@ jobs:
       - run: npm install -g npm@latest
       - run: pnpm install --frozen-lockfile
       - name: Release
-        run: pnpm run release -- --ci ${{ inputs.version }}
+        run: pnpm run release --ci ${{ inputs.version }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
