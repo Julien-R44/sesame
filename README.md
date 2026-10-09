@@ -830,6 +830,44 @@ await sesame.updateClient('https://claude.ai/oauth/claude-code-client-metadata',
 
 Turning `clientIdMetadataDocuments` off rejects every URL `client_id` on all endpoints (authorize, consent, token, introspection, revocation, client info), even clients already stored. Removing a host from `allowedHosts` does the same for that host's clients. Access tokens that were already issued stay valid until they expire. Call `sesame.deleteClient(url)` to delete a client together with its tokens.
 
+### Custom fetcher: local development and internal certificate authorities
+
+Sésame resolves the document fetcher from the container, so you can swap it. This lets you test a metadata document served from your machine, which the SSRF protection refuses, or trust an internal certificate authority. Build the same `ClientMetadataDocumentFetcher` with two options:
+
+- `isAddressAllowed(address)` decides whether the fetcher may connect to a resolved IP address. The default refuses every special-use address (`isSpecialUseAddress`).
+- `ca` sets the trusted certificates. As with `https.request`, it replaces Node's default certificate authorities.
+
+```ts title="providers/app_provider.ts"
+import { readFileSync } from 'node:fs'
+import type { ApplicationService } from '@adonisjs/core/types'
+import {
+  ClientMetadataDocumentFetcher,
+  isSpecialUseAddress,
+} from '@julr/sesame/client_id_metadata_documents/fetcher'
+
+const LOOPBACK_ADDRESSES = ['127.0.0.1', '::1']
+
+export default class AppProvider {
+  constructor(protected app: ApplicationService) {}
+
+  async boot() {
+    if (!this.app.inDev) return
+
+    this.app.container.swap(
+      ClientMetadataDocumentFetcher,
+      () =>
+        new ClientMetadataDocumentFetcher({
+          ca: readFileSync('certs/dev-ca.pem'),
+          isAddressAllowed: (address) =>
+            LOOPBACK_ADDRESSES.includes(address) || !isSpecialUseAddress(address),
+        })
+    )
+  }
+}
+```
+
+Never relax `isAddressAllowed` in production: it lets clients make your server fetch internal URLs. Tests can swap the fetcher the same way, or subclass it and override `fetch()` to serve documents from memory.
+
 ### Consent screen
 
 Anyone can reuse a public client's metadata URL. On desktop clients that use loopback redirect URIs, a local process could also claim to be that client. Your consent page should show:

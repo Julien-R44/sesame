@@ -19,6 +19,7 @@ export default defineConfig({
     './commands/sesame_upgrade.ts',
     './src/middleware/scope_middleware.ts',
     './src/middleware/any_scope_middleware.ts',
+    './src/client_id_metadata_documents/fetcher.ts',
   ],
   outDir: './build',
   clean: true,

@@ -24,12 +24,22 @@ export interface FetchedClientMetadataDocument {
 }
 
 /**
- * Low-level overrides for the fetcher transport. Only meant for tests:
- * relaxing `isAddressAllowed` disables the SSRF protection.
+ * Low-level overrides for the fetcher transport, e.g. to fetch documents
+ * from a local server during development.
  */
 export interface ClientMetadataDocumentFetcherOptions {
+  /**
+   * Decide whether the fetcher may connect to a resolved IP address.
+   * Defaults to refusing special-use addresses (loopback, private
+   * ranges, etc.). Relaxing it weakens the SSRF protection.
+   */
   isAddressAllowed?: (address: string) => boolean
-  ca?: string | Buffer
+
+  /**
+   * Certificates trusted for the TLS connection. Like the `ca` option of
+   * `https.request`, it replaces Node's default certificate authorities.
+   */
+  ca?: string | Buffer | Array<string | Buffer>
 }
 
 /**
