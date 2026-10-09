@@ -1,5 +1,5 @@
 import { test } from '@japa/runner'
-import { createManager, setupIntegrationGroup } from './helpers/app.ts'
+import { createManager, createTestConfig, setupIntegrationGroup } from './helpers/app.ts'
 import { createTestClient } from './helpers/create_test_client.ts'
 import { OAuthClient } from '../src/models/oauth_client.ts'
 import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
@@ -11,6 +11,9 @@ import { OAuthPendingAuthorizationRequest } from '../src/models/oauth_pending_au
 import { ClientService } from '../src/services/client_service.ts'
 import { TokenService } from '../src/services/token_service.ts'
 import { DateTime } from 'luxon'
+import { SesameManager } from '../src/sesame_manager.ts'
+import { lucidStore } from '../src/storage/drivers/lucid.ts'
+import { caseInsensitiveClientStore } from './helpers/store_overrides.ts'
 
 test.group('Integration | Client CRUD | createClient', (group) => {
   setupIntegrationGroup(group)
@@ -385,5 +388,30 @@ test.group('Integration | Client CRUD | rotateClientSecret', (group) => {
     const result = await manager.rotateClientSecret('non-existent')
 
     assert.isNull(result)
+  })
+})
+
+test.group('SesameManager | client CRUD on case-insensitive stores', (group) => {
+  setupIntegrationGroup(group)
+
+  function createInsensitiveManager() {
+    return new SesameManager(
+      createTestConfig(),
+      {} as any,
+      caseInsensitiveClientStore(lucidStore())
+    )
+  }
+
+  test('never returns, updates, rotates or deletes a case variant', async ({ assert }) => {
+    await createTestClient()
+    const manager = createInsensitiveManager()
+
+    assert.isNull(await manager.findClient('TEST-CLIENT'))
+    assert.isNull(await manager.updateClient('TEST-CLIENT', { name: 'Hijacked' }))
+    assert.isNull(await manager.rotateClientSecret('TEST-CLIENT'))
+    assert.isFalse(await manager.deleteClient('TEST-CLIENT'))
+
+    const stored = await manager.findClient('test-client')
+    assert.equal(stored?.name, 'Test Client')
   })
 })
