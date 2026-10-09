@@ -23,7 +23,7 @@ for (const [key, value] of savedAuthorizationQuery) {
 return response.redirect().toPath(authorizationUrl.pathname + authorizationUrl.search)
 ```
 
-Here, `savedAuthorizationQuery` is a `URLSearchParams` value that your login page preserves through the login submission. Preserve `client_id`, `redirect_uri`, `response_type`, `scope`, `state`, `code_challenge`, `code_challenge_method`, and `nonce` when present. Sésame validates the request again on `/oauth/authorize`.
+Here, `savedAuthorizationQuery` is a `URLSearchParams` value that your login page preserves through the login submission. Preserve `client_id`, `redirect_uri`, `response_type`, `scope`, `state`, `code_challenge`, `code_challenge_method`, `nonce`, `prompt`, and `resource` when present. Sésame validates the request again on `/oauth/authorize`.
 
 ## Load the consent page from the stored request
 
@@ -84,10 +84,14 @@ Render the supplied values and post `auth_token` with the decision:
 
 The allow button sends a truthy value. The deny button omits `accept`. For JSON, send `accept: true` or `accept: false`. Do not send the string `'false'`, which is truthy.
 
-Do not send `client_id`, `redirect_uri`, or scope as authorization proof. The POST controller uses the stored request selected by `auth_token` and the authenticated user.
+To approve fewer permissions, send an optional `scope` field containing a space-separated string or an array. It must be a nonempty subset of the stored request. Omit `scope` to approve every requested scope. Invalid scope selections do not consume the request.
+
+Do not send `client_id` or `redirect_uri` as authorization proof. The POST controller uses the stored request selected by `auth_token` and the authenticated user.
 
 After submission, Sésame consumes the pending request atomically and redirects to its saved callback URL. Allow returns a code. Deny returns `error=access_denied`. Both responses include `iss` and preserve `state` when provided.
 
 If the request expires or another submission consumes it, start a new authorization request. Its lifetime is controlled by `authorizationRequestTtl`.
+
+For application-specific decisions, scope selection, or grant context, [complete consent in your own controller](/guides/custom-consent/). When enabling metadata document clients, [display the document and callback hosts](/guides/client-metadata-documents/#show-the-client-and-callback-hosts).
 
 For an Inertia application, see [browser redirects with Inertia](/explanations/inertia-redirects/).

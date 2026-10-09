@@ -1,52 +1,40 @@
 ---
-title: Publish MCP authorization metadata
-description: Connect protected resource discovery to the OAuth guard for an MCP endpoint.
+title: Protect an MCP resource
+description: Configure MCP discovery, audience checks, and scope challenges.
 ---
 
-This guide assumes an MCP handler mounted at `/api/mcp`. Sésame supplies OAuth authentication and metadata, not the MCP transport or handler.
+Sésame supplies OAuth authentication and discovery. Your application supplies the MCP transport and handler.
 
-## Register the resource
+## Register discovery and audience checks
 
-Publish metadata for the endpoint in `start/routes.ts`:
+[Register the OAuth and discovery routes](/guides/register-routes/), then [bind tokens to your MCP resource](/guides/resource-indicators/). Use the same resource path in `registerProtectedResource()` and the protecting guard.
+
+For multiple MCP resources, define one guard per resource. Pass the matching guard to scope middleware, such as `middleware.scopes({ scopes: ['read'], guard: 'mcp' })`. Read token context from that same guard in your handler.
+
+Enable `requireAudience` when clients send resource indicators. An unconfigured audience guard accepts tokens bound to other resources; a configured resource guard rejects those tokens.
+
+## Enable client identification
+
+[Enable Client ID Metadata Documents](/guides/client-metadata-documents/) for URL client IDs. Keep [dynamic registration](/guides/dynamic-registration/) enabled for clients that still need it. Select an unauthenticated-registration policy deliberately.
+
+For metadata document clients, show document and callback hosts on consent. Each authorization requires consent and creates a separate grant.
+
+## Advertise required scopes
+
+Declare resource scopes when registering metadata. Use scope middleware or pass route scopes to `guard.authenticate({ scopes: ['read'] })` so 401 challenges advertise the needed permissions.
+
+For a tool that needs more permissions after authentication, return a guard scope error:
 
 ```ts
-import sesame from '@julr/sesame/services/main'
-
-sesame.registerProtectedResource({
-	resource: '/api/mcp',
-	scopes: ['read'],
-})
+if (!guard.hasScope('write')) throw guard.insufficientScopeError(['write'])
 ```
 
-This creates `/.well-known/oauth-protected-resource/api/mcp`. Declare `read` in the server config.
+The 403 challenge includes the resource metadata URL and the union of granted and required scopes. A refresh cannot add permissions; the client needs a new authorization for the wider grant.
 
-## Configure the authentication challenge
+## Verify a client connection
 
-Set the OAuth guard's resource path in `config/auth.ts`:
+Check discovery, an unauthenticated challenge, PKCE authorization, token audience, and a scoped handler call. Then test grant revocation and a client reconnect.
 
-```ts
-oauth: oauthGuard({
-	provider: oauthUserProvider({ model: () => import('#models/user') }),
-	resource: '/api/mcp',
-}),
-```
+The repository's integration notes describe an MCP TypeScript SDK limitation: its 403 retry refreshes tokens before giving up, rather than automatically completing a wider authorization. For a client with that behavior, discard the saved tokens and reconnect to request wider scopes. Client retry behavior belongs to the SDK version your application uses.
 
-Use the imports and default session guard from [Protect your API](/guides/protect-api/). For Kysely, use your custom user provider.
-
-## Protect the MCP handler
-
-Authenticate `auth.use('oauth')` and check `read` before your handler processes a request. Follow the [strict token example](/guides/protect-api/#require-a-token-and-a-scope).
-
-Resource registration does not protect the route automatically. The guard's resource option selects the `resource_metadata` URL in its `WWW-Authenticate` challenge.
-
-## Verify discovery
-
-Request the resource metadata:
-
-```bash
-curl https://auth.example.com/.well-known/oauth-protected-resource/api/mcp
-```
-
-Confirm that `resource` is your public MCP URL and `authorization_servers` contains your issuer. Make an unauthenticated request to the protected handler and confirm that its challenge points to the same metadata URL.
-
-If your MCP clients need self-registration, [enable dynamic registration](/guides/dynamic-registration/) with the access policy that fits your deployment.
+Declare scopes on the resource or route so clients can request the challenge's scope list. Otherwise clients can fall back to discovery scopes, which include `offline_access` and can cause an explicit consent prompt. Refresh token issuance depends on the server grant setting, not on `offline_access`.

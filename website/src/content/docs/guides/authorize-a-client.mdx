@@ -36,9 +36,11 @@ url.search = new URLSearchParams({
 }).toString()
 ```
 
-Replace `CLIENT_ID` with your registered ID. Navigate the browser to `url.toString()`. Sign in and approve consent. If the user already approved all requested scopes, Sésame skips the consent page.
+Replace `CLIENT_ID` with your registered ID. Navigate the browser to `url.toString()`. Sign in and approve consent. Sésame skips consent when active grants without context cover the requested scopes, unless `prompt=consent` is present or the client uses a metadata document.
 
 ## Validate the callback
+
+For tokens bound to one API, add [a resource indicator](/guides/resource-indicators/) to this request and the token exchange. To control browser interaction, use [the prompt parameter](/guides/authorization-prompts/).
 
 On the consuming application's callback, compare the returned `state` with the saved state. Verify `iss` against the expected issuer. If the callback contains `error`, handle it before exchanging a code.
 

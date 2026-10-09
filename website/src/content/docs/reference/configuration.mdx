@@ -31,6 +31,7 @@ A page function receives `(ctx: HttpContext, params: URLSearchParams)` and retur
 | `clientCredentialsAccessTokenTtl` | `accessTokenTtl`                          | Client credentials access token lifetime.                                                         |
 | `allowDynamicRegistration`        | `false`                                   | Enables the registration endpoint.                                                                |
 | `allowPublicRegistration`         | `false`                                   | Permits registration without an authenticated user.                                               |
+| `clientIdMetadataDocuments`       | Disabled                                  | `true` or document resolution options.                                                            |
 | `jwk`                             | `undefined`                               | RSA private JWK for RS256 ID token signing.                                                       |
 | `oidcProvider`                    | `undefined`                               | User provider for OIDC subjects and claims.                                                       |
 | `idTokenTtl`                      | `'1h'`                                    | ID token lifetime.                                                                                |
@@ -49,6 +50,20 @@ Kysely options include:
 | `dialect`    | Optional explicit `'sqlite'`, `'postgres'`, or `'mysql'` selection for supported custom dialects.                       |
 
 The store is an AdonisJS config provider, not a raw driver instance. The service provider resolves it before constructing `SesameManager`.
+
+## Metadata document options
+
+When enabled with `true`, the option resolves these defaults. An object can override them.
+
+| Option            | Default               | Meaning                                                                    |
+| ----------------- | --------------------- | -------------------------------------------------------------------------- |
+| `allowedHosts`    | Any public HTTPS host | Exact hosts or leftmost wildcard hosts. Wildcards exclude the parent host. |
+| `cache.minTtl`    | `'5m'`                | Minimum document cache lifetime.                                           |
+| `cache.maxTtl`    | `'24h'`               | Maximum document cache lifetime.                                           |
+| `fetchTimeout`    | `'5s'`                | Whole-fetch deadline.                                                      |
+| `maxResponseSize` | `5120`                | Maximum response size in bytes.                                            |
+
+Resolved disabled configuration is `null`. Host names are normalized to lowercase. See [document validation](/reference/client-metadata-documents/) for URL, transport, and cache requirements.
 
 ## Types and scope inference
 

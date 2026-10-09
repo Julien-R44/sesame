@@ -1,0 +1,93 @@
+---
+title: Manage connected applications
+description: List and revoke authorizations and attach application context to a grant.
+---
+
+## List a user's authorizations
+
+In an authenticated session handler, derive the user ID from the session rather than request input:
+
+```ts title="start/routes.ts"
+import router from '@adonisjs/core/services/router'
+import sesame from '@julr/sesame/services/main'
+
+router.get('/settings/connections', async ({ auth }) => {
+	const user = await auth.authenticate()
+	const grants = await sesame.listGrants({ userId: String(user.id) })
+
+	return { grants }
+})
+```
+
+The result contains active grants, newest first, with a public client record. A user can hold multiple grants for one client. Group by `clientId` when your page shows one row per application.
+
+## Revoke one authorization
+
+Include the authenticated owner when revoking a grant:
+
+```ts
+router.delete('/settings/connections/:grantId', async ({ auth, params }) => {
+	const user = await auth.authenticate()
+	const revoked = await sesame.revokeGrant({
+		grantId: params.grantId,
+		userId: String(user.id),
+	})
+
+	return { revoked }
+})
+```
+
+Keep CSRF protection or your equivalent authenticated mutation policy on this route. Revocation invalidates every code, access token, and refresh token of the grant.
+
+To disconnect one application, call `sesame.revokeGrants({ userId, clientId })` with the authenticated user's ID and selected client. To disconnect all applications, omit `clientId`.
+
+## Attach application context
+
+In [your consent controller](/guides/custom-consent/), validate a selected team or workspace against the user's memberships before approval. This fragment assumes `authorizedTeamId` comes from that server-side membership check:
+
+```ts
+const { redirectUrl } = await sesame.approveAuthorization({
+	authToken,
+	userId: String(user.id),
+	context: { teamId: authorizedTeamId },
+})
+```
+
+The context must be a plain JSON object or `null`. It is stored as supplied, so keep secrets out of it. Sésame does not expose it in token responses or introspection.
+
+Declare your context shape once:
+
+```ts title="config/sesame.ts"
+declare module '@julr/sesame/types' {
+	interface SesameGrantContext {
+		teamId: number
+	}
+}
+```
+
+Read it from the guard that authenticates the API request:
+
+```ts
+const guard = auth.use('oauth')
+await guard.authenticate()
+
+const teamId = guard.context?.teamId
+```
+
+Recheck application permissions when using the team ID. Grant context identifies the approved choice; it does not replace current membership checks.
+
+A grant with context never skips the consent page. Refresh rotation preserves the context.
+
+## Replace the context
+
+After validating the replacement choice, update a grant with its owner:
+
+```ts
+await sesame.updateGrant({
+	grantId,
+	userId: String(user.id),
+	context: { teamId: authorizedTeamId },
+})
+```
+
+The new context applies on the next authenticated request because the guard reads the grant each time. Pass `null` to remove it. See [the application API reference](/reference/api/#grants-and-authorization-decisions) for return values and ownership options.

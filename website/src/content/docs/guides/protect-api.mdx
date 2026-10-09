@@ -46,13 +46,12 @@ Authenticate the OAuth guard before checking its scopes:
 
 ```ts title="start/routes.ts"
 import router from '@adonisjs/core/services/router'
-import { E_INSUFFICIENT_SCOPE } from '@julr/sesame/exceptions'
 
 router.get('/api/me', async ({ auth }) => {
 	const guard = auth.use('oauth')
-	const user = await guard.authenticate()
+	const user = await guard.authenticate({ scopes: ['read'] })
 
-	if (!guard.hasScope('read')) throw new E_INSUFFICIENT_SCOPE(['read'])
+	if (!guard.hasScope('read')) throw guard.insufficientScopeError(['read'])
 
 	return { id: user.id, clientId: guard.clientId }
 })
@@ -78,5 +77,9 @@ router.get('/summary', async () => ({ ok: true }))
 ```
 
 `scopes` requires all listed scopes. `anyScope` requires at least one. With an `Authorization` header, both authenticate the OAuth guard. Without that header, a valid default session passes without an OAuth scope check.
+
+To use a resource-specific guard, pass `guard: 'mcp'` to either middleware and define that guard in Auth config. See [resource indicators and audience checks](/guides/resource-indicators/).
+
+After authentication, `guard.accessToken` identifies the token record without its raw value or hash. `guard.grantId`, `guard.context`, and `guard.audience` describe its authorization and target resource.
 
 For a route that requires a token, always authenticate `auth.use('oauth')` before the scope middleware, or use the explicit guard check above.

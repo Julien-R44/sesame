@@ -72,7 +72,7 @@ const newSecret = await sesame.rotateClientSecret('CLIENT_ID')
 
 Update the consuming application with the returned secret. A public or missing client returns `null`.
 
-To delete a client and its related OAuth records, call:
+To delete a client and its related tokens, codes, grants, and pending requests, call:
 
 ```ts
 await sesame.deleteClient('CLIENT_ID')

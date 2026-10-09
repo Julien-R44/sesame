@@ -36,36 +36,42 @@ Client credentials only accepts confidential clients. Browser session authentica
 
 `GET /oauth/authorize` accepts query parameters:
 
-| Parameter               | Requirement                                                        |
-| ----------------------- | ------------------------------------------------------------------ |
-| `client_id`             | Required registered client ID.                                     |
-| `response_type`         | Required. Only `code` is supported.                                |
-| `redirect_uri`          | Required. Exact match against the client's registered URIs.        |
-| `scope`                 | Optional space-separated list. Defaults to server `defaultScopes`. |
-| `state`                 | Optional value returned in client redirects.                       |
-| `code_challenge`        | Required by the authorization action.                              |
-| `code_challenge_method` | Required value `S256`.                                             |
-| `nonce`                 | Optional OIDC nonce.                                               |
+| Parameter               | Requirement                                                                                                   |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `client_id`             | Required registered client ID.                                                                                |
+| `response_type`         | Required. Only `code` is supported.                                                                           |
+| `redirect_uri`          | Required registered URI. HTTP loopback callbacks match regardless of port; host, path, and query still match. |
+| `scope`                 | Optional space-separated list. Defaults to server `defaultScopes`.                                            |
+| `state`                 | Optional value returned in client redirects.                                                                  |
+| `code_challenge`        | Required by the authorization action.                                                                         |
+| `code_challenge_method` | Required value `S256`.                                                                                        |
+| `nonce`                 | Optional OIDC nonce.                                                                                          |
+| `prompt`                | Optional space-separated values. `none` and `consent` change interaction.                                     |
+| `resource`              | Optional absolute target URI. Resolved to a registered resource.                                              |
 
 S256 PKCE remains mandatory even if a client record has `requirePkce: false`. Errors before callback validation produce an HTTP error. Later authorization errors can redirect to the validated callback with `error` and `error_description`.
 
-Client callback redirects include `iss` and return `state` when present. Login and consent page redirects carry the original authorization query. The consent page also receives `auth_token`.
+Active grants without context can skip consent. `prompt=consent` forces consent. `prompt=none` returns `login_required` or `consent_required` rather than displaying a page; combining `none` with another value returns `invalid_request`. Other prompt values and `max_age` are ignored. Metadata document clients always require consent.
+
+Client callback redirects include `iss` and return `state` when present. Login and consent page redirects carry the original authorization query. The consent page also receives `auth_token` and the resolved resource when present.
 
 ## Consent
 
 `POST /oauth/consent` requires the default authenticated user and a body `auth_token`. The token must identify that user's unexpired, unconsumed pending authorization request.
 
-A truthy body `accept` approves the saved scopes. A missing or falsy value denies them. The string `'false'` is truthy. The controller consumes the request atomically before the decision. Submitted client IDs, callback URLs, and scopes do not replace the saved request.
+A truthy body `accept` approves the saved scopes. A missing or falsy value denies them. The string `'false'` is truthy. An optional `scope` string or array grants a nonempty subset of requested scopes. Omitting it grants every requested scope. Invalid selections fail before consumption. The controller never reads grant context from the body.
+
+A valid decision consumes the request atomically. Submitted client IDs and callback URLs do not replace the saved request. Approval creates a grant; denial leaves existing grants intact.
 
 ## Token grants
 
 Every token request has a body `grant_type`. The grant must be enabled by the server.
 
-| Grant                | Body fields                             | Result                                                                                  |
-| -------------------- | --------------------------------------- | --------------------------------------------------------------------------------------- |
-| `authorization_code` | `code`, `redirect_uri`, `code_verifier` | Access token; refresh token when enabled on the server; ID token for an OIDC grant.     |
-| `refresh_token`      | `refresh_token`, optional `scope`       | New access and refresh tokens; optional ID token.                                       |
-| `client_credentials` | Optional `scope`                        | Access token only. Requires a confidential client with `userId` and that grant enabled. |
+| Grant                | Body fields                                                  | Result                                                                                  |
+| -------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| `authorization_code` | `code`, `redirect_uri`, `code_verifier`, optional `resource` | Access token; refresh token when enabled on the server; ID token for an OIDC grant.     |
+| `refresh_token`      | `refresh_token`, optional `scope` and `resource`             | New access and refresh tokens; optional ID token.                                       |
+| `client_credentials` | Optional `scope` and `resource`                              | Access token only. Requires a confidential client with `userId` and that grant enabled. |
 
 Refresh exchanges also require the grant on the client. Receiving a refresh token during code exchange does not enable that client grant.
 
@@ -73,13 +79,21 @@ Successful responses have `access_token`, `token_type: 'Bearer'`, `expires_in` i
 
 Client credentials rejects `openid`, `profile`, `email`, and `offline_access`. When it omits scope, its defaults are the client's non-built-in, non-OIDC scopes.
 
+## Resource indicators
+
+Authorization and every token grant accept one `resource` parameter. It must be an absolute HTTP or HTTPS URI on the issuer's origin without credentials, a fragment, whitespace, control characters, or backslashes. Repeated parameters and other origins return `invalid_target`.
+
+The value maps to the most specific registered resource path, or the issuer when no path covers it. For a registered `/api/mcp`, the same origin's `/api/mcp/` and `/api/mcp/tools` map to that resource. An unmatched `/other` path maps to the issuer. Scheme and host are lowercased, default ports are removed, and one trailing slash is removed. Prefix matches require a path-segment boundary. A resource containing a query must match an exact registered identifier; otherwise it is rejected.
+
+Codes and tokens store the resolved resource. A token exchange cannot change a bound resource. Refresh preserves a bound resource; an unbound code or refresh token can acquire one at exchange. Omitting the parameter keeps unbound requests valid.
+
 ## Introspection and revocation
 
 Both accept body `token` and optional `token_type_hint`, with `access_token` or `refresh_token` values. Lookup is limited to the authenticated client's records. A provided hint selects that token type. Without a hint, access token lookup precedes refresh token lookup.
 
-Introspection returns `{ active: false }` for missing, invalid, expired, revoked, or other-client tokens. Active responses include `active`, `token_type`, `client_id`, `sub`, `scope`, `iss`, `iat`, and `exp`.
+Introspection returns `{ active: false }` for missing, invalid, expired, revoked, or other-client tokens. Active responses include `active`, `token_type`, `client_id`, `sub`, `scope`, `iss`, `iat`, and `exp`, plus `aud` for bound resources. A missing, revoked, or expired grant makes its tokens inactive.
 
-After valid client authentication, revocation returns 200 with `{}` even for a missing or unknown token. Refresh token revocation also revokes the linked access token.
+After valid client authentication, revocation returns 200 with `{}` even for a missing or unknown token. Refresh token revocation revokes its whole grant and every token issued from it. Grant-less legacy tokens revoke the linked access token. Access token revocation only affects that token.
 
 ## Dynamic registration
 
@@ -103,7 +117,13 @@ A successful response is 201, has `Cache-Control: no-store`, and includes the re
 
 ## Client information
 
-`GET /oauth/client-info` requires query `client_id`. The result has `client_id` and `client_name`. It is a public lookup, not proof that a pending consent request belongs to that client.
+`GET /oauth/client-info` requires query `client_id`. The result has `client_id` and `client_name`, plus stored `client_uri`, `logo_uri`, `tos_uri`, `policy_uri`, `client_id_metadata_document`, and `client_id_host` values when applicable. A metadata document client is unavailable until an authenticated authorization persists it. The endpoint never resolves a document. It is not proof that a pending request belongs to that client.
+
+## Discovery fields
+
+OAuth authorization server metadata includes endpoint URLs, supported grants and scopes, `code` response type, `query` response mode, S256 PKCE, and supported client authentication methods. It advertises `prompt_values_supported: ['none', 'consent']` and issuer response support. The registration endpoint appears only when dynamic registration is enabled. Document resolution adds `client_id_metadata_document_supported: true` when enabled.
+
+OIDC discovery adds UserInfo and JWKS URLs, public subject types, RS256 signing, and supported protocol claims. Resource metadata lists the resource, authorization servers, scopes, and header Bearer authentication. Per-resource scope lists also include `offline_access`.
 
 ## OIDC endpoints
 

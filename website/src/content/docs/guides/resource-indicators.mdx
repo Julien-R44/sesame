@@ -1,0 +1,77 @@
+---
+title: Bind tokens to an API resource
+description: Register a resource, request bound tokens, and enforce their audience with an OAuth guard.
+---
+
+This guide assumes your issuer is `https://auth.example.com` and your resource handler uses `/api/mcp`.
+
+## Register the resource
+
+Register its metadata before serving requests:
+
+```ts title="start/routes.ts"
+import sesame from '@julr/sesame/services/main'
+
+sesame.registerProtectedResource({ resource: '/api/mcp', scopes: ['read'] })
+```
+
+Declare `read` in config. This publishes resource metadata and records the path for token audience matching. It does not protect the handler.
+
+## Configure a resource guard
+
+Add a guard alongside the default browser session guard:
+
+```ts
+mcp: oauthGuard({
+	provider: oauthUserProvider({ model: () => import('#models/user') }),
+	resource: '/api/mcp',
+	requireAudience: true,
+}),
+```
+
+Use the Auth imports and type augmentations from [Protect your API](/guides/protect-api/#add-the-oauth-guard), or your custom user provider.
+
+`requireAudience: true` rejects unbound tokens. During a transition with older clients, omit it to accept unbound tokens while still rejecting tokens bound to another resource.
+
+## Request a bound token
+
+Add `resource=https://auth.example.com/api/mcp` to the authorization request. Send the same resource when exchanging its code:
+
+```bash
+curl https://auth.example.com/oauth/token \
+	-u "$CLIENT_ID:$CLIENT_SECRET" \
+	--data-urlencode grant_type=authorization_code \
+	--data-urlencode "code=$CODE" \
+	--data-urlencode redirect_uri=https://app.example.com/callback \
+	--data-urlencode "code_verifier=$VERIFIER" \
+	--data-urlencode resource=https://auth.example.com/api/mcp
+```
+
+Use the saved values from [the PKCE guide](/guides/authorize-a-client/). Public clients send `client_id` in the body instead of Basic authentication.
+
+A refresh keeps the bound resource. Send the same `resource` on refresh when the client includes it. Requesting another target fails with `invalid_target`. An unbound token can become bound when its first refresh supplies a resource.
+
+## Authenticate the matching guard
+
+Authenticate the resource guard before the handler runs:
+
+```ts
+router.post('/api/mcp', async ({ auth }) => {
+	const guard = auth.use('mcp')
+	await guard.authenticate({ scopes: ['read'] })
+
+	if (!guard.hasScope('read')) throw guard.insufficientScopeError(['read'])
+
+	return { audience: guard.audience }
+})
+```
+
+Replace this illustrative response with your existing MCP handler. For scope middleware, use `middleware.scopes({ scopes: ['read'], guard: 'mcp' })`. Without `guard`, middleware uses `oauth`.
+
+Scope middleware still accepts default browser sessions when no authorization header is present. Keep explicit resource guard authentication when the route requires Bearer tokens.
+
+## Verify audience enforcement
+
+Call the endpoint with a token bound to `/api/mcp`. It succeeds and `guard.audience` is `https://auth.example.com/api/mcp`. A token bound to another registered resource returns 401. An unbound token also returns 401 when `requireAudience` is true.
+
+Register the exact guard path. An unregistered path maps to the closest registered resource, often the issuer, and logs a warning once. [Resource matching](/reference/endpoints/#resource-indicators) describes normalization and rejected values.

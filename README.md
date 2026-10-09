@@ -6,6 +6,8 @@
 
 > OAuth 2.1 + OIDC server for AdonisJS
 
+[Read the documentation](https://sesame.julr.dev)
+
 Sésame turns your AdonisJS application into a full-featured OAuth 2.1 authorization server. This guide covers:
 
 - Installing and configuring the package

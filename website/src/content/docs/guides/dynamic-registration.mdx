@@ -37,4 +37,8 @@ For a confidential client, use `client_secret_basic` or `client_secret_post`. Sa
 
 Test disabled registration, missing authentication, invalid callback URLs, unknown scopes, and disabled grant types before exposing the endpoint. See the [registration reference](/reference/endpoints/#dynamic-registration) for defaults and accepted fields.
 
+Dynamic registrations receive a private `registration: 'dynamic'` metadata marker. Token issuance records `first_authorized_at`. These markers support [unused client cleanup](/guides/test-and-operate/#remove-unused-dynamic-clients) and do not appear in the registration response.
+
+For clients that identify themselves with an HTTPS document URL, [enable Client ID Metadata Documents](/guides/client-metadata-documents/).
+
 Sésame does not implement a registration access token workflow for subsequent client management. Use your application's authenticated management code when clients need updates.

@@ -1,0 +1,40 @@
+---
+title: Storage contract reference
+description: Grant, transaction, resource, and purge requirements for custom OAuth stores.
+---
+
+`SesameStore` and its record and option types are exported from `@julr/sesame/storage/types` and re-exported from `@julr/sesame/types`. The store is resolved through an AdonisJS `ConfigProvider`.
+
+## Grant records
+
+`OAuthGrantRecord` replaces consent records. Codes, access tokens, and refresh tokens have nullable `grantId` references. Authorization codes also have nullable `consumedAt`. Pending requests, codes, and tokens have nullable `resource` values.
+
+The store methods for grant management are `createGrant`, `findGrant`, `listGrants`, `updateGrant`, `revokeGrant`, and `revokeGrants`. `findAccessToken` returns its joined grant or null in one query.
+
+`revokeLegacyTokenFamily` affects only records without a grant. The old `findConsent`, `grantConsent`, and `revokeTokenFamily` methods no longer define the contract.
+
+## Transactional issuance
+
+`exchangeAuthorizationCode` marks a code consumed rather than deleting it. It checks consumption atomically and accepts `consumedAt`.
+
+Code exchange, refresh rotation, and token-pair issuance accept an optional grant write in the same transaction. An `extend` write locks the grant where the database supports row locks, fails if it is missing or expired, and never decreases expiry. A `create` write inserts the grant and adopts specified code or token rows whose grant ID remains null.
+
+All three issuance methods return a boolean. Failure from an inactive grant returns false and leaves no partial issuance. Grant revocation deletes the grant before its tokens, so an issuance waiting on the grant lock cannot leave valid tokens behind.
+
+Pending request consumption is atomic and checks its user and deadline. A concurrent decision cannot issue a second code.
+
+## Purge behavior
+
+`purgeTokens` receives selection flags, the retention cutoff, and the current time. It retains revoked refresh tokens until the cutoff for replay detection. Revoked access tokens are eligible immediately. Expired tokens, codes, and grants use the cutoff; pending requests use the current time. The result has `accessTokens`, `refreshTokens`, `authorizationCodes`, `pendingRequests`, and `grants` counts.
+
+`purgeUnusedClients({ createdBefore })` returns a deleted-client count. Eligible clients are old dynamic registrations with no first-authorization marker and no tokens, codes, grants, or pending requests. Metadata document clients are excluded.
+
+The dynamic marker is `metadata.registration === 'dynamic'`. Older registrations qualify through `metadata.token_endpoint_auth_method`. A client with `metadata.first_authorized_at` is excluded.
+
+Existence checks also run in the transactional delete. A previously loaded client can still race with deletion. Its later insert fails on the foreign key, which Sésame maps to `invalid_client`. The store lets PostgreSQL `23503`, MySQL or MariaDB `ER_NO_REFERENCED_ROW_2`, and SQLite `SQLITE_CONSTRAINT_FOREIGNKEY` propagate.
+
+## Metadata document client writes
+
+Metadata document resolution uses existing client lookup, creation, and update methods. No extra store methods are required. A concurrent insertion of the same client ID must fail with a uniqueness error.
+
+The complete contract is `src/storage/types.ts` in the repository. The bundled Lucid and Kysely drivers implement its transaction and record behavior.

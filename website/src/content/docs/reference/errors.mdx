@@ -7,25 +7,28 @@ OAuth controller errors have a JSON body with `error` and `error_description`. E
 
 ## OAuth exceptions
 
-| Class                         | OAuth code                  | Status | Typical condition                                              |
-| ----------------------------- | --------------------------- | ------ | -------------------------------------------------------------- |
-| `E_INVALID_REQUEST`           | `invalid_request`           | 400    | Missing parameters, invalid callback, or missing consent user. |
-| `E_INVALID_CLIENT`            | `invalid_client`            | 401    | Unknown, disabled, or incorrectly authenticated client.        |
-| `E_INVALID_GRANT`             | `invalid_grant`             | 400    | Invalid, expired, consumed, or revoked grant.                  |
-| `E_INVALID_SCOPE`             | `invalid_scope`             | 400    | Unknown scope or disallowed scope combination.                 |
-| `E_INVALID_TOKEN`             | `invalid_token`             | 401    | Invalid token at an OAuth endpoint such as UserInfo.           |
-| `E_UNSUPPORTED_GRANT_TYPE`    | `unsupported_grant_type`    | 400    | Missing, disabled, or unsupported token grant.                 |
-| `E_UNSUPPORTED_RESPONSE_TYPE` | `unsupported_response_type` | 400    | Authorization response type other than `code`.                 |
-| `E_ACCESS_DENIED`             | `access_denied`             | 403    | Dynamic registration disabled.                                 |
-| `E_INVALID_CLIENT_METADATA`   | `invalid_client_metadata`   | 400    | Registration validation failure.                               |
-| `E_SERVER_ERROR`              | `server_error`              | 500    | Server error represented as an OAuth exception.                |
-| `E_INSUFFICIENT_SCOPE`        | `insufficient_scope`        | 403    | Valid authentication without required scopes.                  |
+| Class                         | OAuth code                  | Status | Typical condition                                                      |
+| ----------------------------- | --------------------------- | ------ | ---------------------------------------------------------------------- |
+| `E_INVALID_REQUEST`           | `invalid_request`           | 400    | Missing parameters, invalid callback, or missing consent user.         |
+| `E_INVALID_CLIENT`            | `invalid_client`            | 401    | Unknown, disabled, or incorrectly authenticated client.                |
+| `E_INVALID_GRANT`             | `invalid_grant`             | 400    | Invalid, expired, consumed, or revoked grant.                          |
+| `E_INVALID_TARGET`            | `invalid_target`            | 400    | Malformed, repeated, other-origin, or incompatible resource indicator. |
+| `E_INVALID_SCOPE`             | `invalid_scope`             | 400    | Unknown scope or disallowed scope combination.                         |
+| `E_INVALID_TOKEN`             | `invalid_token`             | 401    | Invalid token at an OAuth endpoint such as UserInfo.                   |
+| `E_UNSUPPORTED_GRANT_TYPE`    | `unsupported_grant_type`    | 400    | Missing, disabled, or unsupported token grant.                         |
+| `E_UNSUPPORTED_RESPONSE_TYPE` | `unsupported_response_type` | 400    | Authorization response type other than `code`.                         |
+| `E_ACCESS_DENIED`             | `access_denied`             | 403    | Dynamic registration disabled.                                         |
+| `E_INVALID_CLIENT_METADATA`   | `invalid_client_metadata`   | 400    | Registration validation failure.                                       |
+| `E_SERVER_ERROR`              | `server_error`              | 500    | Server error represented as an OAuth exception.                        |
+| `E_INSUFFICIENT_SCOPE`        | `insufficient_scope`        | 403    | Valid authentication without required scopes.                          |
 
 `OAuthError` is the base class. Descriptions can contain the particular failing parameter or scope.
 
 ## Redirect errors
 
 Authorization errors after a valid callback has been established can return query `error` and `error_description` to that callback. A client without the authorization code grant can receive `unauthorized_client` this way.
+
+`prompt=none` can redirect with `login_required` or `consent_required`. Invalid prompt combinations redirect with `invalid_request`.
 
 Consent denial redirects with `error=access_denied`, rather than an HTTP 403 JSON body. Callback redirects preserve `state` and include `iss`.
 
@@ -35,4 +38,6 @@ Consent denial redirects with `error=access_denied`, rather than an HTTP 403 JSO
 
 `E_INVALID_TOKEN` adds a Bearer challenge with `error="invalid_token"` and its description. `E_INSUFFICIENT_SCOPE` adds a Bearer challenge with `error="insufficient_scope"` and a space-separated `scope` value.
 
-OAuth guard authentication failures use AdonisJS Auth's `E_UNAUTHORIZED_ACCESS`, not `OAuthError`. Their Bearer challenge includes `resource_metadata`. Invalid token failures also include `error="invalid_token"`. Missing Bearer tokens receive the metadata challenge without that error field.
+The guard's `insufficientScopeError(scopes)` also adds `resource_metadata` and the union of granted and required scopes. The scope middleware uses that helper.
+
+OAuth guard authentication failures use AdonisJS Auth's `E_UNAUTHORIZED_ACCESS`, not `OAuthError`. Their Bearer challenge includes `resource_metadata`. Invalid token failures also include `error="invalid_token"`. Missing Bearer tokens receive the metadata challenge without that error field. Challenges can include configured resource scopes and route scopes supplied to authentication or scope middleware.

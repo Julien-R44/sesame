@@ -1,0 +1,34 @@
+---
+title: Control authorization prompts
+description: Force consent or attempt authorization without browser interaction.
+---
+
+Add `prompt` to [the authorize URL](/guides/authorize-a-client/#open-the-authorize-url). It works with or without `openid`.
+
+## Force a consent decision
+
+Set `prompt=consent` when the user must review permissions again:
+
+```ts
+url.searchParams.set('prompt', 'consent')
+```
+
+The consent page appears even when existing active grants cover the scopes. If the user is not logged in, the login page appears first.
+
+## Attempt authorization without interaction
+
+Set `prompt=none` when the consuming client can handle interaction-required errors:
+
+```ts
+url.searchParams.set('prompt', 'none')
+```
+
+Handle these callback errors before exchanging a code:
+
+- `login_required` means there is no authenticated browser user.
+- `consent_required` means active grants without context do not cover the scopes, or the client uses a metadata document.
+- `invalid_request` means `none` was combined with another prompt value.
+
+If interaction is required, start a new authorization request without `none`. Do not combine `none` with `consent`.
+
+Sésame advertises `none` and `consent` in discovery. Other prompt values, including `login`, `select_account`, and `create`, and the `max_age` parameter do not change the flow.

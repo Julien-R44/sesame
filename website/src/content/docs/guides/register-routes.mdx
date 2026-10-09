@@ -40,6 +40,6 @@ With the application running, request its metadata:
 curl http://localhost:3333/.well-known/oauth-authorization-server
 ```
 
-The response describes the issuer, endpoint URLs, and grants. Confirm that the URLs use your public issuer and intended route prefix.
+The response describes the issuer, endpoint URLs, supported scopes, grants, and prompts. Confirm that the URLs use your public issuer and intended route prefix.
 
 See the [endpoint reference](/reference/endpoints/) for the registered methods and paths. For per-resource metadata, [configure MCP discovery](/guides/mcp/).

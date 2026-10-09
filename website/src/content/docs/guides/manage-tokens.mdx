@@ -33,7 +33,7 @@ curl https://auth.example.com/oauth/revoke \
 	--data-urlencode token_type_hint=refresh_token
 ```
 
-After client authentication succeeds, the endpoint returns 200 with `{}` even when the token is missing or unknown. Revoking a refresh token also revokes its associated access token.
+After client authentication succeeds, the endpoint returns 200 with `{}` even when the token is missing or unknown. Revoking a refresh token revokes its whole grant and all tokens issued from it. A grant-less legacy refresh token revokes its associated access token. Revoking an access token only revokes that token.
 
 ## Revoke a user's grants
 
@@ -45,7 +45,7 @@ import sesame from '@julr/sesame/services/main'
 await sesame.revokeAllForUser('42')
 ```
 
-Pass your application's user ID as a string.
+Pass your application's user ID as a string. To revoke one authorization or disconnect one client, [manage grants](/guides/manage-grants/).
 
 ## Inspect a client's token
 
@@ -58,4 +58,4 @@ curl https://auth.example.com/oauth/introspect \
 	--data-urlencode token_type_hint=access_token
 ```
 
-An active token returns `active: true` and metadata. An invalid, expired, revoked, or other client's token returns `{ "active": false }`. Introspection does not provide unrestricted lookup across clients.
+An active token returns `active: true` and metadata, including `aud` for a bound resource. Tokens with an expired or revoked grant are inactive. An invalid, expired, revoked, or other client's token returns `{ "active": false }`. Introspection does not provide unrestricted lookup across clients.

@@ -31,16 +31,28 @@ The command prompts for public versus confidential unless `--public` is true. Na
 
 The output is a private signing key. The JWKS endpoint exposes only its public components.
 
+## sesame:upgrade
+
+`node ace sesame:upgrade 0.8` publishes all upgrade migrations for that version. It does not run them.
+
+The required version argument accepts `major.minor` or `major.minor.0`. `--store` selects `lucid` by default or `kysely`. Invalid store names or versions without bundled migrations produce exit code 1.
+
+Kysely 0.8 migration filenames are `sesame_v000800_add_oauth_grants.ts` and `sesame_v000800_add_oauth_resource_columns.ts`. Their version prefix preserves ordering after `create_oauth_tables.ts`.
+
+The [0.8 migration guide](/migrations/0-7-to-0-8/) describes application changes and migration execution.
+
 ## sesame:purge
 
 `node ace sesame:purge` deletes revoked and expired OAuth records.
 
-| Flag        | Default | Meaning                              |
-| ----------- | ------- | ------------------------------------ |
-| `--revoked` | False   | Selects revoked records.             |
-| `--expired` | False   | Selects expired records.             |
-| `--hours`   | `168`   | Retention hours for expired records. |
+| Flag            | Default | Meaning                                                              |
+| --------------- | ------- | -------------------------------------------------------------------- |
+| `--revoked`     | False   | Selects revoked records.                                             |
+| `--expired`     | False   | Selects expired records.                                             |
+| `--hours`       | `168`   | Retention hours for expired records and revoked refresh tokens.      |
+| `--clients`     | False   | Also removes unused dynamic registrations after token purge.         |
+| `--client-days` | `30`    | Minimum client age in days. Positive integer; used with `--clients`. |
 
-With neither selection flag, both categories are selected. With both flags, both are selected. Revoked records do not use the expired-record retention window.
+With neither selection flag, both categories are selected. With both flags, both are selected. Revoked refresh tokens use the retention cutoff so replay detection remains available. Revoked access tokens are eligible immediately.
 
-Expired pending authorization requests are removed immediately, regardless of selection flags or retention hours. The CLI's printed total sums only access tokens, refresh tokens, and authorization codes.
+Expired pending authorization requests are removed immediately, regardless of selection flags or retention hours. The CLI total includes access tokens, refresh tokens, codes, grants, and deleted clients. It omits pending requests. Invalid `--client-days` with `--clients` exits before deletion.

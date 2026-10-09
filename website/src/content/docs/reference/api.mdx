@@ -20,22 +20,41 @@ The initialized default service is imported from `@julr/sesame/services/main`.
 | `validateScopes(scopes)`                             | Array of invalid scope names. Includes `profile` and `email` without `openid`.                                 |
 | `isGrantTypeEnabled(grantType)`                      | True when the grant appears in config.                                                                         |
 | `revokeAllForUser(userId)`                           | Revokes the user's tokens and removes authorization artifacts through the store.                               |
-| `purgeTokens(options?)`                              | Counts deleted access tokens, refresh tokens, codes, and pending requests.                                     |
+| `purgeTokens(options?)`                              | Counts deleted access tokens, refresh tokens, codes, pending requests, and grants.                             |
 
 `purgeTokens` options are `revokedOnly`, `expiredOnly`, and `retentionHours`. Both categories are selected by default. Retention defaults to 168 hours.
+
+## Grants and authorization decisions
+
+| Method                                                           | Result or behavior                                                                                           |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `approveAuthorization({ authToken, userId, scopes?, context? })` | Consumes a pending request, creates a grant, and returns `{ redirectUrl, clientId, scopes }`.                |
+| `denyAuthorization({ authToken, userId })`                       | Consumes a request and returns the same shape with denial redirect and empty scopes. Existing grants remain. |
+| `listGrants({ userId, clientId? })`                              | Active grants, newest first, with public client records.                                                     |
+| `findGrant(grantId)`                                             | Grant record, including expired grants, or null. Non-UUID IDs return null.                                   |
+| `revokeGrant({ grantId, userId? })`                              | Boolean. Revokes that grant and its codes and tokens.                                                        |
+| `revokeGrants({ userId, clientId? })`                            | Number of revoked grants. Optional client filter.                                                            |
+| `updateGrant({ grantId, userId?, context })`                     | Replaces context and returns the record, or null.                                                            |
+| `purgeUnusedClients({ olderThanDays? }?)`                        | Number of deleted unused dynamic clients. Age defaults to 30 days and must be a positive integer.            |
+
+Approval scopes default to all requested scopes. An explicit list must be a nonempty subset, with valid OIDC combinations. Invalid scope selections do not consume the request. Context must be a plain JSON object or null. The built-in consent route does not read context from its body.
+
+`userId` on single-grant update and revocation restricts the operation to that owner. These methods do not authenticate the calling application route. `listGrants` omits grants whose client no longer exists.
+
+Types include `ApproveAuthorizationOptions`, `DenyAuthorizationOptions`, `AuthorizationDecision`, `ListGrantsOptions`, `SesameGrant`, `RevokeGrantOptions`, `RevokeGrantsOptions`, `UpdateGrantOptions`, `GrantContext`, and the augmentable `SesameGrantContext` in `@julr/sesame/types`.
 
 ## Client management
 
 These methods use the public `clientId`. Results are plain records, not Lucid model instances.
 
-| Method                            | Result                                                                              |
-| --------------------------------- | ----------------------------------------------------------------------------------- |
-| `createClient(options)`           | `{ client, clientSecret }`. Secret is raw and `null` for public clients.            |
-| `findClient(clientId)`            | Record or `null`.                                                                   |
-| `listClients(options?)`           | Records. Optional `{ userId }` filter.                                              |
-| `updateClient(clientId, options)` | Updated record or `null`.                                                           |
-| `deleteClient(clientId)`          | Boolean indicating whether a client was deleted. Related OAuth records are deleted. |
-| `rotateClientSecret(clientId)`    | New raw secret, or `null` for public or missing clients.                            |
+| Method                            | Result                                                                                                            |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `createClient(options)`           | `{ client, clientSecret }`. Secret is raw and `null` for public clients.                                          |
+| `findClient(clientId)`            | Record or `null`.                                                                                                 |
+| `listClients(options?)`           | Records. Optional `{ userId }` filter.                                                                            |
+| `updateClient(clientId, options)` | Updated record or `null`.                                                                                         |
+| `deleteClient(clientId)`          | Boolean indicating whether a client was deleted. Related tokens, codes, grants, and pending requests are deleted. |
+| `rotateClientSecret(clientId)`    | New raw secret, or `null` for public or missing clients.                                                          |
 
 Creation requires `name` and `redirectUris`. Optional fields are `scopes`, `grantTypes`, `isPublic`, `requirePkce`, `userId`, and `metadata`. Defaults are config `defaultScopes`, `['authorization_code']`, `false`, and `true` for the first four options respectively. `userId` and `metadata` default to `null`.
 
@@ -52,33 +71,51 @@ The stored `clientSecret` hash is non-enumerable on management results. Direct p
 | `registerProtectedResource({ resource, scopes? })` | Publishes discovery for a resource path. Does not protect the resource.       |
 | `registerWellKnownRoutes(options?)`                | Deprecated alias for `registerDiscoveryRoutes`.                               |
 
+## Resource matching
+
+| Method                                  | Behavior                                                                                                          |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `resourceIdentifier(path?)`             | Canonical issuer plus path; defaults to the issuer.                                                               |
+| `hasResource(path?)`                    | True for an exact registered resource. The issuer root is always registered.                                      |
+| `resourceAudience(path?)`               | Closest registered resource covering the path.                                                                    |
+| `resolveResource(value)`                | Resolves a raw request parameter or returns null when absent. Invalid or repeated targets throw `invalid_target`. |
+| `getProtectedResourceScopes(resource?)` | Scopes registered for the exact path. Without a path, returns an empty list.                                      |
+
 ## OAuth guard
 
-`oauthGuard({ provider, resource? })` is exported from `@julr/sesame/guard`. `resource` is a path suffix for the protected-resource metadata challenge.
+`oauthGuard({ provider, resource?, requireAudience? })` is exported from `@julr/sesame/guard`. `resource` is the protected resource path for challenge metadata and audience checks. `requireAudience` defaults to false and, with a resource, rejects unbound tokens when true. Without a resource, no audience check runs.
 
-| Member                       | Behavior                                                              |
-| ---------------------------- | --------------------------------------------------------------------- |
-| `authenticate()`             | Resolves the token's user or throws an unauthorized access exception. |
-| `check()`                    | True for successful authentication, false for unauthorized access.    |
-| `getUserOrFail()`            | Returns the user or throws.                                           |
-| `hasScope(...scopes)`        | Requires every listed scope.                                          |
-| `hasAnyScope(...scopes)`     | Requires at least one listed scope.                                   |
-| `user`                       | Resolved application user after success.                              |
-| `scopes`                     | Granted token scopes after success.                                   |
-| `clientId`                   | Token's public client ID after success.                               |
-| `authenticationAttempted`    | Whether the guard already attempted authentication.                   |
-| `isAuthenticated`            | Whether authentication succeeded.                                     |
-| `authenticateAsClient(user)` | Creates database-backed credentials for Japa's `loginAs` integration. |
+| Member                                 | Behavior                                                                                                                                         |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `authenticate(options?)`               | Resolves the token's user or throws. Optional `{ scopes, match }` declares route scopes for its challenge. `match` is `all` by default or `any`. |
+| `check()`                              | True for successful authentication, false for unauthorized access.                                                                               |
+| `getUserOrFail()`                      | Returns the user or throws.                                                                                                                      |
+| `hasScope(...scopes)`                  | Requires every listed scope.                                                                                                                     |
+| `hasAnyScope(...scopes)`               | Requires at least one listed scope.                                                                                                              |
+| `user`                                 | Resolved application user after success.                                                                                                         |
+| `scopes`                               | Granted token scopes after success.                                                                                                              |
+| `clientId`                             | Token's public client ID after success.                                                                                                          |
+| `authenticationAttempted`              | Whether the guard already attempted authentication.                                                                                              |
+| `isAuthenticated`                      | Whether authentication succeeded.                                                                                                                |
+| `accessToken`                          | Authenticating record identity, scopes, timestamps, grant ID, context, and resource. No token value or hash.                                     |
+| `grantId`                              | Grant ID or undefined for legacy and client credentials tokens.                                                                                  |
+| `context`                              | Current grant context or null.                                                                                                                   |
+| `audience`                             | Token's resource or null.                                                                                                                        |
+| `resourceMetadataUrl`                  | URL of the guard's protected resource discovery document.                                                                                        |
+| `insufficientScopeError(scopes)`       | Error with resource metadata and the union of granted and required scopes.                                                                       |
+| `authenticateAsClient(user, options?)` | Database-backed test credentials. Optional `{ scopes, context }`; resource follows the guard.                                                    |
 
-The guard checks the access token's record, expiry, revocation, and user lookup. It does not use the current client record as its token-validity check.
+Authentication options advertise scopes; they do not enforce them. Scope middleware or explicit `hasScope` checks enforce permissions. For `match: 'any'`, route scopes do not extend the 401 challenge when a declared resource scope already satisfies the route.
+
+The guard checks the token record, expiry, revocation, user lookup, grant validity, and configured audience. It does not use the current client record as its token-validity check.
 
 ## Guard events
 
-| Event                                 | Payload                      |
-| ------------------------------------- | ---------------------------- |
-| `oauth_auth:authentication_attempted` | `ctx`, `guardName`.          |
-| `oauth_auth:authentication_succeeded` | `ctx`, `guardName`, `user`.  |
-| `oauth_auth:authentication_failed`    | `ctx`, `guardName`, `error`. |
+| Event                                 | Payload                                    |
+| ------------------------------------- | ------------------------------------------ |
+| `oauth_auth:authentication_attempted` | `ctx`, `guardName`.                        |
+| `oauth_auth:authentication_succeeded` | `ctx`, `guardName`, `user`, `accessToken`. |
+| `oauth_auth:authentication_failed`    | `ctx`, `guardName`, `error`.               |
 
 The attempted event runs when guard authentication starts, including requests without a Bearer token. Repeated authentication on the same guard does not start another attempt.
 
@@ -95,5 +132,7 @@ The Lucid adapter `oauthUserProvider`, class `OAuthLucidUserProvider`, and type 
 `SesameStore` describes OAuth-specific operations, not generic CRUD. Custom stores are wrapped in an AdonisJS `ConfigProvider<SesameStore>`.
 
 `exchangeAuthorizationCode`, `rotateRefreshToken`, and `issueTokenPair` require database transactions. Code exchange and rotation return `false` when another request consumed the credential first. Pending request consumption must be atomic and check the authenticated owner and deadline.
+
+`issueTokenPair` now returns a boolean as well. Grant writes, legacy adoption, code consumption, and revoked refresh retention follow [the storage contract](/reference/storage/).
 
 The complete method and record contracts live in `src/storage/types.ts` in the repository and are exported through `@julr/sesame/storage/types`. The Lucid and Kysely drivers implement those contracts.

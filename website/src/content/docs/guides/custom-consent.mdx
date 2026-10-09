@@ -1,0 +1,68 @@
+---
+title: Complete consent in your controller
+description: Approve a subset of scopes or deny a pending authorization from application code.
+---
+
+Use an application controller when consent needs a custom decision field, selected permissions, or validated application context. Keep [the consent page lookup](/guides/login-and-consent/#load-the-consent-page-from-the-stored-request) based on the stored request.
+
+## Add a decision endpoint
+
+Create a controller that authenticates the default session guard and validates the decision before completing the request:
+
+```ts title="app/controllers/oauth_consent_controller.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+import vine from '@vinejs/vine'
+import sesame from '@julr/sesame/services/main'
+
+const decisionValidator = vine.create({
+	auth_token: vine.string(),
+	decision: vine.enum(['approve', 'deny']),
+	read_only: vine.boolean().optional(),
+})
+
+export default class OAuthConsentController {
+	async decide({ auth, request, response }: HttpContext) {
+		const user = await auth.authenticate()
+		const input = await request.validateUsing(decisionValidator)
+		const options = { authToken: input.auth_token, userId: String(user.id) }
+
+		if (input.decision === 'deny') {
+			const { redirectUrl } = await sesame.denyAuthorization(options)
+
+			return response.redirect().toPath(redirectUrl)
+		}
+
+		const { redirectUrl } = await sesame.approveAuthorization({
+			...options,
+			scopes: input.read_only ? ['read'] : undefined,
+		})
+
+		return response.redirect().toPath(redirectUrl)
+	}
+}
+```
+
+This example assumes `read` is a configured scope requested by the client. If it was not requested, approval fails with `invalid_scope`.
+
+Register the application's route separately from the built-in consent POST:
+
+```ts title="start/routes.ts"
+router.post('/oauth/decision', [
+	() => import('#controllers/oauth_consent_controller'),
+	'decide',
+])
+```
+
+Use the existing `router` import in `start/routes.ts`. Keep CSRF protection on this browser endpoint. Submit the page through a native form to `/oauth/decision`, with `auth_token`, `decision`, and optional `read_only`.
+
+## Handle the result
+
+Both methods return `redirectUrl`, `clientId`, and the granted `scopes`. Denial returns an empty scope list and an `access_denied` redirect.
+
+To approve all requested scopes, omit `scopes`. To approve a subset, send only requested scope names. An explicit empty list is invalid. `profile` and `email` still require `openid`.
+
+Invalid scope selections fail before consumption, so the user can submit a valid selection afterward. Unknown, expired, consumed, or other-user requests fail with `invalid_grant`. A deleted or disabled client fails with `invalid_client`.
+
+To attach a selected workspace or team, [store validated grant context](/guides/manage-grants/#attach-application-context). The built-in consent route never reads context from the body.
+
+For Inertia, keep the external callback as browser navigation. See [browser redirects with Inertia](/explanations/inertia-redirects/).
