@@ -1,6 +1,3 @@
-{{{
-  exports({ to: app.makePath('database/kysely_migrations/sesame_v000800_add_oauth_resource_columns.ts') })
-}}}
 import type { Kysely } from 'kysely'
 
 /**

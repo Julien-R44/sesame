@@ -1,7 +1,5 @@
 {{{
-  exports({
-    to: app.makePath('database/migrations', Date.now() + '_add_oauth_resource_columns.ts')
-  })
+  exports({ to: app.migrationsPath(`${prefix}_upgrade_0_8_add_oauth_resource_columns.ts`) })
 }}}
 import { BaseSchema } from '@adonisjs/lucid/schema'
 
