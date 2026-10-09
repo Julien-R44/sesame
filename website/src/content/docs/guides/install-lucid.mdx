@@ -1,0 +1,38 @@
+---
+title: Install with Lucid
+description: Install Sésame with the Lucid store and create the OAuth tables.
+---
+
+This guide assumes an AdonisJS 7 application with Node.js 24 or later and a configured Lucid database.
+
+## Configure browser authentication
+
+If your application already has a session guard, keep that configuration. Otherwise, install Auth with the session guard:
+
+```bash
+node ace add @adonisjs/auth --guard=session
+```
+
+Keep the session guard as the default. Authorization and consent use that guard to identify the logged-in user.
+
+## Install Sésame
+
+Run the package installer:
+
+```bash
+node ace add @julr/sesame
+```
+
+The installer creates `config/sesame.ts` and six Lucid migrations. It registers the service provider, Ace commands, and the `scopes` and `anyScope` named middleware.
+
+Run the migrations:
+
+```bash
+node ace migration:run
+```
+
+The database now has tables for clients, authorization codes, access tokens, refresh tokens, consents, and pending authorization requests.
+
+## Connect the application
+
+[Configure the server](/guides/configure-server/) with `store: stores.lucid()`, then [register its routes](/guides/register-routes/).

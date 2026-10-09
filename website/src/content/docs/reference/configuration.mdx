@@ -1,0 +1,57 @@
+---
+title: Configuration reference
+description: Required options, defaults, and storage configuration for defineConfig.
+---
+
+`defineConfig` and `stores` are exported from `@julr/sesame`. Configuration normally lives in `config/sesame.ts`.
+
+## Required fields
+
+| Field         | Type                          | Meaning                                                                                              |
+| ------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `store`       | `ConfigProvider<SesameStore>` | Store resolved by the AdonisJS service provider. Missing storage throws `InvalidArgumentsException`. |
+| `issuer`      | `string`                      | Public authorization server URL. Used in metadata, redirects, and ID token claims.                   |
+| `loginPage`   | `string` or page function     | Destination for an unauthenticated authorization request.                                            |
+| `consentPage` | `string` or page function     | Destination when scopes require approval.                                                            |
+
+A page function receives `(ctx: HttpContext, params: URLSearchParams)` and returns a URL string. For a string page, Sésame appends `?` and the forwarded parameters.
+
+## Optional fields
+
+| Field                             | Default                                   | Meaning                                                                                           |
+| --------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `scopes`                          | `{}`                                      | Scope names mapped to descriptions.                                                               |
+| `defaultScopes`                   | `[]`                                      | Scopes when authorization omits `scope`, and when client creation omits scopes.                   |
+| `grantTypes`                      | `['authorization_code', 'refresh_token']` | Enabled token grants. Also supports `client_credentials`.                                         |
+| `accessTokenTtl`                  | `'1h'`                                    | Access token lifetime.                                                                            |
+| `refreshTokenTtl`                 | `'30d'`                                   | Refresh token lifetime.                                                                           |
+| `refreshTokenRotationGracePeriod` | `120`                                     | Seconds during which a revoked refresh token can issue a new pair. `0` disables the grace period. |
+| `authorizationCodeTtl`            | `'10m'`                                   | Authorization code lifetime.                                                                      |
+| `authorizationRequestTtl`         | `authorizationCodeTtl`                    | Pending consent request lifetime.                                                                 |
+| `clientCredentialsAccessTokenTtl` | `accessTokenTtl`                          | Client credentials access token lifetime.                                                         |
+| `allowDynamicRegistration`        | `false`                                   | Enables the registration endpoint.                                                                |
+| `allowPublicRegistration`         | `false`                                   | Permits registration without an authenticated user.                                               |
+| `jwk`                             | `undefined`                               | RSA private JWK for RS256 ID token signing.                                                       |
+| `oidcProvider`                    | `undefined`                               | User provider for OIDC subjects and claims.                                                       |
+| `idTokenTtl`                      | `'1h'`                                    | ID token lifetime.                                                                                |
+
+Lifetime fields accept duration strings, such as `'30m'`, `'1h'`, and `'30d'`. The refresh rotation grace period is a number of seconds.
+
+## Store factories
+
+`stores.lucid()` returns the Lucid config provider. `stores.kysely(options)` returns the Kysely config provider.
+
+Kysely options include:
+
+| Option       | Meaning                                                                                                                 |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| `connection` | Kysely instance, or function that receives the AdonisJS application and returns an instance directly or asynchronously. |
+| `dialect`    | Optional explicit `'sqlite'`, `'postgres'`, or `'mysql'` selection for supported custom dialects.                       |
+
+The store is an AdonisJS config provider, not a raw driver instance. The service provider resolves it before constructing `SesameManager`.
+
+## Types and scope inference
+
+`InferScopes`, `SesameConfig`, `ResolvedSesameConfig`, `Scope`, `SesameStore`, and record types are exported from `@julr/sesame/types`. Detailed storage contracts are also exported from `@julr/sesame/storage/types`.
+
+An augmentation of `SesameScopes` with `InferScopes<typeof sesameConfig>` supplies application scope names to the package's TypeScript APIs. The [configuration guide](/guides/configure-server/) contains a complete example.

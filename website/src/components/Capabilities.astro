@@ -1,0 +1,133 @@
+---
+import CardIcon from './FeatureIcon.astro'
+import { cards } from './capabilities'
+---
+
+<div class="compact-cards not-content">
+  {cards.map((card) => (
+    <a class="card" href={card.href}>
+      <div class="card-top">
+        <span class="icon"><CardIcon name={card.id} /></span>
+        <span class="arrow" aria-hidden="true">↗</span>
+      </div>
+      <h3>{card.title}</h3>
+      <p>{card.text}</p>
+      <span class="tag">{card.tag}</span>
+    </a>
+  ))}
+</div>
+
+<style>
+  .compact-cards {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.875rem;
+  }
+
+  .card {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    min-width: 0;
+    padding: 1.375rem;
+    border: 1px solid var(--sesame-border);
+    border-radius: var(--sesame-radius);
+    background: var(--sesame-surface);
+    color: var(--sl-color-white);
+    text-decoration: none;
+    transition: transform 180ms var(--sesame-ease-out);
+  }
+
+  .card-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    align-self: stretch;
+    margin-bottom: 1.125rem;
+  }
+
+  .icon {
+    color: var(--sl-color-accent-high);
+  }
+
+  .arrow {
+    color: var(--sl-color-gray-3);
+    font-size: 0.875rem;
+    transition: transform 180ms var(--sesame-ease-out);
+  }
+
+  .compact-cards .card h3 {
+    margin: 0 0 0.5rem;
+    color: var(--sl-color-white);
+    font: 600 1.125rem/1.25 var(--sesame-font-display);
+    letter-spacing: -0.03em;
+    text-wrap: balance;
+  }
+
+  .card p {
+    margin: 0 0 1.25rem;
+    color: var(--sl-color-gray-3);
+    font-size: 0.8125rem;
+    line-height: 1.6;
+    max-width: 28ch;
+  }
+
+  .tag {
+    margin-top: auto;
+    color: var(--sl-color-gray-3);
+    font: 0.625rem/1.5 var(--sl-font-mono);
+  }
+
+  .card:active {
+    transform: scale(0.985);
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .card:hover {
+      transform: translateY(-2px);
+      border-color: var(--sesame-border-strong);
+    }
+
+    .card:hover .arrow {
+      transform: translate(1px, -1px);
+      color: var(--sl-color-accent-high);
+    }
+  }
+
+  @media (max-width: 55rem) {
+    .compact-cards {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 32rem) {
+    .compact-cards {
+      grid-template-columns: 1fr;
+    }
+
+    .card {
+      padding: 1.25rem;
+    }
+
+    .card p {
+      max-width: none;
+    }
+
+    .card-top {
+      margin-bottom: 0.875rem;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .card,
+    .arrow {
+      transition: none;
+    }
+
+    .card:hover,
+    .card:active,
+    .card:hover .arrow {
+      transform: none;
+    }
+  }
+</style>

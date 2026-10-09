@@ -1,0 +1,61 @@
+---
+title: Refresh and revoke tokens
+description: Renew OAuth grants, revoke credentials, and inspect token state.
+---
+
+These requests assume that [OAuth routes](/guides/register-routes/) use the `/oauth` prefix. Set `CLIENT_ID` and `CLIENT_SECRET` to confidential client credentials.
+
+## Refresh a token
+
+Exchange the latest refresh token for a new pair:
+
+```bash
+curl https://auth.example.com/oauth/token \
+	-u "$CLIENT_ID:$CLIENT_SECRET" \
+	--data-urlencode grant_type=refresh_token \
+	--data-urlencode "refresh_token=$REFRESH_TOKEN"
+```
+
+For a public client, omit `-u` and send `client_id` in the body. Both the server and client must enable `refresh_token`.
+
+Replace your saved access token and refresh token with the response values. To narrow permissions, add `--data-urlencode scope=read`. A refresh cannot add scopes that the original grant did not contain.
+
+Coordinate refresh attempts in the consuming application. The default grace period accepts recently revoked refresh tokens for 120 seconds. [Token rotation](/explanations/token-lifecycle/) explains the consequences.
+
+## Revoke a token
+
+Send the token to the revocation endpoint:
+
+```bash
+curl https://auth.example.com/oauth/revoke \
+	-u "$CLIENT_ID:$CLIENT_SECRET" \
+	--data-urlencode "token=$REFRESH_TOKEN" \
+	--data-urlencode token_type_hint=refresh_token
+```
+
+After client authentication succeeds, the endpoint returns 200 with `{}` even when the token is missing or unknown. Revoking a refresh token also revokes its associated access token.
+
+## Revoke a user's grants
+
+When your application deactivates or deletes a user, revoke that user's OAuth artifacts:
+
+```ts
+import sesame from '@julr/sesame/services/main'
+
+await sesame.revokeAllForUser('42')
+```
+
+Pass your application's user ID as a string.
+
+## Inspect a client's token
+
+Authenticate as the client that owns the token:
+
+```bash
+curl https://auth.example.com/oauth/introspect \
+	-u "$CLIENT_ID:$CLIENT_SECRET" \
+	--data-urlencode "token=$ACCESS_TOKEN" \
+	--data-urlencode token_type_hint=access_token
+```
+
+An active token returns `active: true` and metadata. An invalid, expired, revoked, or other client's token returns `{ "active": false }`. Introspection does not provide unrestricted lookup across clients.

@@ -20,5 +20,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: pnpm build
+      - run: pnpm docs:build
       - run: pnpm test
       - run: pnpm test:sql

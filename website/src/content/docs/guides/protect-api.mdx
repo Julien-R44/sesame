@@ -1,0 +1,82 @@
+---
+title: Protect your API
+description: Authenticate Bearer tokens and enforce OAuth scopes.
+---
+
+## Add the OAuth guard
+
+For a Lucid application with a `User` model at `#models/user`, keep the session guard as the default and add `oauth`:
+
+```ts title="config/auth.ts"
+import { defineConfig } from '@adonisjs/auth'
+import { sessionGuard, sessionUserProvider } from '@adonisjs/auth/session'
+import type { InferAuthenticators, InferAuthEvents, Authenticators } from '@adonisjs/auth/types'
+import { oauthGuard } from '@julr/sesame/guard'
+import { oauthUserProvider } from '@julr/sesame/guard/lucid'
+
+const authConfig = defineConfig({
+	default: 'web',
+	guards: {
+		web: sessionGuard({
+			useRememberMeTokens: false,
+			provider: sessionUserProvider({ model: () => import('#models/user') }),
+		}),
+		oauth: oauthGuard({
+			provider: oauthUserProvider({ model: () => import('#models/user') }),
+		}),
+	},
+})
+
+export default authConfig
+
+declare module '@adonisjs/auth/types' {
+	interface Authenticators extends InferAuthenticators<typeof authConfig> {}
+}
+
+declare module '@adonisjs/core/types' {
+	interface EventsList extends InferAuthEvents<Authenticators> {}
+}
+```
+
+For Kysely users, replace the Lucid provider with [your custom user provider](/guides/custom-user-provider/).
+
+## Require a token and a scope
+
+Authenticate the OAuth guard before checking its scopes:
+
+```ts title="start/routes.ts"
+import router from '@adonisjs/core/services/router'
+import { E_INSUFFICIENT_SCOPE } from '@julr/sesame/exceptions'
+
+router.get('/api/me', async ({ auth }) => {
+	const guard = auth.use('oauth')
+	const user = await guard.authenticate()
+
+	if (!guard.hasScope('read')) throw new E_INSUFFICIENT_SCOPE(['read'])
+
+	return { id: user.id, clientId: guard.clientId }
+})
+```
+
+Declare `read` in [your scope config](/guides/configure-server/). A request without a valid Bearer token returns 401. A valid token without `read` returns 403.
+
+Use `guard.hasScope('read', 'write')` for all listed scopes. Use `guard.hasAnyScope('read', 'write')` for any listed scope.
+
+## Accept both browser sessions and tokens
+
+For a route that also accepts first-party session users, use the named middleware installed by Sésame:
+
+```ts title="start/routes.ts"
+import router from '@adonisjs/core/services/router'
+import { middleware } from '#start/kernel'
+
+router.get('/data', async () => ({ ok: true }))
+	.use(middleware.scopes({ scopes: ['read', 'write'] }))
+
+router.get('/summary', async () => ({ ok: true }))
+	.use(middleware.anyScope({ scopes: ['read', 'write'] }))
+```
+
+`scopes` requires all listed scopes. `anyScope` requires at least one. With an `Authorization` header, both authenticate the OAuth guard. Without that header, a valid default session passes without an OAuth scope check.
+
+For a route that requires a token, always authenticate `auth.use('oauth')` before the scope middleware, or use the explicit guard check above.

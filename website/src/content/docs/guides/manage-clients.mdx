@@ -1,0 +1,81 @@
+---
+title: Manage clients
+description: Create OAuth clients and manage their credentials from the CLI or application code.
+---
+
+## Create a client from the terminal
+
+Run the interactive command:
+
+```bash
+node ace sesame:client
+```
+
+Enter a name, the exact callback URLs, and the client type. Save the displayed secret in the consuming application's secret storage.
+
+For a public browser client, provide the public flag:
+
+```bash
+node ace sesame:client --name "Browser app" --public --redirect-uris https://app.example.com/callback --scopes read --grant-types authorization_code,refresh_token
+```
+
+For a confidential client, omit `--public` and answer the client type prompt. The command can still prompt even when name and redirect URI flags are present.
+
+## Create a client in application code
+
+Use the initialized Sésame service from a seeder, command, or authenticated administration handler:
+
+```ts
+import sesame from '@julr/sesame/services/main'
+
+const { client, clientSecret } = await sesame.createClient({
+	name: 'Partner app',
+	redirectUris: ['https://partner.example.com/callback'],
+	scopes: ['read'],
+	grantTypes: ['authorization_code', 'refresh_token'],
+})
+```
+
+Save `client.clientId` and the raw `clientSecret`. For a public client, add `isPublic: true`. That client has no secret.
+
+Specify both grants when you need refresh tokens. Programmatic creation defaults to `['authorization_code']`, even though the server enables refresh tokens by default.
+
+Validate administrator input before calling management methods. These methods do not apply the HTTP dynamic registration validator.
+
+## Update or disable a client
+
+Use its public `clientId`, not its internal record `id`:
+
+```ts
+import sesame from '@julr/sesame/services/main'
+
+const client = await sesame.findClient('CLIENT_ID')
+const ownedClients = await sesame.listClients({ userId: '42' })
+
+await sesame.updateClient('CLIENT_ID', {
+	name: 'Renamed app',
+	isDisabled: true,
+})
+```
+
+Replace `CLIENT_ID` with the client ID from creation. Disabling the client prevents client authentication and new authorization requests. To revoke a user's tokens, call `revokeAllForUser()` separately.
+
+## Rotate or delete credentials
+
+After a secret leak, replace the confidential client's secret:
+
+```ts
+import sesame from '@julr/sesame/services/main'
+
+const newSecret = await sesame.rotateClientSecret('CLIENT_ID')
+```
+
+Update the consuming application with the returned secret. A public or missing client returns `null`.
+
+To delete a client and its related OAuth records, call:
+
+```ts
+await sesame.deleteClient('CLIENT_ID')
+```
+
+Client records contain a non-enumerable `clientSecret` hash. JSON serialization omits it. The raw secret is available only at creation or rotation.

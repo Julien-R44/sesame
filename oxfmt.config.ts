@@ -7,6 +7,13 @@ const config: OxfmtConfig = julrPreset({
   trailingComma: 'es5',
   arrowParens: 'always',
   sortPackageJson: false,
+  overrides: [
+    ...(preset.overrides ?? []),
+    {
+      files: ['website/src/content/docs/**/*.mdx'],
+      options: { embeddedLanguageFormatting: 'off' },
+    },
+  ],
   ignorePatterns: [
     ...(preset.ignorePatterns ?? []),
     'docs/**',
@@ -14,6 +21,8 @@ const config: OxfmtConfig = julrPreset({
     '*.html',
     '.husky/**',
     'pnpm-lock.yaml',
+    'website/.astro/**',
+    'website/dist/**',
   ],
 })
 

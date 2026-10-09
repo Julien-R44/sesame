@@ -1,0 +1,63 @@
+---
+title: Test and maintain the server
+description: Authenticate API tests, observe guard events, and remove old OAuth records.
+---
+
+## Authenticate an API test
+
+With Japa's API client and Auth integration configured, use `loginAs` with the OAuth guard. This example assumes a Lucid `User` and an existing user fixture:
+
+```ts title="tests/functional/api.spec.ts"
+import { test } from '@japa/runner'
+import User from '#models/user'
+
+test('returns the authenticated user', async ({ client }) => {
+	const user = await User.findOrFail(1)
+
+	const response = await client.get('/api/me').loginAs(user, 'oauth')
+
+	response.assertStatus(200)
+	response.assertBodyContains({ id: user.id })
+})
+```
+
+The guard creates a database access token and a shared `__test_client__` client on first use. The token uses your configured `defaultScopes`. Keep those scopes compatible with the endpoint under test.
+
+Use separate authorization-flow tests for PKCE, callbacks, consent expiry, and refresh token rotation. `loginAs` bypasses those flows.
+
+## Observe authentication failures
+
+Register a listener in `start/events.ts`:
+
+```ts title="start/events.ts"
+import emitter from '@adonisjs/core/services/emitter'
+import logger from '@adonisjs/core/services/logger'
+
+emitter.on('oauth_auth:authentication_failed', (event) => {
+	logger.warn({ guardName: event.guardName, err: event.error }, 'OAuth authentication failed')
+})
+```
+
+Use `err` for the error so Pino serializes its stack. Do not log raw tokens or secrets. See the [events reference](/reference/api/#guard-events) for the other guard events.
+
+## Purge old records
+
+Run the purge command from your application's existing scheduler:
+
+```bash
+node ace sesame:purge --hours=168
+```
+
+The default removes revoked records and expired records beyond the retention window. Use `--revoked` to select revoked records or `--expired` to select expired records.
+
+For application code, call the manager:
+
+```ts
+import sesame from '@julr/sesame/services/main'
+
+const result = await sesame.purgeTokens({ retentionHours: 168 })
+```
+
+The result has `accessTokens`, `refreshTokens`, `authorizationCodes`, and `pendingRequests` counts. The CLI's displayed total includes only the first three counts.
+
+Expired pending requests are removed immediately, including with `--revoked`. The retention window applies to expired tokens and authorization codes. It does not postpone deletion of revoked tokens. Purging removes history, so choose the retention period before scheduling the command.

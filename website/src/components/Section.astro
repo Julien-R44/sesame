@@ -1,0 +1,110 @@
+---
+/**
+ * A homepage section with a small kicker, a title and an optional lead.
+ */
+interface Props {
+  kicker: string
+  title: string
+  lead?: string
+  /**
+   * Put the header beside the content on wide screens.
+   */
+  split?: boolean
+}
+
+const { kicker, title, lead, split = false } = Astro.props
+---
+
+<section class:list={['section', { split }]}>
+  <header class="head not-content">
+    <p class="kicker">{kicker}</p>
+    <h2>{title}</h2>
+    {lead && <p class="lead">{lead}</p>}
+    <slot name="aside" />
+  </header>
+  <slot />
+</section>
+
+<style>
+  .section {
+    padding-block: 3.5rem 1rem;
+    border-top: 1px solid var(--sl-color-hairline);
+  }
+
+  .section > :global(* + *) {
+    margin-top: 1.5rem;
+  }
+
+  .head {
+    max-width: 38rem;
+    margin-bottom: 2.25rem;
+  }
+
+  .kicker {
+    margin: 0 0 0.75rem;
+    font-family: var(--sl-font-mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--sl-color-accent-high);
+  }
+
+  h2 {
+    margin: 0;
+    font-family: var(--sesame-font-display);
+    font-size: clamp(1.75rem, 1.3rem + 1.6vw, 2.5rem);
+    font-weight: 650;
+    line-height: 1.08;
+    letter-spacing: -0.035em;
+    color: var(--sl-color-white);
+    text-wrap: balance;
+  }
+
+  .head :global(.quick-links) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.25rem;
+    margin: 1.25rem 0 0;
+    font-size: var(--sl-text-sm);
+  }
+
+  .head :global(.quick-links a) {
+    font-weight: 520;
+    color: var(--sl-color-accent-high);
+    text-decoration-line: underline;
+    text-decoration-color: color-mix(in oklab, var(--sl-color-accent) 45%, transparent);
+    text-decoration-thickness: 1.5px;
+    text-underline-offset: 0.2em;
+    transition: text-decoration-color 160ms ease;
+  }
+
+  .head :global(.quick-links a:hover) {
+    text-decoration-color: var(--sl-color-accent);
+  }
+
+  /* Split: the header becomes a narrow left column beside the content. */
+  @media (min-width: 56rem) {
+    .split {
+      display: grid;
+      grid-template-columns: minmax(0, 4fr) minmax(0, 7fr);
+      column-gap: 2.5rem;
+      align-items: start;
+    }
+
+    .split > :global(* + *) {
+      margin-top: 0;
+    }
+
+    .split .head {
+      margin-bottom: 0;
+    }
+  }
+
+  .lead {
+    margin: 0.875rem 0 0;
+    font-size: 1.0625rem;
+    line-height: 1.6;
+    color: var(--sl-color-gray-3);
+    text-wrap: pretty;
+  }
+</style>

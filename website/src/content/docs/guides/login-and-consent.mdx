@@ -1,0 +1,93 @@
+---
+title: Connect login and consent
+description: Build browser pages around the session guard and stored authorization requests.
+---
+
+This guide assumes a working login handler that signs users into your default session guard. Sésame supplies the OAuth controllers. Your application supplies the pages.
+
+## Return from login to authorization
+
+Set `loginPage` to your login route. Sésame forwards the authorization query parameters to that page.
+
+After successful login, return the browser to `/oauth/authorize` with those parameters. Keep the destination fixed to your own authorize route rather than accepting an arbitrary return URL.
+
+A login handler can construct the return URL from a saved authorization query:
+
+```ts
+const authorizationUrl = new URL('/oauth/authorize', 'https://auth.example.com')
+
+for (const [key, value] of savedAuthorizationQuery) {
+	authorizationUrl.searchParams.set(key, value)
+}
+
+return response.redirect().toPath(authorizationUrl.pathname + authorizationUrl.search)
+```
+
+Here, `savedAuthorizationQuery` is a `URLSearchParams` value that your login page preserves through the login submission. Preserve `client_id`, `redirect_uri`, `response_type`, `scope`, `state`, `code_challenge`, `code_challenge_method`, and `nonce` when present. Sésame validates the request again on `/oauth/authorize`.
+
+## Load the consent page from the stored request
+
+Add a GET route for your configured consent page. The registered Sésame consent endpoint handles POST, so both can use `/oauth/consent`.
+
+This example uses Edge. Create `resources/views/oauth/consent.edge` for the view used below:
+
+```ts title="start/routes.ts"
+import router from '@adonisjs/core/services/router'
+import sesame from '@julr/sesame/services/main'
+
+router.get('/oauth/consent', async ({ auth, request, response, view }) => {
+	await auth.authenticate()
+
+	const authToken = request.input('auth_token')
+	if (typeof authToken !== 'string') return response.badRequest('Missing authorization request')
+
+	const pending = await sesame.findPendingAuthorizationRequest({
+		token: authToken,
+		userId: String(auth.user!.id),
+	})
+	if (!pending) return response.badRequest('Authorization request expired. Start again.')
+
+	const client = await sesame.findClient(pending.clientId)
+	if (!client) return response.badRequest('Client no longer exists')
+
+	return view.render('oauth/consent', {
+		authToken,
+		clientName: client.name,
+		scopes: pending.scopes.map((scope) => ({
+			name: scope,
+			description: sesame.config.scopes[scope] ?? scope,
+		})),
+	})
+})
+```
+
+Read the client name and scopes from the stored request. Do not display untrusted query values as the requested permissions or client identity.
+
+## Submit the decision
+
+Render the supplied values and post `auth_token` with the decision:
+
+```html title="resources/views/oauth/consent.edge"
+<h1>Allow {{ clientName }} to access your account?</h1>
+<ul>
+	@each(scope in scopes)
+		<li>{{ scope.description }}</li>
+	@end
+</ul>
+<form method="POST" action="/oauth/consent">
+	{{ csrfField() }}
+	<input type="hidden" name="auth_token" value="{{ authToken }}">
+	<button type="submit" name="accept" value="1">Allow</button>
+	<button type="submit">Deny</button>
+</form>
+```
+
+The allow button sends a truthy value. The deny button omits `accept`. For JSON, send `accept: true` or `accept: false`. Do not send the string `'false'`, which is truthy.
+
+Do not send `client_id`, `redirect_uri`, or scope as authorization proof. The POST controller uses the stored request selected by `auth_token` and the authenticated user.
+
+After submission, Sésame consumes the pending request atomically and redirects to its saved callback URL. Allow returns a code. Deny returns `error=access_denied`. Both responses include `iss` and preserve `state` when provided.
+
+If the request expires or another submission consumes it, start a new authorization request. Its lifetime is controlled by `authorizationRequestTtl`.
+
+For an Inertia application, see [browser redirects with Inertia](/explanations/inertia-redirects/).

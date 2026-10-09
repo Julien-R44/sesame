@@ -1,0 +1,46 @@
+---
+title: Command reference
+description: Ace command flags for clients, signing keys, and OAuth cleanup.
+---
+
+The package installer registers these commands through `@julr/sesame/commands`.
+
+## sesame:client
+
+`node ace sesame:client` creates an OAuth client and outputs its client ID and raw secret when confidential.
+
+| Flag              | Type    | Meaning                                                       |
+| ----------------- | ------- | ------------------------------------------------------------- |
+| `--name`          | String  | Client name. Otherwise prompted.                              |
+| `--public`        | Boolean | Creates a public client without a secret.                     |
+| `--redirect-uris` | Array   | Redirect URIs. Otherwise prompted as a comma-separated value. |
+| `--scopes`        | Array   | Allowed scopes. Defaults to config `defaultScopes`.           |
+| `--grant-types`   | Array   | Allowed grants. Defaults to `['authorization_code']`.         |
+| `--user-id`       | String  | Owner user ID. Required for client credentials.               |
+
+The command prompts for public versus confidential unless `--public` is true. Name and redirect flags do not make a confidential creation fully noninteractive.
+
+## sesame:key
+
+`node ace sesame:key` generates an RSA JWK and displays configuration instructions.
+
+| Flag          | Meaning                                                       |
+| ------------- | ------------------------------------------------------------- |
+| `--raw`       | Outputs raw JSON for a file or secret manager.                |
+| `--write-env` | Adds or replaces `OIDC_JWK` in the application's `.env` file. |
+
+The output is a private signing key. The JWKS endpoint exposes only its public components.
+
+## sesame:purge
+
+`node ace sesame:purge` deletes revoked and expired OAuth records.
+
+| Flag        | Default | Meaning                              |
+| ----------- | ------- | ------------------------------------ |
+| `--revoked` | False   | Selects revoked records.             |
+| `--expired` | False   | Selects expired records.             |
+| `--hours`   | `168`   | Retention hours for expired records. |
+
+With neither selection flag, both categories are selected. With both flags, both are selected. Revoked records do not use the expired-record retention window.
+
+Expired pending authorization requests are removed immediately, regardless of selection flags or retention hours. The CLI's printed total sums only access tokens, refresh tokens, and authorization codes.

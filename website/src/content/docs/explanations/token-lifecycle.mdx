@@ -1,0 +1,32 @@
+---
+title: Token storage and rotation
+description: Understand opaque tokens, refresh reuse, and revocation boundaries.
+---
+
+## Opaque tokens and database lookup
+
+Sésame access tokens and refresh tokens are opaque strings. Resource handlers use the OAuth guard to hash a Bearer token and find its record. The guard checks expiry and revocation, then resolves the user through the configured provider.
+
+The database stores SHA-256 hashes of access tokens, refresh tokens, authorization codes, pending authorization tokens, and client secrets. A token string cannot be reconstructed from the stored hash. ID tokens follow a different model: they are signed JWTs for identity claims.
+
+Database lookup makes revocation visible to the guard without waiting for a JWT to expire. It also means API authentication depends on the store and user lookup being available.
+
+## Rotation and the grace period
+
+A successful refresh issues a new access token and refresh token. Sésame revokes the previous refresh token as part of rotation.
+
+The default `refreshTokenRotationGracePeriod` is 120 seconds. Within that interval, a revoked refresh token can issue another new token pair. Sésame does not return the same pair from the earlier response.
+
+This interval lets clients recover when a refresh response is lost or two processes refresh together. It also permits reuse of a stolen, recently revoked refresh token during the interval. Coordinate refresh requests and save the new pair together to reduce that exposure.
+
+Outside the interval, reuse triggers replay detection. Sésame revokes all access and refresh tokens for the same client and user, then returns `invalid_grant`. The revocation boundary is the client-user pair, not a separate per-login family identifier.
+
+Set the grace period to `0` for strict reuse detection. That setting makes retries after a lost refresh response fail and revoke the pair's tokens.
+
+## Consent and tokens
+
+Consent records remember approved scopes for a client and user. They let a later authorization request skip the consent page when its scopes are already approved.
+
+A pending authorization request is different. It stores one consent attempt, including the user, callback URL, scopes, PKCE challenge, and optional nonce. Its opaque `auth_token` identifies that attempt. Consent consumes the record once, before a code is issued.
+
+Revoking a token does not mean that every future authorization request must show consent again. For user deactivation, the manager's `revokeAllForUser()` also removes authorization codes and consent records through the store.

@@ -1,0 +1,31 @@
+---
+interface Props {
+  name: string
+}
+
+const paths: Record<string, string> = {
+  pkce: 'M12 3 4.5 6v6.2c0 4.4 4.4 7.6 7.5 8.8 3.1-1.2 7.5-4.4 7.5-8.8V6L12 3Zm-3.2 9 2.1 2.1 4.5-4.5',
+  rotation: 'M20 8a8 8 0 0 0-13.4-3L3 8m0-5v5h5m-4 8a8 8 0 0 0 13.4 3L21 16m0 5v-5h-5',
+  oidc: 'M7 5h10a3 3 0 0 1 3 3v11H4V8a3 3 0 0 1 3-3Zm2 0V3h6v2m-3 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm-4 5c0-2.2 1.8-3 4-3s4 .8 4 3',
+  stores: 'M20 6c0 2-3.6 3-8 3S4 8 4 6s3.6-3 8-3 8 1 8 3Zm0 0v6c0 2-3.6 3-8 3s-8-1-8-3V6m16 6v6c0 2-3.6 3-8 3s-8-1-8-3v-6',
+  mcp: 'M9 9h6v6H9V9Zm-6-6h3v3H3V3Zm15 0h3v3h-3V3ZM3 18h3v3H3v-3Zm15 0h3v3h-3v-3ZM6 6l3 3m6 0 3-3M6 18l3-3m6 0 3 3',
+  hashed: 'M9 3 7 21M17 3l-2 18M4 9h17M3 15h17',
+}
+---
+
+<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d={paths[Astro.props.name]} />
+</svg>
+
+<style>
+  svg {
+    display: block;
+    width: 1.375rem;
+    height: 1.375rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+</style>

@@ -1,0 +1,624 @@
+/*
+ * Sésame docs theme — "Open sesame".
+ *
+ * Black sesame ink, toasted paper and the saffron light that spills out of
+ * the open door in the logo. Dark mode is the cave at night, light mode is
+ * the parchment the spell was written on.
+ */
+
+/* -------------------------------------------------------------------------- */
+/* Tokens                                                                     */
+/* -------------------------------------------------------------------------- */
+
+:root {
+  --sl-font: 'Geist Variable', 'Geist';
+  --sl-font-mono: 'Geist Mono Variable', 'Geist Mono';
+  --sesame-font-display: 'Bricolage Grotesque Variable', var(--sl-font), sans-serif;
+  --sesame-font-serif: 'Instrument Serif', ui-serif, Georgia, serif;
+
+  --sesame-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --sesame-ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --sesame-radius-xs: 0.125rem;
+  --sesame-radius-sm: 0.25rem;
+  --sesame-radius: 0.375rem;
+
+  --sl-content-width: 46rem;
+  --sl-sidebar-width: 17.5rem;
+  --sl-nav-height: 3.75rem;
+  --sl-line-height: 1.7;
+  --sl-text-h1: clamp(2.125rem, 1.6rem + 2vw, 2.875rem);
+  --sl-text-h2: 1.625rem;
+  --sl-text-h3: 1.25rem;
+  --sl-text-h4: 1.0625rem;
+}
+
+/* Dark: the cave at night. */
+:root,
+::backdrop {
+  --sl-color-white: #fbf5ea;
+  --sl-color-gray-1: #ece3d3;
+  --sl-color-gray-2: #cdc1ae;
+  --sl-color-gray-3: #9d907c;
+  --sl-color-gray-4: #6b604f;
+  --sl-color-gray-5: #39322a;
+  --sl-color-gray-6: #211d18;
+  --sl-color-gray-7: #1a1713;
+  --sl-color-black: #13110e;
+
+  --sl-color-accent-low: #3a2a10;
+  --sl-color-accent: #f2b544;
+  --sl-color-accent-high: #ffd993;
+
+  --sl-hue-orange: 32;
+  --sl-hue-green: 152;
+  --sl-hue-blue: 200;
+  --sl-hue-red: 6;
+
+  /* Starlight uses "purple" for tips: here it is a verdigris green. */
+  --sl-color-purple-low: #10302a;
+  --sl-color-purple: #52c4a6;
+  --sl-color-purple-high: #b8ecdc;
+  --sl-color-blue-low: #142738;
+  --sl-color-blue: #6cb3e6;
+  --sl-color-blue-high: #c6e4f8;
+
+  --sl-color-text-accent: var(--sl-color-accent-high);
+  --sl-color-bg-nav: color-mix(in oklab, var(--sl-color-black) 78%, transparent);
+  --sl-color-bg-sidebar: var(--sl-color-black);
+  --sl-color-bg-inline-code: var(--sl-color-gray-6);
+  --sl-color-hairline-light: #2b2620;
+  --sl-color-hairline: #241f1a;
+  --sl-color-hairline-shade: #0b0a08;
+  --sl-color-backdrop-overlay: rgb(10 8 6 / 0.72);
+
+  --sesame-surface: #1a1713;
+  --sesame-surface-raised: #211d18;
+  --sesame-border: #2e2821;
+  --sesame-border-strong: #3d352c;
+  --sesame-glow: 242 181 68;
+  --sesame-door: #f5ecdc;
+  --sesame-seed: #f5ecdc;
+
+  --sesame-code-bg: #171410;
+  --sesame-code-chrome: #1d1914;
+  --sesame-code-border: #2e2821;
+  --sesame-code-dots: #3d352c;
+
+  color-scheme: dark;
+}
+
+/* Light: sesame paper. */
+:root[data-theme='light'],
+[data-theme='light'] ::backdrop {
+  --sl-color-white: #1a1611;
+  --sl-color-gray-1: #2a241c;
+  --sl-color-gray-2: #40382d;
+  --sl-color-gray-3: #635849;
+  --sl-color-gray-4: #8f8372;
+  --sl-color-gray-5: #ddd3c1;
+  --sl-color-gray-6: #efe8da;
+  --sl-color-gray-7: #f6f1e6;
+  --sl-color-black: #fbf8f1;
+
+  --sl-color-purple-low: #d6f1e8;
+  --sl-color-purple: #2a9d80;
+  --sl-color-purple-high: #0d5a49;
+  --sl-color-blue-low: #dcecf8;
+  --sl-color-blue: #2f86c4;
+  --sl-color-blue-high: #134f7a;
+
+  --sl-color-accent-low: #f8e6bd;
+  --sl-color-accent: #b9740f;
+  --sl-color-accent-high: #7a4605;
+
+  --sl-color-bg-nav: color-mix(in oklab, var(--sl-color-black) 80%, transparent);
+  --sl-color-bg-sidebar: var(--sl-color-black);
+  --sl-color-bg-inline-code: var(--sl-color-gray-6);
+  --sl-color-hairline-light: #e2d9c8;
+  --sl-color-hairline: #e9e1d2;
+  --sl-color-hairline-shade: #d6cbb7;
+  --sl-color-backdrop-overlay: rgb(40 32 22 / 0.4);
+
+  --sesame-surface: #fffdf8;
+  --sesame-surface-raised: #ffffff;
+  --sesame-border: #e6ddcc;
+  --sesame-border-strong: #d6cab4;
+  --sesame-glow: 236 160 40;
+  --sesame-door: #1a1611;
+  --sesame-seed: #8f7a5a;
+
+  --sesame-code-bg: #fffdf8;
+  --sesame-code-chrome: #f6f0e4;
+  --sesame-code-border: #e6ddcc;
+  --sesame-code-dots: #ddd3c1;
+
+  color-scheme: light;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Base                                                                       */
+/* -------------------------------------------------------------------------- */
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  font-feature-settings: 'ss01', 'cv11';
+  /* The faint light from the door, falling on every page. */
+  background-image:
+    radial-gradient(60rem 28rem at 100% -6rem, rgb(var(--sesame-glow) / 0.075), transparent 70%),
+    radial-gradient(40rem 22rem at 0% -8rem, rgb(var(--sesame-glow) / 0.035), transparent 70%);
+  background-repeat: no-repeat;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--sl-color-accent) 32%, transparent);
+  color: var(--sl-color-white);
+}
+
+:focus-visible {
+  outline: 2px solid var(--sl-color-accent);
+  outline-offset: 2px;
+  border-radius: var(--sesame-radius-xs);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Header                                                                     */
+/* -------------------------------------------------------------------------- */
+
+.page > .header {
+  backdrop-filter: saturate(1.4) blur(14px);
+  -webkit-backdrop-filter: saturate(1.4) blur(14px);
+  border-bottom-color: var(--sl-color-hairline);
+}
+
+/* Search trigger: an icon button on mobile, a compact field on desktop. */
+site-search > button[data-open-modal] {
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border: 1px solid var(--sesame-border);
+  border-radius: var(--sesame-radius-sm);
+  background: var(--sesame-surface);
+  color: var(--sl-color-gray-3);
+  font-size: var(--sl-text-sm);
+  transition:
+    border-color 160ms ease,
+    color 160ms ease;
+}
+
+site-search > button[data-open-modal]:hover {
+  border-color: var(--sesame-border-strong);
+  color: var(--sl-color-white);
+}
+
+@media (min-width: 50rem) {
+  site-search dialog {
+    border-radius: var(--sesame-radius);
+  }
+}
+
+#starlight__search {
+  --pagefind-ui-border-radius: var(--sesame-radius-sm);
+  --sl-search-corners: var(--sesame-radius-sm);
+}
+
+site-search > button[data-open-modal] svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+@media (min-width: 50rem) {
+  site-search > button[data-open-modal] {
+    justify-content: flex-start;
+    width: 14rem;
+    padding-inline: 0.75rem 0.375rem;
+  }
+}
+
+site-search > button[data-open-modal] > kbd {
+  gap: 0.125rem;
+  padding: 0.125rem 0.375rem;
+  border: 1px solid var(--sesame-border);
+  border-radius: var(--sesame-radius-xs);
+  background: var(--sl-color-gray-6);
+  color: var(--sl-color-gray-3);
+  font-family: var(--sl-font-mono);
+  font-size: 0.6875rem;
+}
+
+/* Mobile menu toggle: matches the search button instead of a floating disc. */
+.sl-menu-button,
+:root[data-theme='light'] .sl-menu-button {
+  top: calc((var(--sl-nav-height) - 2.25rem) / 2);
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 1px solid var(--sesame-border);
+  border-radius: var(--sesame-radius-sm);
+  background: var(--sesame-surface);
+  color: var(--sl-color-white);
+  box-shadow: none;
+}
+
+.sl-menu-button:has(~ :popover-open),
+:root[data-theme='light'] .sl-menu-button:has(~ :popover-open) {
+  background: var(--sl-color-gray-6);
+}
+
+:root[data-has-sidebar] {
+  --sl-menu-button-size: 2.25rem;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Sidebar                                                                    */
+/* -------------------------------------------------------------------------- */
+
+.sidebar-pane {
+  border-inline-end-color: var(--sl-color-hairline);
+}
+
+.sidebar-content summary .group-label .large,
+.sidebar-content .group-label {
+  font-family: var(--sl-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--sl-color-gray-3);
+}
+
+.sidebar-content a {
+  position: relative;
+  border-radius: var(--sesame-radius-sm);
+  padding-block: 0.375rem;
+  color: var(--sl-color-gray-2);
+  transition:
+    background-color 160ms ease,
+    color 160ms ease;
+}
+
+.sidebar-content a:hover {
+  background: var(--sl-color-gray-6);
+  color: var(--sl-color-white);
+}
+
+.sidebar-content a[aria-current='page'],
+.sidebar-content a[aria-current='page']:hover,
+.sidebar-content a[aria-current='page']:focus {
+  padding-inline-start: 1.125rem;
+  background: color-mix(in oklab, var(--sl-color-accent) 13%, transparent);
+  color: var(--sl-color-accent-high);
+  font-weight: 600;
+}
+
+/* A small lit doorway marks the current page. */
+.sidebar-content a[aria-current='page']::before {
+  content: '';
+  position: absolute;
+  inset-block: 0.5rem;
+  inset-inline-start: 0.375rem;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--sl-color-accent);
+  box-shadow: 0 0 10px rgb(var(--sesame-glow) / 0.7);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Content typography                                                         */
+/* -------------------------------------------------------------------------- */
+
+.content-panel h1,
+.sl-markdown-content :is(h1, h2, h3, h4, h5) {
+  font-family: var(--sesame-font-display);
+  font-optical-sizing: auto;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+.content-panel h1 {
+  font-weight: 650;
+  letter-spacing: -0.035em;
+}
+
+.sl-markdown-content h2 {
+  font-weight: 620;
+}
+
+.sl-markdown-content .sl-heading-wrapper.level-h2 {
+  margin-top: 3rem;
+  padding-top: 1.75rem;
+  border-top: 1px solid var(--sl-color-hairline);
+}
+
+.sl-markdown-content h3 {
+  font-weight: 620;
+  margin-top: 2rem;
+}
+
+.sl-markdown-content :is(p, li) {
+  text-wrap: pretty;
+}
+
+.sl-markdown-content a:not(.not-content *, .sl-anchor-link) {
+  color: var(--sl-color-accent-high);
+  text-decoration-line: underline;
+  text-decoration-color: color-mix(in oklab, var(--sl-color-accent) 45%, transparent);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 0.2em;
+  transition: text-decoration-color 160ms ease;
+}
+
+.sl-markdown-content a:not(.not-content *, .sl-anchor-link):hover {
+  text-decoration-color: var(--sl-color-accent);
+}
+
+.sl-markdown-content :not(pre) > code {
+  padding: 0.125rem 0.375rem;
+  border-radius: var(--sesame-radius-xs);
+  border: 1px solid var(--sesame-border);
+  background: var(--sesame-surface);
+  color: var(--sl-color-gray-1);
+  font-size: 0.85em;
+  overflow-wrap: anywhere;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+.sl-markdown-content strong {
+  color: var(--sl-color-white);
+  font-weight: 620;
+}
+
+.sl-markdown-content hr {
+  border-color: var(--sl-color-hairline);
+}
+
+/* Tables */
+.sl-markdown-content table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--sesame-border);
+  border-radius: var(--sesame-radius);
+  font-size: var(--sl-text-sm);
+}
+
+.sl-markdown-content :is(th, td) {
+  border-bottom: 1px solid var(--sesame-border);
+  padding: 0.625rem 1rem;
+}
+
+.sl-markdown-content tr:last-child td {
+  border-bottom: 0;
+}
+
+.sl-markdown-content th {
+  background: var(--sesame-surface);
+  color: var(--sl-color-gray-3);
+  font-family: var(--sl-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.sl-markdown-content :is(th, td):first-child {
+  padding-inline-start: 1rem;
+}
+
+.sl-markdown-content td code {
+  white-space: nowrap;
+}
+
+/* Steps: the numbered markers become little lit badges. */
+.sl-steps > li::before {
+  border-radius: var(--sesame-radius-sm);
+  font-family: var(--sl-font-mono);
+  font-weight: 600;
+  background: var(--sl-color-accent-low) !important;
+  color: var(--sl-color-accent-high) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--sl-color-accent) 35%, transparent);
+}
+
+.sl-steps > li::after {
+  background: linear-gradient(
+    var(--sl-color-accent-low),
+    var(--sl-color-hairline-light) 3rem
+  ) !important;
+}
+
+/* Tabs */
+starlight-tabs [role='tablist'] {
+  border-bottom-color: var(--sesame-border);
+}
+
+starlight-tabs [role='tab'] {
+  font-weight: 500;
+  color: var(--sl-color-gray-3);
+  transition: color 160ms ease;
+}
+
+starlight-tabs [role='tab']:hover {
+  color: var(--sl-color-gray-1);
+}
+
+starlight-tabs [role='tab'][aria-selected='true'] {
+  color: var(--sl-color-white);
+  border-color: var(--sl-color-accent);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Asides                                                                     */
+/* -------------------------------------------------------------------------- */
+
+.starlight-aside {
+  border: 1px solid color-mix(in oklab, var(--sl-color-asides-border) 35%, transparent);
+  border-inline-start: 3px solid var(--sl-color-asides-border);
+  border-radius: var(--sesame-radius-xs) var(--sesame-radius) var(--sesame-radius)
+    var(--sesame-radius-xs);
+  background: color-mix(in oklab, var(--sl-color-asides-border) 8%, var(--sl-color-black));
+  padding: 1rem 1.125rem;
+}
+
+.starlight-aside__title {
+  font-family: var(--sesame-font-display);
+  font-weight: 620;
+  letter-spacing: -0.01em;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Code                                                                       */
+/* -------------------------------------------------------------------------- */
+
+.expressive-code .frame {
+  transition: border-color 160ms ease;
+}
+
+.expressive-code .frame .header .title {
+  font-family: var(--sl-font-mono);
+  font-size: 0.75rem;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Right sidebar / table of contents                                          */
+/* -------------------------------------------------------------------------- */
+
+mobile-starlight-toc .toggle {
+  border-radius: var(--sesame-radius-sm);
+}
+
+.right-sidebar {
+  border-inline-start-color: var(--sl-color-hairline);
+}
+
+starlight-toc h2,
+mobile-starlight-toc .toggle {
+  font-family: var(--sl-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--sl-color-gray-3);
+}
+
+starlight-toc a {
+  color: var(--sl-color-gray-3);
+  transition: color 160ms ease;
+}
+
+starlight-toc a:hover {
+  color: var(--sl-color-white);
+}
+
+starlight-toc a[aria-current='true'],
+starlight-toc a[aria-current='true']:hover {
+  color: var(--sl-color-accent-high);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Footer & pagination                                                        */
+/* -------------------------------------------------------------------------- */
+
+.pagination-links a {
+  border-color: var(--sesame-border);
+  border-radius: var(--sesame-radius);
+  background: var(--sesame-surface);
+  box-shadow: none;
+  transition:
+    border-color 160ms ease,
+    transform 160ms var(--sesame-ease-out);
+}
+
+.pagination-links a:hover {
+  border-color: var(--sl-color-accent);
+}
+
+.pagination-links a:active {
+  transform: scale(0.985);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Page transitions                                                           */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * Native cross-document view transitions: no router, no script. The page is
+ * left live (no root snapshot, so the background never dims), the header is
+ * captured on its own so it stays put, and the old content is dropped at
+ * once while the new content settles in with a short, light blur. Browsers
+ * without support, and anyone who prefers reduced motion, get a plain
+ * navigation.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  @view-transition {
+    navigation: auto;
+  }
+}
+
+:root {
+  view-transition-name: none;
+}
+
+.header {
+  view-transition-name: sesame-header;
+}
+
+.sidebar-pane {
+  view-transition-name: sesame-sidebar;
+}
+
+.main-frame {
+  view-transition-name: sesame-page;
+}
+
+::view-transition-group(sesame-header),
+::view-transition-group(sesame-sidebar),
+::view-transition-group(sesame-page) {
+  animation: none;
+}
+
+::view-transition-old(sesame-header),
+::view-transition-old(sesame-sidebar),
+::view-transition-old(sesame-page) {
+  animation: none;
+  opacity: 0;
+}
+
+::view-transition-new(sesame-header),
+::view-transition-new(sesame-sidebar) {
+  animation: none;
+}
+
+/* A sidebar appearing (landing to docs) settles in like the content. */
+::view-transition-new(sesame-sidebar):only-child,
+::view-transition-new(sesame-page) {
+  animation: sesame-settle 240ms var(--sesame-ease-out) both;
+}
+
+@keyframes sesame-settle {
+  from {
+    opacity: 0.4;
+    filter: blur(3px);
+    transform: translateY(3px);
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Motion                                                                     */
+/* -------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

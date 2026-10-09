@@ -1,0 +1,143 @@
+---
+/**
+ * A one-line shell command with a copy button.
+ */
+interface Props {
+  command: string
+}
+
+const { command } = Astro.props
+---
+
+<sesame-copy-command class="command not-content" data-command={command}>
+  <span class="prompt" aria-hidden="true">$</span>
+  <code>{command}</code>
+  <button type="button" aria-label="Copy command">
+    <svg class="icon-copy" viewBox="0 0 16 16" aria-hidden="true">
+      <rect x="5.25" y="5.25" width="8" height="8" rx="1.75"></rect>
+      <path d="M10.75 5.25V4A1.75 1.75 0 0 0 9 2.25H4A1.75 1.75 0 0 0 2.25 4v5c0 .97.78 1.75 1.75 1.75h1.25"></path>
+    </svg>
+    <svg class="icon-check" viewBox="0 0 16 16" aria-hidden="true">
+      <path d="m3.5 8.5 3 3 6-7"></path>
+    </svg>
+  </button>
+  <span class="sr-only" role="status" aria-live="polite"></span>
+</sesame-copy-command>
+
+<script>
+  class SesameCopyCommand extends HTMLElement {
+    #timer: ReturnType<typeof setTimeout> | undefined
+
+    connectedCallback() {
+      const button = this.querySelector('button')
+      const status = this.querySelector('[role="status"]')
+      if (!button || !status) return
+
+      button.addEventListener('click', async () => {
+        const copied = await navigator.clipboard
+          .writeText(this.dataset.command ?? '')
+          .then(() => true)
+          .catch(() => false)
+        if (!copied) return
+
+        this.toggleAttribute('data-copied', true)
+        status.textContent = 'Copied to clipboard'
+        clearTimeout(this.#timer)
+        this.#timer = setTimeout(() => {
+          this.removeAttribute('data-copied')
+          status.textContent = ''
+        }, 1600)
+      })
+    }
+  }
+
+  customElements.define('sesame-copy-command', SesameCopyCommand)
+</script>
+
+<style>
+  .command {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.75rem;
+    max-width: 100%;
+    padding: 0.375rem 0.375rem 0.375rem 1rem;
+    border: 1px solid var(--sesame-border);
+    border-radius: var(--sesame-radius);
+    background: var(--sesame-code-bg);
+    font-family: var(--sl-font-mono);
+    font-size: 0.875rem;
+  }
+
+  .prompt {
+    color: var(--sl-color-accent);
+    user-select: none;
+  }
+
+  code {
+    overflow-x: auto;
+    white-space: nowrap;
+    color: var(--sl-color-white);
+    background: none;
+    padding: 0;
+    font-size: inherit;
+    scrollbar-width: none;
+  }
+
+  button {
+    position: relative;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 2rem;
+    height: 2rem;
+    border: 0;
+    border-radius: var(--sesame-radius-sm);
+    background: transparent;
+    color: var(--sl-color-gray-3);
+    cursor: pointer;
+    transition:
+      background-color 160ms ease,
+      color 160ms ease,
+      transform 160ms var(--sesame-ease-out);
+  }
+
+  button:hover {
+    background: var(--sl-color-gray-6);
+    color: var(--sl-color-white);
+  }
+
+  button:active {
+    transform: scale(0.94);
+  }
+
+  svg {
+    grid-area: 1 / 1;
+    width: 1rem;
+    height: 1rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition:
+      opacity 200ms var(--sesame-ease-out),
+      transform 200ms var(--sesame-ease-out);
+  }
+
+  .icon-check {
+    opacity: 0;
+    transform: scale(0.6);
+    stroke: var(--sl-color-accent);
+    stroke-width: 2;
+  }
+
+  [data-copied] .icon-copy {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+
+  [data-copied] .icon-check {
+    opacity: 1;
+    transform: scale(1);
+  }
+</style>

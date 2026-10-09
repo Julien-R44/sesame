@@ -1,0 +1,52 @@
+---
+title: Publish MCP authorization metadata
+description: Connect protected resource discovery to the OAuth guard for an MCP endpoint.
+---
+
+This guide assumes an MCP handler mounted at `/api/mcp`. Sésame supplies OAuth authentication and metadata, not the MCP transport or handler.
+
+## Register the resource
+
+Publish metadata for the endpoint in `start/routes.ts`:
+
+```ts
+import sesame from '@julr/sesame/services/main'
+
+sesame.registerProtectedResource({
+	resource: '/api/mcp',
+	scopes: ['read'],
+})
+```
+
+This creates `/.well-known/oauth-protected-resource/api/mcp`. Declare `read` in the server config.
+
+## Configure the authentication challenge
+
+Set the OAuth guard's resource path in `config/auth.ts`:
+
+```ts
+oauth: oauthGuard({
+	provider: oauthUserProvider({ model: () => import('#models/user') }),
+	resource: '/api/mcp',
+}),
+```
+
+Use the imports and default session guard from [Protect your API](/guides/protect-api/). For Kysely, use your custom user provider.
+
+## Protect the MCP handler
+
+Authenticate `auth.use('oauth')` and check `read` before your handler processes a request. Follow the [strict token example](/guides/protect-api/#require-a-token-and-a-scope).
+
+Resource registration does not protect the route automatically. The guard's resource option selects the `resource_metadata` URL in its `WWW-Authenticate` challenge.
+
+## Verify discovery
+
+Request the resource metadata:
+
+```bash
+curl https://auth.example.com/.well-known/oauth-protected-resource/api/mcp
+```
+
+Confirm that `resource` is your public MCP URL and `authorization_servers` contains your issuer. Make an unauthenticated request to the protected handler and confirm that its challenge points to the same metadata URL.
+
+If your MCP clients need self-registration, [enable dynamic registration](/guides/dynamic-registration/) with the access policy that fits your deployment.

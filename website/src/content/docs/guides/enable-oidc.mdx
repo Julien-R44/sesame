@@ -1,0 +1,106 @@
+---
+title: Enable OpenID Connect
+description: Configure a signing key and user claims for ID tokens and UserInfo.
+---
+
+This guide assumes a configured OAuth server and a user provider.
+
+## Generate a signing key
+
+Generate an RSA private JWK and save it in the environment:
+
+```bash
+node ace sesame:key --write-env
+```
+
+The command adds or replaces `OIDC_JWK` in `.env`. Keep the private key out of version control. For a secret manager, use `node ace sesame:key --raw` to write raw JSON to standard output.
+
+Validate `OIDC_JWK` as a string in `start/env.ts` before reading it in the config.
+
+## Configure OIDC
+
+For a Lucid application, add the JWK and user provider:
+
+```ts title="config/sesame.ts"
+import env from '#start/env'
+import { defineConfig, stores } from '@julr/sesame'
+import { oauthUserProvider } from '@julr/sesame/guard/lucid'
+import type { InferScopes } from '@julr/sesame/types'
+
+const sesameConfig = defineConfig({
+	issuer: env.get('APP_URL'),
+	store: stores.lucid(),
+	loginPage: '/login',
+	consentPage: '/oauth/consent',
+	scopes: {
+		profile: 'Basic profile information',
+		email: 'Email address',
+	},
+	jwk: JSON.parse(env.get('OIDC_JWK')),
+	oidcProvider: oauthUserProvider({ model: () => import('#models/user') }),
+	idTokenTtl: '1h',
+})
+
+export default sesameConfig
+
+declare module '@julr/sesame/types' {
+	interface SesameScopes extends InferScopes<typeof sesameConfig> {}
+}
+```
+
+For Kysely, keep your Kysely store and use [your custom provider](/guides/custom-user-provider/). Both `jwk` and `oidcProvider` must be present.
+
+## Return claims from your user
+
+Add `getOidcClaims()` to the user returned by the provider. This example shows the method in a Lucid model. Keep your existing model's other fields and authentication behavior:
+
+```ts title="app/models/user.ts"
+import { BaseModel, column } from '@adonisjs/lucid/orm'
+import { collectOidcClaims } from '@julr/sesame/types'
+import type { OidcSubject, Scope } from '@julr/sesame/types'
+
+export default class User extends BaseModel implements OidcSubject {
+	@column({ isPrimary: true })
+	declare id: number
+
+	@column()
+	declare fullName: string
+
+	@column()
+	declare email: string
+
+	getOidcClaims(scopes: Scope[]) {
+		return collectOidcClaims(scopes, {
+			profile: { name: this.fullName },
+			email: { email: this.email },
+		})
+	}
+}
+```
+
+Your model can implement `OidcSubject` from `@julr/sesame/types` to check the method contract. Declaring `profile` and `email` in config lets the inferred `Scope` type accept those names.
+
+## Request an identity grant
+
+Allow `openid`, `profile`, and `email` on the client, then [authorize it with PKCE](/guides/authorize-a-client/) using `scope=openid profile email`. Include a random `nonce` when your relying party uses nonce validation.
+
+The token response includes an RS256-signed `id_token`. Its claims include `iss`, `sub`, `aud`, `iat`, `exp`, `at_hash`, and your scope-dependent claims. An authorization-code exchange includes the requested nonce. A refresh exchange omits nonce.
+
+Verify the ID token's signature and expected issuer, audience, expiration, and nonce in the relying party. Use the public key from `/jwks`.
+
+## Verify discovery and UserInfo
+
+Request OIDC discovery:
+
+```bash
+curl https://auth.example.com/.well-known/openid-configuration
+```
+
+Request user claims with the access token, not the ID token:
+
+```bash
+curl https://auth.example.com/oauth/userinfo \
+	-H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+UserInfo requires a valid access token with `openid`. It returns `sub` and the claims your provider supplies. See [OAuth and identity](/explanations/oauth-and-identity/) for scope and token distinctions.

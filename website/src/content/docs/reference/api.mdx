@@ -1,0 +1,99 @@
+---
+title: Application API reference
+description: Sésame manager methods, OAuth guard methods, events, and extension contracts.
+---
+
+## Manager service
+
+The initialized default service is imported from `@julr/sesame/services/main`.
+
+| Member                                               | Result or behavior                                                                                             |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `config`                                             | Resolved server configuration.                                                                                 |
+| `store`                                              | Resolved `SesameStore`.                                                                                        |
+| `isOidcEnabled`                                      | True when JWK and OIDC provider are present.                                                                   |
+| `keyService`                                         | Configured signing key service. Throws without a JWK.                                                          |
+| `findUserById(userId)`                               | Original user from `oidcProvider`, or `null`.                                                                  |
+| `findPendingAuthorizationRequest({ token, userId })` | Pending record or `null`. Hashes the raw token and checks owner, expiry, and consumption. Does not consume it. |
+| `hasScope(scope)`                                    | True when the name is in configured application scopes.                                                        |
+| `usesOidcScopes(scopes)`                             | True when the array contains an OIDC scope.                                                                    |
+| `validateScopes(scopes)`                             | Array of invalid scope names. Includes `profile` and `email` without `openid`.                                 |
+| `isGrantTypeEnabled(grantType)`                      | True when the grant appears in config.                                                                         |
+| `revokeAllForUser(userId)`                           | Revokes the user's tokens and removes authorization artifacts through the store.                               |
+| `purgeTokens(options?)`                              | Counts deleted access tokens, refresh tokens, codes, and pending requests.                                     |
+
+`purgeTokens` options are `revokedOnly`, `expiredOnly`, and `retentionHours`. Both categories are selected by default. Retention defaults to 168 hours.
+
+## Client management
+
+These methods use the public `clientId`. Results are plain records, not Lucid model instances.
+
+| Method                            | Result                                                                              |
+| --------------------------------- | ----------------------------------------------------------------------------------- |
+| `createClient(options)`           | `{ client, clientSecret }`. Secret is raw and `null` for public clients.            |
+| `findClient(clientId)`            | Record or `null`.                                                                   |
+| `listClients(options?)`           | Records. Optional `{ userId }` filter.                                              |
+| `updateClient(clientId, options)` | Updated record or `null`.                                                           |
+| `deleteClient(clientId)`          | Boolean indicating whether a client was deleted. Related OAuth records are deleted. |
+| `rotateClientSecret(clientId)`    | New raw secret, or `null` for public or missing clients.                            |
+
+Creation requires `name` and `redirectUris`. Optional fields are `scopes`, `grantTypes`, `isPublic`, `requirePkce`, `userId`, and `metadata`. Defaults are config `defaultScopes`, `['authorization_code']`, `false`, and `true` for the first four options respectively. `userId` and `metadata` default to `null`.
+
+Update accepts `name`, `redirectUris`, `scopes`, `grantTypes`, `isDisabled`, `requirePkce`, and `metadata`. It does not change ownership or client type.
+
+The stored `clientSecret` hash is non-enumerable on management results. Direct property access still returns the hash. Management APIs do not apply the dynamic registration HTTP validator.
+
+## Route registration
+
+| Method                                             | Behavior                                                                      |
+| -------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `registerRoutes()`                                 | Registers relative OAuth routes with the injected router. No router argument. |
+| `registerDiscoveryRoutes(options?)`                | Registers root discovery and JWKS. Optional `{ jwksPath }`.                   |
+| `registerProtectedResource({ resource, scopes? })` | Publishes discovery for a resource path. Does not protect the resource.       |
+| `registerWellKnownRoutes(options?)`                | Deprecated alias for `registerDiscoveryRoutes`.                               |
+
+## OAuth guard
+
+`oauthGuard({ provider, resource? })` is exported from `@julr/sesame/guard`. `resource` is a path suffix for the protected-resource metadata challenge.
+
+| Member                       | Behavior                                                              |
+| ---------------------------- | --------------------------------------------------------------------- |
+| `authenticate()`             | Resolves the token's user or throws an unauthorized access exception. |
+| `check()`                    | True for successful authentication, false for unauthorized access.    |
+| `getUserOrFail()`            | Returns the user or throws.                                           |
+| `hasScope(...scopes)`        | Requires every listed scope.                                          |
+| `hasAnyScope(...scopes)`     | Requires at least one listed scope.                                   |
+| `user`                       | Resolved application user after success.                              |
+| `scopes`                     | Granted token scopes after success.                                   |
+| `clientId`                   | Token's public client ID after success.                               |
+| `authenticationAttempted`    | Whether the guard already attempted authentication.                   |
+| `isAuthenticated`            | Whether authentication succeeded.                                     |
+| `authenticateAsClient(user)` | Creates database-backed credentials for Japa's `loginAs` integration. |
+
+The guard checks the access token's record, expiry, revocation, and user lookup. It does not use the current client record as its token-validity check.
+
+## Guard events
+
+| Event                                 | Payload                      |
+| ------------------------------------- | ---------------------------- |
+| `oauth_auth:authentication_attempted` | `ctx`, `guardName`.          |
+| `oauth_auth:authentication_succeeded` | `ctx`, `guardName`, `user`.  |
+| `oauth_auth:authentication_failed`    | `ctx`, `guardName`, `error`. |
+
+The attempted event runs when guard authentication starts, including requests without a Bearer token. Repeated authentication on the same guard does not start another attempt.
+
+## User providers and claims
+
+`OAuthUserProviderContract<User>` from `@julr/sesame/guard` requires `[symbols.PROVIDER_REAL_USER]`, `createUserForGuard(user)`, and `findById(identifier)`. A guard user has `getId()` and `getOriginal()`.
+
+The Lucid adapter `oauthUserProvider`, class `OAuthLucidUserProvider`, and type `OAuthLucidUserProviderOptions` are exported from `@julr/sesame/guard/lucid`.
+
+`OidcSubject`, `Scope`, and `collectOidcClaims` are exported from `@julr/sesame/types`. The helper combines claims mapped to granted scopes and filters protocol-managed claims.
+
+## Custom storage
+
+`SesameStore` describes OAuth-specific operations, not generic CRUD. Custom stores are wrapped in an AdonisJS `ConfigProvider<SesameStore>`.
+
+`exchangeAuthorizationCode`, `rotateRefreshToken`, and `issueTokenPair` require database transactions. Code exchange and rotation return `false` when another request consumed the credential first. Pending request consumption must be atomic and check the authenticated owner and deadline.
+
+The complete method and record contracts live in `src/storage/types.ts` in the repository and are exported through `@julr/sesame/storage/types`. The Lucid and Kysely drivers implement those contracts.
