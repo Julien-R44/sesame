@@ -26,9 +26,28 @@ import type { SesameStore } from '../src/storage/types.ts'
 import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
 import { OAuthRefreshToken } from '../src/models/oauth_refresh_token.ts'
 import * as kyselyUpgrade from '../src/storage/migrations/sesame_v000800_add_oauth_grants.ts'
+import * as kyselyResourceUpgrade from '../src/storage/migrations/sesame_v000800_add_oauth_resource_columns.ts'
 import * as kyselyV07 from './fixtures/migrations_0_7/kysely.ts'
 
 const STUBS_ROOT = fileURLToPath(new URL('../stubs/', import.meta.url))
+const RESOURCE_TABLES = [
+  'oauth_pending_authorization_requests',
+  'oauth_authorization_codes',
+  'oauth_access_tokens',
+  'oauth_refresh_tokens',
+]
+
+/**
+ * List the tables of a Kysely database that have a `resource` column.
+ */
+async function kyselyResourceTables(db: Kysely<any>) {
+  const tables = await db.introspection.getTables()
+
+  return tables
+    .filter((table) => table.columns.some((column) => column.name === 'resource'))
+    .map((table) => table.name)
+    .sort()
+}
 
 /**
  * Run the given Ace command inside a throwaway application root.
@@ -129,6 +148,9 @@ test.group('sesame:upgrade command', () => {
     const published = await readdir(join(root, 'database/migrations'))
     assert.lengthOf(published, stubs.length)
     assert.isTrue(published.some((file) => /^\d+_upgrade_0_8_add_oauth_grants\.ts$/.test(file)))
+    assert.isTrue(
+      published.some((file) => /^\d+_upgrade_0_8_add_oauth_resource_columns\.ts$/.test(file))
+    )
   })
 
   test('publishes the Kysely upgrade migrations', async ({ assert, cleanup }) => {
@@ -144,6 +166,32 @@ test.group('sesame:upgrade command', () => {
       'utf8'
     )
     assert.equal(contents.trimEnd(), source.trimEnd())
+
+    const resourceContents = await readFile(
+      join(root, 'database/kysely_migrations/sesame_v000800_add_oauth_resource_columns.ts'),
+      'utf8'
+    )
+    const resourceSource = await readFile(
+      new URL(
+        '../src/storage/migrations/sesame_v000800_add_oauth_resource_columns.ts',
+        import.meta.url
+      ),
+      'utf8'
+    )
+    assert.equal(resourceContents.trimEnd(), resourceSource.trimEnd())
+  })
+
+  test('keeps upgrade stub bodies free of template literal syntax', async ({ assert }) => {
+    for (const store of ['lucid', 'kysely']) {
+      const folder = join(STUBS_ROOT, 'migrations/upgrade_0_8', store)
+      for (const file of await readdir(folder)) {
+        const contents = await readFile(join(folder, file), 'utf8')
+        const body = contents.slice(contents.indexOf('}}}') + 3)
+
+        assert.notInclude(body, '`', file)
+        assert.notInclude(body, '${', file)
+      }
+    }
   })
 
   test('fails for an unknown version or store', async ({ assert, cleanup }) => {
@@ -187,12 +235,16 @@ test.group('Upgrade 0.7 to 0.8 | Kysely', () => {
       })
 
       await kyselyUpgrade.up(db)
+      await kyselyResourceUpgrade.up(db)
+      assert.deepEqual(await kyselyResourceTables(db), [...RESOURCE_TABLES].sort())
       const tables = (await db.introspection.getTables()).map((table) => table.name)
       assert.include(tables, 'oauth_grants')
       assert.notInclude(tables, 'oauth_consents')
 
       await assertLegacyTokensWork({ manager, ...tokens, assert })
 
+      await kyselyResourceUpgrade.down(db)
+      assert.deepEqual(await kyselyResourceTables(db), [])
       await kyselyUpgrade.down(db)
       const restored = await db.introspection.getTables()
       assert.include(
@@ -264,6 +316,17 @@ test.group('Upgrade 0.7 to 0.8 | Lucid', () => {
     ).build('migrations/upgrade_0_8/lucid/add_oauth_grants.stub', { source: STUBS_ROOT })
     const { contents } = await stub.prepare({ prefix: '0007' })
     await writeFile(join(directory, '0007_upgrade_0_8_add_oauth_grants.ts'), contents)
+    const resourceStub = await (
+      await app.stubs.create()
+    ).build('migrations/upgrade_0_8/lucid/add_oauth_resource_columns.stub', {
+      source: STUBS_ROOT,
+    })
+    const resourceMigration = await resourceStub.prepare({ prefix: '0008' })
+    assert.match(resourceMigration.destination, /0008_upgrade_0_8_add_oauth_resource_columns\.ts$/)
+    await writeFile(
+      join(directory, '0008_upgrade_0_8_add_oauth_resource_columns.ts'),
+      resourceMigration.contents
+    )
 
     await runLucidMigrations(app, 'up')
     assert.isTrue(await db.connection().schema.hasTable('oauth_grants'))
@@ -271,6 +334,9 @@ test.group('Upgrade 0.7 to 0.8 | Lucid', () => {
     assert.isTrue(
       await db.connection().schema.hasColumn('oauth_authorization_codes', 'consumed_at')
     )
+    for (const table of RESOURCE_TABLES) {
+      assert.isTrue(await db.connection().schema.hasColumn(table, 'resource'), table)
+    }
 
     await assertLegacyTokensWork({ manager, ...tokens, assert })
 
