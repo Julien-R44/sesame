@@ -302,6 +302,33 @@ test.group('HTTP | Resource indicators — token endpoint', (group) => {
     assert.equal(refreshToken.resource, MCP_A)
   })
 
+  test('keeps the resource when adopting a legacy refresh token into a grant', async ({
+    client,
+    assert,
+  }) => {
+    await createTestClient()
+    const { rawRefreshToken } = await createTestRefreshToken({ grantId: null, resource: MCP_A })
+
+    const response = await client.post(`${ctx.baseUrl}/oauth/token`).form({
+      grant_type: 'refresh_token',
+      refresh_token: rawRefreshToken,
+      client_id: 'test-client',
+      client_secret: 'test-secret',
+    })
+
+    response.assertStatus(200)
+    const accessToken = await OAuthAccessToken.query()
+      .where('tokenHash', hashToken(ctx.manager, response.body().access_token))
+      .firstOrFail()
+    const refreshToken = await OAuthRefreshToken.query()
+      .where('token', hashToken(ctx.manager, response.body().refresh_token))
+      .firstOrFail()
+    assert.isString(accessToken.grantId)
+    assert.equal(refreshToken.grantId, accessToken.grantId)
+    assert.equal(accessToken.resource, MCP_A)
+    assert.equal(refreshToken.resource, MCP_A)
+  })
+
   test('rejects refreshing for another resource without rotating', async ({ client, assert }) => {
     await createTestClient()
     const { rawRefreshToken } = await createTestRefreshToken({ resource: MCP_A })
