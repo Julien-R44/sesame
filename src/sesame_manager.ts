@@ -33,6 +33,7 @@ import type {
   OAuthPendingAuthorizationRequestRecord,
   SesameStore,
 } from './storage/types.ts'
+import { findClientByExactId } from './storage/find_client_by_exact_id.ts'
 
 export interface PurgeResult {
   accessTokens: number
@@ -337,7 +338,9 @@ export class SesameManager {
   async listGrants(options: ListGrantsOptions): Promise<SesameGrant[]> {
     const grants = await this.#store.listGrants({ ...options, activeAt: DateTime.now() })
     const clientIds = [...new Set(grants.map((grant) => grant.clientId))]
-    const clients = await Promise.all(clientIds.map((clientId) => this.#store.findClient(clientId)))
+    const clients = await Promise.all(
+      clientIds.map((clientId) => findClientByExactId({ store: this.#store, clientId }))
+    )
     const clientsById = new Map(
       clients.flatMap((client) => (client ? [[client.clientId, this.#publicClient(client)]] : []))
     )
@@ -479,8 +482,7 @@ export class SesameManager {
    * Find a client by its public client_id.
    */
   async findClient(clientId: string) {
-    const store = this.#store
-    const client = await store.findClient(clientId)
+    const client = await findClientByExactId({ store: this.#store, clientId })
 
     return client ? this.#publicClient(client) : null
   }
@@ -501,7 +503,7 @@ export class SesameManager {
    */
   async updateClient(clientId: string, options: UpdateClientOptions) {
     const store = this.#store
-    const client = await store.findClient(clientId)
+    const client = await findClientByExactId({ store, clientId })
     if (!client) return null
 
     if (options.name !== undefined) client.name = options.name
@@ -514,7 +516,7 @@ export class SesameManager {
 
     await store.updateClient({ id: client.id, data: options })
 
-    const updated = await store.findClient(clientId)
+    const updated = await findClientByExactId({ store, clientId })
 
     return updated ? this.#publicClient(updated) : null
   }
@@ -524,6 +526,9 @@ export class SesameManager {
    * Returns true if the client was found and deleted.
    */
   async deleteClient(clientId: string): Promise<boolean> {
+    const client = await findClientByExactId({ store: this.#store, clientId })
+    if (!client) return false
+
     return this.#store.deleteClient(clientId)
   }
 
@@ -533,7 +538,7 @@ export class SesameManager {
    */
   async rotateClientSecret(clientId: string): Promise<string | null> {
     const store = this.#store
-    const client = await store.findClient(clientId)
+    const client = await findClientByExactId({ store, clientId })
     if (!client || client.isPublic) return null
 
     const clientService = new ClientService()
