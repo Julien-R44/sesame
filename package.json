@@ -1,7 +1,7 @@
 {
   "name": "@julr/sesame",
   "description": "OAuth 2.1 + OIDC server for AdonisJS",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "engines": {
     "node": ">=24.0.0"
   },
