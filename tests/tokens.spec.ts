@@ -159,18 +159,8 @@ test.group('Integration | Refresh Token Grant', (group) => {
 
   test('grace period allows recently-rotated refresh token reuse', async ({ assert }) => {
     const client = await createTestClient()
-    const manager = createManager()
-    const tokenService = new TokenService(manager)
-
-    const rawRefreshToken = 'recently-rotated-refresh'
-    await OAuthRefreshToken.create({
-      id: crypto.randomUUID(),
-      token: tokenService.hashToken(rawRefreshToken),
-      accessTokenId: crypto.randomUUID(),
-      clientId: 'test-client',
-      userId: 'user-1',
+    const { rawRefreshToken, manager } = await createTestRefreshToken({
       scopes: ['read'],
-      expiresAt: DateTime.now().plus({ days: 30 }),
       revokedAt: DateTime.now().minus({ seconds: 30 }),
     })
 
