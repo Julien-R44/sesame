@@ -2,7 +2,12 @@ import type { HttpContext } from '@adonisjs/core/http'
 import { SesameManager } from '../sesame_manager.ts'
 import { E_SERVER_ERROR } from '../oauth_error.ts'
 import { SUPPORTED_PROMPT_VALUES } from '../prompt.ts'
-import { BUILTIN_SCOPES, type AuthServerMetadata, type ResourceServerMetadata } from '../types.ts'
+import {
+  BUILTIN_SCOPES,
+  OIDC_SCOPES,
+  type AuthServerMetadata,
+  type ResourceServerMetadata,
+} from '../types.ts'
 
 type RouterLike = {
   has(routeIdentifier: string): boolean
@@ -70,6 +75,16 @@ export default class MetadataController {
   }
 
   /**
+   * Scopes clients can request: the OIDC scopes when OIDC is enabled,
+   * the configured scopes, and the built-in ones.
+   */
+  #supportedScopes(manager: SesameManager): string[] {
+    const oidcScopes = manager.isOidcEnabled ? [...OIDC_SCOPES] : []
+
+    return [...new Set([...oidcScopes, ...Object.keys(manager.config.scopes), ...BUILTIN_SCOPES])]
+  }
+
+  /**
    * OAuth 2.0 Authorization Server Metadata (RFC 8414).
    *
    * Returns a JSON document describing the server's endpoints,
@@ -101,6 +116,7 @@ export default class MetadataController {
         : undefined,
       introspection_endpoint: router.makeUrl('sesame.introspect', {}, { prefixUrl }),
       revocation_endpoint: router.makeUrl('sesame.revoke', {}, { prefixUrl }),
+      scopes_supported: this.#supportedScopes(manager),
       response_types_supported: ['code'],
       response_modes_supported: ['query'],
       grant_types_supported: manager.config.grantTypes,
@@ -149,15 +165,7 @@ export default class MetadataController {
       jwks_uri: router.makeUrl('sesame.jwks', {}, { prefixUrl }),
       subject_types_supported: ['public'],
       id_token_signing_alg_values_supported: ['RS256'],
-      scopes_supported: [
-        ...new Set([
-          'openid',
-          'profile',
-          'email',
-          ...Object.keys(manager.config.scopes),
-          ...BUILTIN_SCOPES,
-        ]),
-      ],
+      scopes_supported: this.#supportedScopes(manager),
       claims_supported: ['sub', 'iss', 'aud', 'exp', 'iat', 'nonce', 'at_hash'],
       response_types_supported: ['code'],
     }

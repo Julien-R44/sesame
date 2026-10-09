@@ -69,4 +69,4 @@ Requests with `prompt=none` no longer redirect to your login or consent page:
 - When the requested scopes are not covered by a remembered consent, Sésame redirects to the client with `error=consent_required`.
 - `prompt=none` combined with another value returns `error=invalid_request`.
 
-Other `prompt` values (`login`, `select_account`, `create`) are still ignored. Discovery documents now include `prompt_values_supported: ["none", "consent"]`.
+Other `prompt` values (`login`, `select_account`, `create`) are still ignored. Discovery documents now include `prompt_values_supported: ["none", "consent"]`. The authorization server metadata (`/.well-known/oauth-authorization-server`) also lists `scopes_supported` (RFC 8414), with the same values as the OpenID Connect discovery document.
