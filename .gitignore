@@ -9,6 +9,7 @@ build
 dist
 docs/ai/
 package-lock.json
+website/.astro
 
 # opensrc - source code for packages
 opensrc/

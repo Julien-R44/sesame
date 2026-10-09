@@ -1,0 +1,53 @@
+---
+title: Client metadata document reference
+description: URL validation, document fields, fetching, caching, and fetcher extension APIs.
+---
+
+## Client ID URLs
+
+Document resolution is opt-in through `clientIdMetadataDocuments`. HTTPS URL client IDs are rejected when the feature is disabled, including stored clients.
+
+The URL must be canonical HTTPS with a non-root path and a hostname rather than an IP address. Query, fragment, userinfo, and URLs longer than 255 characters are rejected. Allowed hosts use exact host matches or a leftmost wildcard; host checks are case-insensitive.
+
+Client ID comparisons are exact. MySQL and MariaDB case-insensitive collations can make case variants collide, but Sésame rejects the mismatched stored ID. Supporting both variants requires binary collations on the client ID column and its foreign key columns.
+
+## Document fields
+
+| Field                                             | Requirement or behavior                                                                                                                                                          |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `client_id`                                       | Required. Exactly the fetched URL.                                                                                                                                               |
+| `client_name`                                     | Required nonempty name, at most 255 characters.                                                                                                                                  |
+| `redirect_uris`                                   | Required nonempty array. Uses redirect URI validation.                                                                                                                           |
+| `token_endpoint_auth_method`                      | Absent or `none`. Shared-secret methods and `private_key_jwt` are unsupported.                                                                                                   |
+| `client_secret`, `client_secret_expires_at`       | Forbidden.                                                                                                                                                                       |
+| `response_types`                                  | If present, includes `code`.                                                                                                                                                     |
+| `grant_types`                                     | Defaults to authorization code and refresh. Only enabled authorization code and refresh grants are kept. Authorization code must remain enabled; unsupported grants are ignored. |
+| `scope`                                           | Keeps scopes valid for the server and available OIDC configuration. When absent or empty, uses `defaultScopes`.                                                                  |
+| `software_id`, `software_version`                 | Optional strings, at most 255 characters.                                                                                                                                        |
+| `client_uri`, `logo_uri`, `tos_uri`, `policy_uri` | Optional HTTPS metadata URLs. Stored for display, not fetched.                                                                                                                   |
+
+Stored clients are public with mandatory PKCE. Anonymous resolutions are not persisted. Authenticated authorization persists the record. All metadata document authorizations require consent.
+
+## Fetch restrictions
+
+The default fetcher checks every resolved IP at connection time and rejects special-use ranges, including loopback, private, link-local, and IPv4-mapped IPv6 addresses. This check also applies after DNS resolution changes.
+
+The fetcher accepts only status 200, never follows redirects, and requires JSON content type, including `application/*+json`. Content encoding is forbidden. Timeout and response size limits apply to the whole fetch. `HTTPS_PROXY` is not used.
+
+Fetch failures return `invalid_client` before callback trust is established. Network details are logged under `err` rather than exposed to the browser. Document validation errors retain specific descriptions.
+
+## Caching
+
+Stored client freshness follows response `Cache-Control: max-age` or `Expires`, adjusted by `Age` and `Date`, then clamped to configured bounds. The defaults are five minutes and 24 hours. Stale responses, missing freshness, `no-store`, and `no-cache` use the minimum lifetime.
+
+After expiry, the next authorization fetches the document again. A failed fetch or validation fails authorization even when a stored copy exists. Refresh overwrites document-derived fields and preserves disabled state and custom metadata keys.
+
+Anonymous resolutions use a per-process cache of at most 500 entries. Successes last `minTtl`; failures last five seconds.
+
+## Fetcher extension
+
+`ClientMetadataDocumentFetcher` and `isSpecialUseAddress` are exported from `@julr/sesame/client_id_metadata_documents/fetcher`.
+
+The fetcher constructor accepts `isAddressAllowed(address)` and `ca`. `ca` replaces Node's default certificate authorities. The container resolves the fetcher, so an application provider or test can swap it. A subclass can override `fetch()` for fixture documents.
+
+The [development fetcher example](/guides/client-metadata-documents/#configure-a-development-fetcher) shows a CA and address override. Relaxing address restrictions permits client-supplied URLs to reach those addresses.

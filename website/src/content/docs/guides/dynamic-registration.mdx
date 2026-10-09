@@ -1,0 +1,44 @@
+---
+title: Allow dynamic client registration
+description: Let external clients register OAuth metadata through the registration endpoint.
+---
+
+## Enable registration
+
+Set `allowDynamicRegistration: true` in `config/sesame.ts`.
+
+To permit registration without an authenticated user, also set `allowPublicRegistration: true`. This flag controls unauthenticated registration. It does not choose whether the resulting OAuth client is public.
+
+If registration requires a user, add middleware to the registration request pipeline that authenticates your chosen guard before the controller runs. The controller reads `ctx.auth.user` and does not call `auth.check()` itself. A Bearer header alone does not populate that user.
+
+Keep the rest of the OAuth group callable without a browser session. Apply your registration policy to that endpoint rather than the whole group.
+
+## Register a public OAuth client
+
+For unauthenticated registration, send client metadata as JSON:
+
+```bash
+curl https://auth.example.com/oauth/register \
+	-H 'Content-Type: application/json' \
+	-d '{
+		"client_name": "Desktop client",
+		"redirect_uris": ["http://localhost:8080/callback"],
+		"grant_types": ["authorization_code", "refresh_token"],
+		"scope": "read",
+		"token_endpoint_auth_method": "none"
+	}'
+```
+
+The server returns 201 with the client ID and registered metadata. `token_endpoint_auth_method: 'none'` creates a public client without a secret.
+
+For a confidential client, use `client_secret_basic` or `client_secret_post`. Save the returned secret at registration time.
+
+## Check the registration policy
+
+Test disabled registration, missing authentication, invalid callback URLs, unknown scopes, and disabled grant types before exposing the endpoint. See the [registration reference](/reference/endpoints/#dynamic-registration) for defaults and accepted fields.
+
+Dynamic registrations receive a private `registration: 'dynamic'` metadata marker. Token issuance records `first_authorized_at`. These markers support [unused client cleanup](/guides/test-and-operate/#remove-unused-dynamic-clients) and do not appear in the registration response.
+
+For clients that identify themselves with an HTTPS document URL, [enable Client ID Metadata Documents](/guides/client-metadata-documents/).
+
+Sésame does not implement a registration access token workflow for subsequent client management. Use your application's authenticated management code when clients need updates.

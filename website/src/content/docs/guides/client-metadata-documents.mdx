@@ -1,0 +1,127 @@
+---
+title: Enable Client ID Metadata Documents
+description: Resolve public OAuth clients from HTTPS metadata documents and show their identity on consent.
+---
+
+Client ID Metadata Documents let a public client use its document URL as `client_id`. No prior dynamic registration request is needed.
+
+## Enable document resolution
+
+Add the option to your existing server config:
+
+```ts
+clientIdMetadataDocuments: {
+	allowedHosts: ['clients.example.com', '*.trusted.example.com'],
+	cache: { minTtl: '5m', maxTtl: '24h' },
+	fetchTimeout: '5s',
+	maxResponseSize: 5120,
+},
+```
+
+To accept any public HTTPS host, use `clientIdMetadataDocuments: true`. For restricted deployments, list approved hosts. `*.trusted.example.com` does not include `trusted.example.com` itself.
+
+Keep dynamic registration enabled if older clients still need it. Discovery advertises `client_id_metadata_document_supported: true` when document resolution is enabled.
+
+## Publish a client document
+
+Serve a JSON document at a canonical HTTPS URL, such as `https://clients.example.com/oauth/client.json`:
+
+```json
+{
+	"client_id": "https://clients.example.com/oauth/client.json",
+	"client_name": "Desktop app",
+	"redirect_uris": ["http://127.0.0.1/callback"],
+	"token_endpoint_auth_method": "none",
+	"grant_types": ["authorization_code", "refresh_token"],
+	"response_types": ["code"],
+	"scope": "read"
+}
+```
+
+Serve it with `Content-Type: application/json`, no content encoding, and a 200 response. Do not redirect the document URL. Replace the host and permissions with your actual client metadata.
+
+Start authorization using that exact URL as `client_id` and S256 PKCE. Loopback callbacks can use a different port from the registered URL; the host, path, and query still match.
+
+The server validates anonymous authorization requests without storing the client. Once a user authenticates, it persists the client before displaying consent. Token, introspection, and revocation requests use that stored client and never fetch the document.
+
+## Show the client and callback hosts
+
+From the consent page's authenticated lookup, read `pending.clientId` and `pending.redirectUri`. For metadata clients, display the document host and callback host in addition to the client name:
+
+```ts
+const isMetadataDocument = pending.clientId.startsWith('https://')
+const clientHost = isMetadataDocument ? new URL(pending.clientId).host : null
+const redirectUri = new URL(pending.redirectUri)
+const redirectHost = redirectUri.host
+const isLoopbackRedirect = ['localhost', '127.0.0.1', '[::1]'].includes(redirectUri.hostname)
+```
+
+Here `pending` is the owner-checked record from [the consent lookup](/guides/login-and-consent/#load-the-consent-page-from-the-stored-request). Pass these values to your view. For a loopback redirect, explain that the callback goes to a local application.
+
+Consent appears on every authorization because any process can reuse a public document URL. `prompt=none` returns `consent_required` for these clients. Each authorization has its own grant, so replay or revocation affects only that authorization.
+
+If you display `logo_uri`, the logo host receives the browser request. Sésame does not proxy logos.
+
+## Disable or remove a client
+
+Use the document URL in management calls:
+
+```ts
+await sesame.updateClient('https://clients.example.com/oauth/client.json', {
+	isDisabled: true,
+})
+```
+
+Disabled state survives metadata refresh. Document refresh replaces the name, callbacks, scopes, grants, and document-derived metadata; custom metadata keys survive. Editing those document-derived fields locally is temporary.
+
+Turning the feature off or removing an allowed host rejects that client's authorize, consent, token, introspection, revocation, and client-info requests. Existing access tokens remain usable. To remove the client and its tokens, call `sesame.deleteClient(documentUrl)`.
+
+Metadata clients are never removed by unused-client purge. See [document validation and fetch restrictions](/reference/client-metadata-documents/) for lookup limits and cache behavior.
+
+## Configure a development fetcher
+
+Use a custom fetcher for local development when the default SSRF checks reject your document server. This guide assumes `certs/dev-ca.pem` contains your development CA and a hostname resolves to a loopback address. The client ID URL must still pass document URL validation.
+
+### Swap the fetcher in development
+
+Add a provider with a development-only container swap:
+
+```ts title="providers/app_provider.ts"
+import { readFileSync } from 'node:fs'
+import type { ApplicationService } from '@adonisjs/core/types'
+import {
+	ClientMetadataDocumentFetcher,
+	isSpecialUseAddress,
+} from '@julr/sesame/client_id_metadata_documents/fetcher'
+
+const LOOPBACK_ADDRESSES = ['127.0.0.1', '::1']
+
+export default class AppProvider {
+	#app: ApplicationService
+
+	constructor(app: ApplicationService) {
+		this.#app = app
+	}
+
+	async boot() {
+		if (!this.#app.inDev) return
+
+		this.#app.container.swap(
+			ClientMetadataDocumentFetcher,
+			() => new ClientMetadataDocumentFetcher({
+				ca: readFileSync('certs/dev-ca.pem'),
+				isAddressAllowed: (address) =>
+					LOOPBACK_ADDRESSES.includes(address) || !isSpecialUseAddress(address),
+			}),
+		)
+	}
+}
+```
+
+Register this provider in your application's `adonisrc.ts` if it is not already registered. Serve a metadata document over HTTPS using the trusted development certificate.
+
+### Verify the document
+
+Start authorization with the local hostname's document URL. Confirm that the authenticated request reaches your document server and creates a public client.
+
+Keep the development guard on this swap. For an internal certificate authority in production, set `ca` while retaining the default address restrictions. The CA list replaces Node's defaults, so include every CA your deployment needs.

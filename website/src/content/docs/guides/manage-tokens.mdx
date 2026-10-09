@@ -1,0 +1,75 @@
+---
+title: Manage tokens
+description: Renew OAuth grants, revoke credentials, and inspect token state.
+---
+
+These requests assume that [OAuth routes](/guides/getting-started/#register-the-routes) use the `/oauth` prefix. Set `CLIENT_ID` and `CLIENT_SECRET` to confidential client credentials.
+
+## Refresh a token
+
+Exchange the latest refresh token for a new pair:
+
+```bash
+curl https://auth.example.com/oauth/token \
+	-u "$CLIENT_ID:$CLIENT_SECRET" \
+	--data-urlencode grant_type=refresh_token \
+	--data-urlencode "refresh_token=$REFRESH_TOKEN"
+```
+
+For a public client, omit `-u` and send `client_id` in the body. Both the server and client must enable `refresh_token`.
+
+Replace your saved access token and refresh token with the response values. To narrow permissions, add `--data-urlencode scope=read`. A refresh cannot add scopes that the original grant did not contain.
+
+### Rotation and replay
+
+Each refresh issues a new pair and revokes the old refresh token. Save both new values together and coordinate refresh requests.
+
+The default 120-second grace period permits a recently revoked refresh token to issue another pair after a lost response or concurrent request. The server does not return the original pair. This also permits reuse of a stolen token during the window.
+
+Outside the window, replay revokes that grant and its tokens. Other grants remain valid. Set `refreshTokenRotationGracePeriod: 0` for strict detection, including retries after a lost response. Purge retains revoked refresh tokens for replay detection; [configure retention](/guides/test-and-operate/#purge-old-records) accordingly.
+
+The `offline_access` scope does not enable refresh by itself. Server and client grant settings control token issuance.
+
+## Revoke a token
+
+Send the token to the revocation endpoint:
+
+```bash
+curl https://auth.example.com/oauth/revoke \
+	-u "$CLIENT_ID:$CLIENT_SECRET" \
+	--data-urlencode "token=$REFRESH_TOKEN" \
+	--data-urlencode token_type_hint=refresh_token
+```
+
+After client authentication succeeds, the endpoint returns 200 with `{}` even when the token is missing or unknown. Revoking a refresh token revokes its whole grant and all tokens issued from it. A grant-less legacy refresh token revokes its associated access token. Revoking an access token only revokes that token.
+
+## Revoke a user's grants
+
+When your application deactivates or deletes a user, revoke that user's OAuth artifacts:
+
+```ts
+import sesame from '@julr/sesame/services/main'
+
+await sesame.revokeAllForUser('42')
+```
+
+Pass your application's user ID as a string. To revoke one authorization or disconnect one client, [manage grants](/guides/manage-grants/).
+
+## Inspect a client's token
+
+Authenticate as the client that owns the token:
+
+```bash
+curl https://auth.example.com/oauth/introspect \
+	-u "$CLIENT_ID:$CLIENT_SECRET" \
+	--data-urlencode "token=$ACCESS_TOKEN" \
+	--data-urlencode token_type_hint=access_token
+```
+
+An active token returns `active: true` and metadata, including `aud` for a bound resource. Tokens with an expired or revoked grant are inactive. An invalid, expired, revoked, or other client's token returns `{ "active": false }`. Introspection does not provide unrestricted lookup across clients.
+
+## Token storage
+
+The database stores SHA-256 hashes of access tokens, refresh tokens, codes, pending authorization tokens, and client secrets. The OAuth guard looks up the token and its grant on each request, so revocation takes effect without waiting for expiry.
+
+ID tokens are [signed identity JWTs](/guides/enable-oidc/). For tokens issued before grants existed, see [existing tokens across an upgrade](/migrations/0-7-to-0-8/#existing-tokens-across-an-upgrade).

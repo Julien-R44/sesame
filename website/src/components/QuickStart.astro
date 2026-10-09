@@ -1,0 +1,301 @@
+---
+/**
+ * The homepage quick start as a single session: the two install commands,
+ * then the routes file they lead to, in one window. Each part copies on its
+ * own.
+ */
+const commands = [
+  {
+    command: 'node ace add @julr/sesame',
+    note: 'config/sesame.ts, migrations, provider, scope middleware',
+  },
+  {
+    command: 'node ace migration:run',
+    note: 'clients, codes, tokens, grants, pending requests',
+  },
+]
+
+const routes = `import router from '@adonisjs/core/services/router'
+import sesame from '@julr/sesame/services/main'
+
+router.group(() => {
+  sesame.registerRoutes()
+}).prefix('/oauth')
+
+sesame.registerDiscoveryRoutes()`
+
+const routesHtml = `<span class="k">import</span> router <span class="k">from</span> <span class="s">'@adonisjs/core/services/router'</span>
+<span class="k">import</span> sesame <span class="k">from</span> <span class="s">'@julr/sesame/services/main'</span>
+
+router.<span class="f">group</span>(() =&gt; {
+  sesame.<span class="f">registerRoutes</span>()     <span class="c">// /oauth/authorize, /oauth/token…</span>
+}).<span class="f">prefix</span>(<span class="s">'/oauth'</span>)
+
+sesame.<span class="f">registerDiscoveryRoutes</span>()  <span class="c">// /.well-known/*, JWKS</span>`
+---
+
+<sesame-quick-start class="session not-content">
+  <div class="block">
+    {
+      commands.map((item) => (
+        <div class="line">
+          <span class="prompt" aria-hidden="true">$</span>
+          <code class="cmd">{item.command}</code>
+          <button type="button" class="copy" data-copy={item.command} aria-label={`Copy ${item.command}`}>
+            <svg class="icon-copy" viewBox="0 0 16 16" aria-hidden="true">
+              <rect x="5.25" y="5.25" width="8" height="8" rx="1.75" />
+              <path d="M10.75 5.25V4A1.75 1.75 0 0 0 9 2.25H4A1.75 1.75 0 0 0 2.25 4v5c0 .97.78 1.75 1.75 1.75h1.25" />
+            </svg>
+            <svg class="icon-check" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="m3.5 8.5 3 3 6-7" />
+            </svg>
+          </button>
+          <span class="note">{item.note}</span>
+        </div>
+      ))
+    }
+  </div>
+
+  <div class="file">
+    <div class="file-head">
+      <span class="file-name">start/routes.ts</span>
+      <button type="button" class="copy" data-copy={routes} aria-label="Copy start/routes.ts">
+        <svg class="icon-copy" viewBox="0 0 16 16" aria-hidden="true">
+          <rect x="5.25" y="5.25" width="8" height="8" rx="1.75" />
+          <path d="M10.75 5.25V4A1.75 1.75 0 0 0 9 2.25H4A1.75 1.75 0 0 0 2.25 4v5c0 .97.78 1.75 1.75 1.75h1.25" />
+        </svg>
+        <svg class="icon-check" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="m3.5 8.5 3 3 6-7" />
+        </svg>
+      </button>
+    </div>
+    <pre class="code"><code set:html={routesHtml} /></pre>
+  </div>
+
+  <span class="sr-only" role="status" aria-live="polite"></span>
+</sesame-quick-start>
+
+<script>
+  class SesameQuickStart extends HTMLElement {
+    #timer: ReturnType<typeof setTimeout> | undefined
+
+    async #copy(button: HTMLButtonElement) {
+      const copied = await navigator.clipboard
+        .writeText(button.dataset.copy ?? '')
+        .then(() => true)
+        .catch(() => false)
+      if (!copied) return
+
+      const status = this.querySelector('[role="status"]')
+      this.querySelectorAll('[data-copied]').forEach((el) => el.removeAttribute('data-copied'))
+      button.toggleAttribute('data-copied', true)
+      if (status) status.textContent = 'Copied to clipboard'
+
+      clearTimeout(this.#timer)
+      this.#timer = setTimeout(() => {
+        button.removeAttribute('data-copied')
+        if (status) status.textContent = ''
+      }, 1600)
+    }
+
+    connectedCallback() {
+      this.querySelectorAll<HTMLButtonElement>('button[data-copy]').forEach((button) => {
+        button.addEventListener('click', () => this.#copy(button))
+      })
+    }
+  }
+
+  if (!customElements.get('sesame-quick-start')) {
+    customElements.define('sesame-quick-start', SesameQuickStart)
+  }
+</script>
+
+<style>
+  .session {
+    display: block;
+    min-width: 0;
+    border: 1px solid var(--sesame-code-border);
+    border-radius: var(--sesame-radius);
+    background: var(--sesame-code-bg);
+    font-family: var(--sl-font-mono);
+    font-size: 0.75rem;
+    line-height: 1.7;
+    overflow: hidden;
+  }
+
+  /* Shell commands. */
+  .block {
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+    padding: 1rem 0.625rem 1rem 1.25rem;
+  }
+
+  .line {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      'prompt cmd copy'
+      '. note note';
+    column-gap: 0.75rem;
+    align-items: center;
+  }
+
+  .prompt {
+    grid-area: prompt;
+    color: var(--sl-color-accent);
+    user-select: none;
+  }
+
+  .line .cmd {
+    grid-area: cmd;
+    overflow-x: auto;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    font-size: inherit;
+    overflow-wrap: normal;
+    white-space: nowrap;
+    color: var(--sl-color-white);
+    scrollbar-width: none;
+  }
+
+  .note {
+    grid-area: note;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: var(--sl-color-gray-4);
+  }
+
+  .note::before {
+    content: '✓ ';
+    color: var(--sl-color-purple);
+  }
+
+  /* The routes file, in the same window. */
+  .file {
+    border-top: 1px solid var(--sesame-code-border);
+  }
+
+  .file-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.25rem 0.625rem 0.25rem 1.25rem;
+    border-bottom: 1px solid var(--sesame-code-border);
+    background: var(--sesame-code-chrome);
+  }
+
+  .file-name {
+    font-size: 0.75rem;
+    color: var(--sl-color-gray-3);
+  }
+
+  .code {
+    margin: 0;
+    padding: 1rem 1.25rem 1.125rem;
+    overflow-x: auto;
+    border: 0;
+    background: none;
+    font-size: inherit;
+    line-height: inherit;
+    color: var(--sl-color-gray-2);
+    white-space: pre;
+  }
+
+  .code code {
+    padding: 0;
+    border: 0;
+    background: none;
+    font-size: inherit;
+    color: inherit;
+  }
+
+  .code :global(.k) {
+    color: var(--sl-color-accent-high);
+  }
+
+  .code :global(.s) {
+    color: var(--sl-color-purple);
+  }
+
+  .code :global(.f) {
+    color: var(--sl-color-white);
+  }
+
+  .code :global(.c) {
+    color: var(--sl-color-gray-4);
+  }
+
+  /* Copy buttons. */
+  .copy {
+    grid-area: copy;
+    position: relative;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 1.875rem;
+    height: 1.875rem;
+    border: 0;
+    border-radius: var(--sesame-radius-sm);
+    background: transparent;
+    color: var(--sl-color-gray-4);
+    cursor: pointer;
+    transition:
+      background-color 160ms ease,
+      color 160ms ease,
+      transform 160ms var(--sesame-ease-out);
+  }
+
+  .copy:hover {
+    background: var(--sl-color-gray-6);
+    color: var(--sl-color-white);
+  }
+
+  .copy:active {
+    transform: scale(0.94);
+  }
+
+  .copy:focus-visible {
+    outline: 2px solid var(--sl-color-accent);
+    outline-offset: 1px;
+  }
+
+  .copy svg {
+    grid-area: 1 / 1;
+    width: 0.9375rem;
+    height: 0.9375rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition:
+      opacity 200ms var(--sesame-ease-out),
+      transform 200ms var(--sesame-ease-out);
+  }
+
+  .copy .icon-check {
+    opacity: 0;
+    transform: scale(0.6);
+    stroke: var(--sl-color-accent);
+    stroke-width: 2;
+  }
+
+  .copy[data-copied] .icon-copy {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+
+  .copy[data-copied] .icon-check {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  @media (min-width: 56rem) {
+    .session {
+      font-size: 0.8125rem;
+    }
+  }
+</style>

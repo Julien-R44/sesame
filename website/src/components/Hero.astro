@@ -1,0 +1,374 @@
+---
+/**
+ * Homepage hero. The door icon is painted through a CSS mask so the exact
+ * logo shape stays intact in both themes, while light spills out of the
+ * doorway behind it. The mask is an inline SVG traced from
+ * `docs/assets/sesame-icon.png`, so it is ready on the first frame.
+ */
+import CopyCommand from './CopyCommand.astro'
+
+const { data } = Astro.locals.starlightRoute.entry
+const hero = data.hero!
+const doorPath =
+  'M 617.5 312.1 C 613.6 313,609.2 315,582.5 327.3 C 575.4 330.6,564.8 335.4,559 338 C 549.9 342.1,519.9 355.8,453 386.2 C 443.4 390.6,429.2 397,421.5 400.5 C 377.6 420.1,374.9 421.6,368.8 429.8 C 364.3 435.9,362.6 439.2,360.6 446 C 359.1 451,358.9 473.4,359 709.5 C 359 858.1,359.3 968.8,359.9 970.6 C 362.3 979,369.8 986.8,377.5 989 C 387.5 991.8,392.1 990.5,442 971 C 448.9 968.3,459.9 964.1,466.5 961.6 C 473.1 959.2,490.4 952.6,505 947 C 519.6 941.3,538.9 933.9,548 930.5 C 557.1 927.1,568.8 922.6,574 920.5 C 579.2 918.5,588.7 914.8,595 912.4 C 615.1 904.7,618.9 902.1,623.5 893.9 L 626.5 888.5 626.8 631.8 C 627 384.2,627.1 375,628.8 374.1 C 630.3 373.3,633.5 374.4,643.1 378.9 C 649.9 382.2,667.9 390.3,683 397 C 713.1 410.4,722.5 414.6,746.5 425.5 C 761.3 432.2,774.4 438.1,800.9 449.9 C 807.7 452.9,812 455.5,813.4 457.3 L 815.5 460.1 815.7 671.9 C 815.8 818.1,816.1 884.8,816.9 887.6 C 817.5 889.8,819.3 893.6,820.9 896.2 C 824.2 901.3,825.8 902.4,856 918.6 L 874.5 928.5 882.1 928.5 C 888.8 928.5,890.2 928.1,894.6 925.5 C 897.6 923.6,900.6 920.6,902.5 917.6 L 905.5 912.7 905.8 684.6 C 906 458.9,906 456.4,904 449.9 C 901.4 441.1,895.3 432.2,888.3 426.9 C 885.1 424.5,874.2 418.8,863.5 413.9 C 853.1 409.2,829 398.2,810 389.5 C 791 380.9,766.7 369.8,756 365 C 745.3 360.2,720.5 348.9,701 340 C 650.7 317,641.9 313.2,636.9 312.1 C 631.6 310.8,622.9 310.9,617.5 312.1'
+const doorSvg =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1254 1254">' +
+  `<path fill-rule="evenodd" d="${doorPath}"/></svg>`
+const icon = `data:image/svg+xml,${encodeURIComponent(doorSvg)}`
+
+const words = (hero.title ?? data.title).split(' ')
+const lastWord = words.pop()
+const actions = hero.actions ?? []
+---
+
+<section class="hero not-content" style={`--door: url("${icon}")`}>
+  <div class="copy">
+    <p class="eyebrow">
+      <span class="dot" aria-hidden="true"></span>
+      OAuth 2.1 · OpenID Connect · AdonisJS
+    </p>
+
+    <h1 id="_top" data-page-title>
+      {words.join(' ')} <em>{lastWord}</em>
+    </h1>
+
+    {hero.tagline && <p class="tagline" set:html={hero.tagline} />}
+
+    <div class="actions">
+      {
+        actions.map((action) => (
+          <a
+            href={action.link}
+            class:list={['action', action.variant === 'primary' ? 'primary' : 'secondary']}
+            {...action.attrs}
+          >
+            {action.text}
+            {action.variant === 'primary' ? (
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" />
+              </svg>
+            ) : null}
+          </a>
+        ))
+      }
+    </div>
+
+    <CopyCommand command="node ace add @julr/sesame" />
+  </div>
+
+  <div class="art" aria-hidden="true">
+    <div class="seeds"></div>
+    <div class="halo"></div>
+    <div class="beam"></div>
+    <div class="doorway"></div>
+    <div class="door"></div>
+  </div>
+</section>
+
+<style>
+  .hero {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+    align-items: center;
+    padding-block: 1rem 3rem;
+  }
+
+  @media (min-width: 50rem) {
+    .hero {
+      grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+      gap: 2rem;
+      padding-block: 3rem 5rem;
+    }
+  }
+
+  /* ---------------------------------------------------------------- copy -- */
+
+  .copy {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1.5rem;
+    order: 2;
+  }
+
+  @media (min-width: 50rem) {
+    .copy {
+      order: 0;
+    }
+  }
+
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.625rem;
+    margin: 0;
+    padding: 0.375rem 0.875rem 0.375rem 0.625rem;
+    border: 1px solid var(--sesame-border);
+    border-radius: var(--sesame-radius-sm);
+    background: color-mix(in oklab, var(--sesame-surface) 70%, transparent);
+    font-family: var(--sl-font-mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.02em;
+    color: var(--sl-color-gray-2);
+  }
+
+  .dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: var(--sl-color-accent);
+    box-shadow: 0 0 0 3px rgb(var(--sesame-glow) / 0.2), 0 0 12px rgb(var(--sesame-glow) / 0.8);
+  }
+
+  h1 {
+    margin: 0;
+    font-family: var(--sesame-font-display);
+    font-size: clamp(3rem, 1.5rem + 6vw, 5.75rem);
+    font-weight: 700;
+    line-height: 0.95;
+    letter-spacing: -0.045em;
+    color: var(--sl-color-white);
+    text-wrap: balance;
+  }
+
+  h1 em {
+    font-family: var(--sesame-font-serif);
+    font-style: italic;
+    font-weight: 400;
+    letter-spacing: -0.02em;
+    padding-inline-end: 0.08em;
+    color: var(--sl-color-accent-high);
+    background: linear-gradient(
+      100deg,
+      var(--sl-color-accent-high) 10%,
+      var(--sl-color-accent) 55%,
+      var(--sl-color-accent-high) 90%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .tagline {
+    max-width: 34rem;
+    margin: 0;
+    font-size: clamp(1.0625rem, 1rem + 0.35vw, 1.25rem);
+    line-height: 1.55;
+    color: var(--sl-color-gray-2);
+    text-wrap: pretty;
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .action {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    height: 2.875rem;
+    padding-inline: 1.25rem;
+    border-radius: var(--sesame-radius-sm);
+    font-weight: 600;
+    font-size: 0.9375rem;
+    text-decoration: none;
+    transition:
+      transform 160ms var(--sesame-ease-out),
+      background-color 160ms ease,
+      border-color 160ms ease,
+      box-shadow 200ms ease;
+  }
+
+  .action:active {
+    transform: scale(0.97);
+  }
+
+  .action svg {
+    width: 1rem;
+    height: 1rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.75;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: transform 200ms var(--sesame-ease-out);
+  }
+
+  .primary {
+    color: #1a1208;
+    background: linear-gradient(180deg, #ffcf70, #f0a92e);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.45),
+      inset 0 -1px 0 rgb(120 70 0 / 0.25),
+      0 1px 2px rgb(60 35 0 / 0.25),
+      0 8px 24px -8px rgb(var(--sesame-glow) / 0.65);
+  }
+
+  @media (hover: hover) {
+    .primary:hover {
+      box-shadow:
+        inset 0 1px 0 rgb(255 255 255 / 0.45),
+        inset 0 -1px 0 rgb(120 70 0 / 0.25),
+        0 1px 2px rgb(60 35 0 / 0.25),
+        0 12px 32px -8px rgb(var(--sesame-glow) / 0.85);
+    }
+
+    .primary:hover svg {
+      transform: translateX(2px);
+    }
+
+    .secondary:hover {
+      border-color: var(--sesame-border-strong);
+      background: var(--sesame-surface-raised);
+    }
+  }
+
+  .secondary {
+    color: var(--sl-color-white);
+    border: 1px solid var(--sesame-border);
+    background: var(--sesame-surface);
+  }
+
+  /* ----------------------------------------------------------------- art -- */
+
+  .art {
+    position: relative;
+    justify-self: center;
+    width: min(100%, 15rem);
+    aspect-ratio: 1;
+    isolation: isolate;
+  }
+
+  @media (min-width: 50rem) {
+    .art {
+      width: min(100%, 30rem);
+    }
+  }
+
+  .art > div {
+    position: absolute;
+    inset: 0;
+  }
+
+  /* Scattered sesame seeds, fading out from the door. */
+  .seeds {
+    inset: -15% !important;
+    z-index: -2;
+    background-color: var(--sesame-seed);
+    opacity: 0.16;
+    --pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180' viewBox='0 0 180 180'%3E%3Cdefs%3E%3Cpath id='s' d='M0-7C3.4-7 4.6-2 3.6 2.4 2.7 6 1.4 7 0 7S-2.7 6-3.6 2.4C-4.6-2-3.4-7 0-7Z'/%3E%3C/defs%3E%3Cuse href='%23s' transform='translate(22 30) rotate(-24)'/%3E%3Cuse href='%23s' transform='translate(96 18) rotate(38) scale(.8)'/%3E%3Cuse href='%23s' transform='translate(150 62) rotate(-62) scale(.9)'/%3E%3Cuse href='%23s' transform='translate(58 92) rotate(12) scale(.75)'/%3E%3Cuse href='%23s' transform='translate(124 126) rotate(70)'/%3E%3Cuse href='%23s' transform='translate(30 152) rotate(-48) scale(.85)'/%3E%3Cuse href='%23s' transform='translate(88 160) rotate(20) scale(.7)'/%3E%3Cuse href='%23s' transform='translate(168 160) rotate(-10) scale(.8)'/%3E%3C/svg%3E");
+    -webkit-mask:
+      var(--pattern) 0 0 / 90px 90px repeat,
+      radial-gradient(closest-side, #000 20%, transparent);
+    -webkit-mask-composite: source-in;
+    mask:
+      var(--pattern) 0 0 / 90px 90px repeat,
+      radial-gradient(closest-side, #000 20%, transparent);
+    mask-composite: intersect;
+  }
+
+  .halo {
+    z-index: -1;
+    background: radial-gradient(
+      closest-side at 57% 56%,
+      rgb(var(--sesame-glow) / 0.28),
+      rgb(var(--sesame-glow) / 0.08) 55%,
+      transparent
+    );
+    filter: blur(8px);
+    animation: breathe 7s ease-in-out 1.4s infinite;
+  }
+
+  /* Light inside the door frame (coordinates follow the icon artwork). */
+  .doorway {
+    background: linear-gradient(
+      100deg,
+      #fff6dc 0%,
+      #ffd67a 35%,
+      #f2a93b 100%
+    );
+    clip-path: polygon(48.5% 28.5%, 66.3% 36.5%, 66.3% 71.6%, 48.5% 71.6%);
+    transform-origin: 50% 50%;
+    animation: open 1100ms var(--sesame-ease-out) 200ms both;
+  }
+
+  /* Light falling on the floor in front of the door. */
+  .beam {
+    background: linear-gradient(
+      180deg,
+      rgb(var(--sesame-glow) / 0.7) 0%,
+      rgb(var(--sesame-glow) / 0.28) 40%,
+      transparent 92%
+    );
+    clip-path: polygon(50% 71.2%, 65.2% 71.2%, 100% 100%, 28% 100%);
+    filter: blur(1px);
+    transform-origin: 50% 71.4%;
+    animation: spill 1300ms var(--sesame-ease-out) 650ms both;
+  }
+
+  .door {
+    background-color: var(--sesame-door);
+    -webkit-mask: var(--door) center / 100% 100% no-repeat;
+    mask: var(--door) center / 100% 100% no-repeat;
+    filter: drop-shadow(0 18px 30px rgb(0 0 0 / 0.25));
+  }
+
+  @media (hover: hover) {
+    .doorway,
+    .beam {
+      transition: filter 400ms ease;
+    }
+
+    .art:hover .doorway {
+      filter: brightness(1.08) saturate(1.1);
+    }
+
+    .art:hover .beam {
+      filter: blur(1px) brightness(1.25);
+    }
+  }
+
+  @keyframes open {
+    from {
+      opacity: 0;
+      clip-path: polygon(48.5% 28.5%, 49.5% 29%, 49.5% 71.6%, 48.5% 71.6%);
+    }
+    to {
+      opacity: 1;
+      clip-path: polygon(48.5% 28.5%, 66.3% 36.5%, 66.3% 71.6%, 48.5% 71.6%);
+    }
+  }
+
+  @keyframes spill {
+    from {
+      opacity: 0;
+      transform: scaleY(0.6);
+    }
+    to {
+      opacity: 1;
+      transform: scaleY(1);
+    }
+  }
+
+  @keyframes breathe {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.7;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .doorway,
+    .beam,
+    .halo {
+      animation: none;
+    }
+  }
+</style>

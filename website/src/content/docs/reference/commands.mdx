@@ -1,0 +1,58 @@
+---
+title: Command reference
+description: Ace command flags for clients, signing keys, and OAuth cleanup.
+---
+
+The package installer registers these commands through `@julr/sesame/commands`.
+
+## sesame:client
+
+`node ace sesame:client` creates an OAuth client and outputs its client ID and raw secret when confidential.
+
+| Flag              | Type    | Meaning                                                       |
+| ----------------- | ------- | ------------------------------------------------------------- |
+| `--name`          | String  | Client name. Otherwise prompted.                              |
+| `--public`        | Boolean | Creates a public client without a secret.                     |
+| `--redirect-uris` | Array   | Redirect URIs. Otherwise prompted as a comma-separated value. |
+| `--scopes`        | Array   | Allowed scopes. Defaults to config `defaultScopes`.           |
+| `--grant-types`   | Array   | Allowed grants. Defaults to `['authorization_code']`.         |
+| `--user-id`       | String  | Owner user ID. Required for client credentials.               |
+
+The command prompts for public versus confidential unless `--public` is true. Name and redirect flags do not make a confidential creation fully noninteractive.
+
+## sesame:key
+
+`node ace sesame:key` generates an RSA JWK and displays configuration instructions.
+
+| Flag          | Meaning                                                       |
+| ------------- | ------------------------------------------------------------- |
+| `--raw`       | Outputs raw JSON for a file or secret manager.                |
+| `--write-env` | Adds or replaces `OIDC_JWK` in the application's `.env` file. |
+
+The output is a private signing key. The JWKS endpoint exposes only its public components.
+
+## sesame:upgrade
+
+`node ace sesame:upgrade 0.8` publishes all upgrade migrations for that version. It does not run them.
+
+The required version argument accepts `major.minor` or `major.minor.0`. `--store` selects `lucid` by default or `kysely`. Invalid store names or versions without bundled migrations produce exit code 1.
+
+Kysely 0.8 migration filenames are `sesame_v000800_add_oauth_grants.ts` and `sesame_v000800_add_oauth_resource_columns.ts`. Their version prefix preserves ordering after `create_oauth_tables.ts`.
+
+The [0.8 migration guide](/migrations/0-7-to-0-8/) describes application changes and migration execution.
+
+## sesame:purge
+
+`node ace sesame:purge` deletes revoked and expired OAuth records.
+
+| Flag            | Default | Meaning                                                              |
+| --------------- | ------- | -------------------------------------------------------------------- |
+| `--revoked`     | False   | Selects revoked records.                                             |
+| `--expired`     | False   | Selects expired records.                                             |
+| `--hours`       | `168`   | Retention hours for expired records and revoked refresh tokens.      |
+| `--clients`     | False   | Also removes unused dynamic registrations after token purge.         |
+| `--client-days` | `30`    | Minimum client age in days. Positive integer; used with `--clients`. |
+
+With neither selection flag, both categories are selected. With both flags, both are selected. Revoked refresh tokens use the retention cutoff so replay detection remains available. Revoked access tokens are eligible immediately.
+
+Expired pending authorization requests are removed immediately, regardless of selection flags or retention hours. The CLI total includes access tokens, refresh tokens, codes, grants, and deleted clients. It omits pending requests. Invalid `--client-days` with `--clients` exits before deletion.

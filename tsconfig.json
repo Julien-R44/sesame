@@ -4,5 +4,5 @@
     "rootDir": "./",
     "outDir": "./build"
   },
-  "exclude": ["opensrc", "build"]
+  "exclude": ["opensrc", "build", "website"]
 }

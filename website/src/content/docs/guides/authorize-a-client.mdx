@@ -1,0 +1,85 @@
+---
+title: Authorize a client with PKCE
+description: Request an authorization code and exchange it for an access token.
+---
+
+This guide assumes a registered client, a working login page, and a consent page. The consuming application must preserve the verifier and state between requests.
+
+## Create a verifier and challenge
+
+In a Node.js client, generate a verifier, its S256 challenge, and a state value:
+
+```ts
+import { createHash, randomBytes } from 'node:crypto'
+
+const verifier = randomBytes(32).toString('base64url')
+const challenge = createHash('sha256').update(verifier).digest('base64url')
+const state = randomBytes(32).toString('base64url')
+```
+
+Save `verifier` and `state` for this authorization attempt. Keep the verifier out of the authorize URL.
+
+## Open the authorize URL
+
+Construct the URL with the client ID and registered callback:
+
+```ts
+const url = new URL('https://auth.example.com/oauth/authorize')
+url.search = new URLSearchParams({
+	client_id: 'CLIENT_ID',
+	redirect_uri: 'https://app.example.com/callback',
+	response_type: 'code',
+	scope: 'read',
+	state,
+	code_challenge: challenge,
+	code_challenge_method: 'S256',
+}).toString()
+```
+
+Replace `CLIENT_ID` with your registered ID. Navigate the browser to `url.toString()`, sign in, and approve consent.
+
+## Validate the callback
+
+On the consuming application's callback, compare the returned `state` with the saved state. Verify `iss` against the expected issuer. If the callback contains `error`, handle it before exchanging a code.
+
+## Exchange the code
+
+For a confidential client, authenticate with HTTP Basic and send the verifier:
+
+```bash
+curl https://auth.example.com/oauth/token \
+	-u "$CLIENT_ID:$CLIENT_SECRET" \
+	--data-urlencode grant_type=authorization_code \
+	--data-urlencode "code=$CODE" \
+	--data-urlencode redirect_uri=https://app.example.com/callback \
+	--data-urlencode "code_verifier=$VERIFIER"
+```
+
+Set the shell variables from the client credentials, callback code, and saved verifier. For a public client, omit `-u` and add `--data-urlencode "client_id=$CLIENT_ID"`.
+
+The response includes `access_token`, `token_type: 'Bearer'`, `expires_in`, and `scope`. It includes `refresh_token` when the server enables that grant. The client must also allow `refresh_token` to exchange the returned token later. An OIDC grant also includes `id_token`.
+
+## Call the API
+
+Send the access token in the authorization header:
+
+```bash
+curl https://auth.example.com/api/me \
+	-H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+Use [the OAuth guard](/guides/protect-api/) on the resource endpoint. For later renewal, [refresh the token](/guides/manage-tokens/).
+
+## Control browser interaction
+
+To force a new consent decision, add `prompt=consent`:
+
+```ts
+url.searchParams.set('prompt', 'consent')
+```
+
+To attempt authorization without displaying login or consent, use `prompt=none`. Handle `login_required` and `consent_required` in the callback, then retry without `none` when interaction is needed. Do not combine `none` with another prompt value.
+
+These options work without `openid`. Other prompt values and `max_age` do not change the flow. See the [authorization reference](/reference/endpoints/#authorization) for consent reuse rules.
+
+To bind tokens to one API, send the same `resource` on authorization and code exchange. [Configure audience checks](/guides/protect-api/#enforce-a-resource-audience) on that API.

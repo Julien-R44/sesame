@@ -1,0 +1,163 @@
+---
+/**
+ * Replaces Starlight's header with a calmer bar: wordmark and section links
+ * on the left, search and preferences grouped on the right.
+ */
+import Search from 'virtual:starlight/components/Search'
+import SiteTitle from 'virtual:starlight/components/SiteTitle'
+import SocialIcons from 'virtual:starlight/components/SocialIcons'
+import ThemeSelect from 'virtual:starlight/components/ThemeSelect'
+
+const { hasSidebar, id } = Astro.locals.starlightRoute
+
+const links = [
+  { label: 'Guides', href: '/guides/getting-started/', section: 'guides/' },
+  { label: 'Migrations', href: '/migrations/0-7-to-0-8/', section: 'migrations/' },
+  { label: 'Reference', href: '/reference/configuration/', section: 'reference/' },
+]
+---
+
+<div class="bar" data-has-sidebar={hasSidebar ? '' : undefined}>
+  <div class="start">
+    <SiteTitle />
+    <nav class="links" aria-label="Sections">
+      {
+        links.map((link) => (
+          <a href={link.href} aria-current={id.startsWith(link.section) ? 'true' : undefined}>
+            {link.label}
+          </a>
+        ))
+      }
+    </nav>
+  </div>
+
+  <div class="end print:hidden">
+    <Search />
+    <div class="prefs">
+      <span class="divider" aria-hidden="true"></span>
+      <div class="social">
+        <SocialIcons />
+      </div>
+      <ThemeSelect />
+    </div>
+  </div>
+</div>
+
+<style>
+  .bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    height: 100%;
+  }
+
+  .start,
+  .end,
+  .prefs,
+  .social {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+  }
+
+  .start {
+    gap: 1.75rem;
+  }
+
+  .end {
+    gap: 0.75rem;
+  }
+
+  .prefs {
+    gap: 0.25rem;
+  }
+
+  /* Docs pages on mobile: preferences live in the menu, next to the sidebar. */
+  [data-has-sidebar] .prefs {
+    display: none;
+  }
+
+  .divider {
+    width: 1px;
+    height: 1.25rem;
+    margin-inline: 0.375rem 0.25rem;
+    background: var(--sesame-border);
+  }
+
+  .links {
+    display: none;
+    align-items: center;
+    gap: 0.125rem;
+  }
+
+  .links a {
+    position: relative;
+    padding: 0.375rem 0.625rem;
+    border-radius: var(--sesame-radius-sm);
+    font-size: var(--sl-text-sm);
+    font-weight: 500;
+    color: var(--sl-color-gray-3);
+    text-decoration: none;
+    transition:
+      color 160ms ease,
+      background-color 160ms ease;
+  }
+
+  .links a:hover {
+    color: var(--sl-color-white);
+    background: var(--sl-color-gray-6);
+  }
+
+  .links a[aria-current='true'] {
+    color: var(--sl-color-white);
+  }
+
+  /* A sliver of door light under the current section. */
+  .links a[aria-current='true']::after {
+    content: '';
+    position: absolute;
+    inset-inline: 0.625rem;
+    bottom: -0.6875rem;
+    height: 2px;
+    border-radius: 999px;
+    background: var(--sl-color-accent);
+    box-shadow: 0 0 10px rgb(var(--sesame-glow) / 0.6);
+  }
+
+  .social :global(a) {
+    display: grid;
+    place-items: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    margin: 0;
+    padding: 0;
+    border-radius: var(--sesame-radius-sm);
+    color: var(--sl-color-gray-3);
+    transition:
+      color 160ms ease,
+      background-color 160ms ease;
+  }
+
+  .social :global(a:hover) {
+    color: var(--sl-color-white);
+    background: var(--sl-color-gray-6);
+  }
+
+  .social :global(svg) {
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+
+  @media (min-width: 50rem) {
+    [data-has-sidebar] .prefs {
+      display: flex;
+    }
+  }
+
+  @media (min-width: 64rem) {
+    .links {
+      display: flex;
+    }
+  }
+</style>

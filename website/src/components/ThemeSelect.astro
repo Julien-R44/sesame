@@ -1,0 +1,150 @@
+---
+/**
+ * A small three-way switch (light, dark, system) that replaces Starlight's
+ * theme <select>. It reads and writes the same `starlight-theme` storage key,
+ * so Starlight's inline theme provider keeps preventing any flash on load.
+ */
+const options = [
+  {
+    value: 'light',
+    label: 'Light theme',
+    icon: 'M12 3.75v1.5M12 18.75v1.5M5.17 5.17l1.06 1.06M17.77 17.77l1.06 1.06M3.75 12h1.5M18.75 12h1.5M5.17 18.83l1.06-1.06M17.77 6.23l1.06-1.06M15.5 12a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z',
+  },
+  {
+    value: 'dark',
+    label: 'Dark theme',
+    icon: 'M19.5 14.2A7.5 7.5 0 0 1 9.8 4.5a7.5 7.5 0 1 0 9.7 9.7Z',
+  },
+  {
+    value: 'auto',
+    label: 'System theme',
+    icon: 'M4.75 6.25c0-.83.67-1.5 1.5-1.5h11.5c.83 0 1.5.67 1.5 1.5v8.5c0 .83-.67 1.5-1.5 1.5H6.25c-.83 0-1.5-.67-1.5-1.5v-8.5ZM9 19.25h6M12 16.25v3',
+  },
+]
+---
+
+<sesame-theme-switch class="switch" role="group" aria-label="Theme">
+  {
+    options.map((option) => (
+      <button type="button" data-value={option.value} aria-pressed="false" title={option.label}>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d={option.icon} />
+        </svg>
+        <span class="sr-only">{option.label}</span>
+      </button>
+    ))
+  }
+</sesame-theme-switch>
+
+{/* Inlined so the right button is marked before first paint. */}
+<script is:inline>
+  ;(() => {
+    const theme = localStorage.getItem('starlight-theme') || 'auto'
+    const switches = document.querySelectorAll('sesame-theme-switch')
+    const current = switches[switches.length - 1]
+    current?.querySelectorAll('button').forEach((button) => {
+      button.setAttribute('aria-pressed', String(button.dataset.value === theme))
+    })
+  })()
+</script>
+
+<script>
+  type Theme = 'auto' | 'dark' | 'light'
+
+  const storageKey = 'starlight-theme'
+
+  function parseTheme(value: unknown): Theme {
+    return value === 'dark' || value === 'light' ? value : 'auto'
+  }
+
+  function loadTheme(): Theme {
+    return parseTheme(localStorage.getItem(storageKey))
+  }
+
+  function systemTheme(): Theme {
+    return matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+  }
+
+  /**
+   * Applies the theme to the document, persists it and syncs every switch
+   * on the page (header and mobile menu).
+   */
+  function applyTheme(theme: Theme) {
+    document.documentElement.dataset.theme = theme === 'auto' ? systemTheme() : theme
+    localStorage.setItem(storageKey, theme === 'auto' ? '' : theme)
+
+    document.querySelectorAll('sesame-theme-switch button').forEach((button) => {
+      const value = (button as HTMLButtonElement).dataset.value
+      button.setAttribute('aria-pressed', String(value === theme))
+    })
+  }
+
+  matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
+    if (loadTheme() === 'auto') applyTheme('auto')
+  })
+
+  class SesameThemeSwitch extends HTMLElement {
+    connectedCallback() {
+      this.addEventListener('click', (event) => {
+        const button = (event.target as Element).closest('button')
+        if (!button) return
+
+        applyTheme(parseTheme(button.dataset.value))
+      })
+    }
+  }
+
+  customElements.define('sesame-theme-switch', SesameThemeSwitch)
+</script>
+
+<style>
+  .switch {
+    display: inline-flex;
+    gap: 0.125rem;
+    padding: 0.1875rem;
+    border: 1px solid var(--sesame-border);
+    border-radius: var(--sesame-radius-sm);
+    background: var(--sesame-surface);
+  }
+
+  button {
+    display: grid;
+    place-items: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    padding: 0;
+    border: 0;
+    border-radius: var(--sesame-radius-sm);
+    background: transparent;
+    color: var(--sl-color-gray-3);
+    cursor: pointer;
+    transition:
+      color 160ms ease,
+      background-color 160ms ease,
+      box-shadow 160ms ease;
+  }
+
+  button:hover {
+    color: var(--sl-color-white);
+  }
+
+  button[aria-pressed='true'] {
+    background: var(--sl-color-gray-6);
+    color: var(--sl-color-accent-high);
+    box-shadow: inset 0 0 0 1px var(--sesame-border-strong);
+  }
+
+  button:focus-visible {
+    border-radius: var(--sesame-radius-sm);
+  }
+
+  svg {
+    width: 0.9375rem;
+    height: 0.9375rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+</style>

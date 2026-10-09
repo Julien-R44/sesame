@@ -1,0 +1,79 @@
+---
+title: Enable OpenID Connect
+description: Configure a signing key and user claims for ID tokens and UserInfo.
+---
+
+Use OIDC when a client needs signed identity claims. Access tokens remain opaque and authorize API requests; the OAuth guard does not authenticate ID tokens.
+
+This guide assumes a configured OAuth server and a user provider.
+
+## Generate a signing key
+
+Generate an RSA private JWK and save it in the environment:
+
+```bash
+node ace sesame:key --write-env
+```
+
+The command adds or replaces `OIDC_JWK` in `.env`. Keep the private key out of version control. For a secret manager, use `node ace sesame:key --raw` to write raw JSON to standard output.
+
+Validate `OIDC_JWK` as a string in `start/env.ts` before reading it in the config.
+
+## Configure OIDC
+
+Keep your existing store, pages, and scope configuration. Add these imports:
+
+```ts title="config/sesame.ts"
+import { oauthUserProvider } from '@julr/sesame/guard/lucid'
+```
+
+Add the OIDC options inside `defineConfig()`:
+
+```ts
+jwk: JSON.parse(env.get('OIDC_JWK')),
+oidcProvider: oauthUserProvider({ model: () => import('#models/user') }),
+```
+
+Both options are required. For users outside Lucid, use [your custom provider](/guides/custom-user-provider/). Declare `profile` and `email` in your existing `scopes` map to include them in inferred TypeScript scope names. OIDC recognizes those names at runtime even without declarations.
+
+## Return claims from your user
+
+Add `getOidcClaims()` to the user returned by the provider. This example shows the method in a Lucid model. Keep your existing model's other fields and authentication behavior:
+
+Import `collectOidcClaims` from `@julr/sesame/types` and add this method to your existing model:
+
+```ts title="app/models/user.ts"
+getOidcClaims(scopes: Scope[]) {
+	return collectOidcClaims(scopes, {
+		profile: { name: this.fullName },
+		email: { email: this.email },
+	})
+}
+```
+
+Import `Scope` as a type from the same module. Your model can implement `OidcSubject` to check the method contract. Without this method, ID tokens contain only protocol claims and UserInfo returns `sub`. See [claim mapping](/reference/api/#user-providers-and-claims) for protected claim names.
+
+## Request an identity grant
+
+Allow `openid`, `profile`, and `email` on the client, then [authorize it with PKCE](/guides/authorize-a-client/) using `scope=openid profile email`. Include a random `nonce` when your relying party uses nonce validation.
+
+The token response includes an RS256-signed `id_token`. `profile` and `email` require `openid` in the same request. Authorization-code exchange includes the requested nonce; refresh omits it.
+
+Verify the ID token's signature and expected issuer, audience, expiration, and nonce in the relying party. Use the public key from `/jwks`.
+
+## Verify discovery and UserInfo
+
+Request OIDC discovery:
+
+```bash
+curl https://auth.example.com/.well-known/openid-configuration
+```
+
+Request user claims with the access token, not the ID token:
+
+```bash
+curl https://auth.example.com/oauth/userinfo \
+	-H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+UserInfo requires a valid access token with `openid`. It returns `sub` and the claims your provider supplies.

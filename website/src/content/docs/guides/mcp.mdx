@@ -1,0 +1,64 @@
+---
+title: Protect an MCP resource
+description: Add discovery, Bearer authentication, and scope challenges to an existing MCP endpoint.
+---
+
+This guide assumes an MCP handler at `/api/mcp`. Sésame supplies OAuth authentication and discovery; your application supplies the transport.
+
+## Register the resource and guard
+
+After [registering OAuth routes](/guides/getting-started/#register-the-routes), publish resource metadata:
+
+```ts title="start/routes.ts"
+sesame.registerProtectedResource({ resource: '/api/mcp', scopes: ['read', 'write'] })
+```
+
+Declare those scopes in config. Add a guard to your [existing Auth configuration](/guides/protect-api/#add-the-oauth-guard):
+
+```ts title="config/auth.ts"
+mcp: oauthGuard({
+	provider: oauthUserProvider({ model: () => import('#models/user') }),
+	resource: '/api/mcp',
+	requireAudience: true,
+}),
+```
+
+Clients must request this resource when obtaining tokens. For older unbound tokens, omit `requireAudience` during migration. See [audience checks](/guides/protect-api/#enforce-a-resource-audience).
+
+## Authenticate before the transport runs
+
+Attach authentication to your MCP route. This example assumes `McpController.handle` already implements the transport:
+
+```ts title="start/routes.ts"
+router.post('/api/mcp', [
+	() => import('#controllers/mcp_controller'),
+	'handle',
+]).use(async ({ auth }, next) => {
+	const guard = auth.use('mcp')
+	await guard.authenticate({ scopes: ['read'] })
+
+	if (!guard.hasScope('read')) throw guard.insufficientScopeError(['read'])
+
+	await next()
+})
+```
+
+Apply the same protection to GET or DELETE routes if your transport exposes them. For multiple resources, register one guard per resource.
+
+Inside a handler that needs more permissions, check the same guard:
+
+```ts
+if (!guard.hasScope('write')) throw guard.insufficientScopeError(['write'])
+```
+
+The 403 challenge advertises resource metadata and the union of granted and required scopes. A refresh cannot add permissions; the client needs a new authorization. Declare resource or route scopes so 401 challenges also advertise the required permissions.
+
+## Enable client identification
+
+For URL client IDs, [enable Client ID Metadata Documents](/guides/client-metadata-documents/). For clients that register through HTTP, [enable dynamic registration](/guides/dynamic-registration/) with your chosen access policy.
+
+## Verify the connection
+
+Request `/.well-known/oauth-protected-resource/api/mcp`, then call the handler without a token. Confirm that its 401 challenge points to that metadata URL. Complete PKCE authorization and test a scoped call, an incorrect audience, and grant revocation.
+
+Client retry behavior depends on the MCP SDK version. If a client responds to 403 only by refreshing, discard its saved tokens and reconnect to request broader scopes. Discovery scopes include `offline_access`, which can trigger consent when clients request the full list.

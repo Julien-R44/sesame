@@ -1,0 +1,136 @@
+---
+title: Endpoint reference
+description: OAuth requests, responses, authentication, and discovery paths.
+---
+
+The paths below assume `registerRoutes()` inside a `/oauth` prefix group and `registerDiscoveryRoutes()` at the root.
+
+## Registered routes
+
+| Method       | Path                                      | Purpose                                            |
+| ------------ | ----------------------------------------- | -------------------------------------------------- |
+| POST         | `/oauth/token`                            | Exchange a grant for tokens.                       |
+| GET          | `/oauth/authorize`                        | Start browser authorization.                       |
+| POST         | `/oauth/consent`                          | Consume the logged-in user's pending request.      |
+| POST         | `/oauth/introspect`                       | Inspect a token owned by the authenticated client. |
+| POST         | `/oauth/revoke`                           | Revoke a token owned by the authenticated client.  |
+| POST         | `/oauth/register`                         | Register client metadata when enabled.             |
+| GET          | `/oauth/client-info`                      | Return a client's public ID and name.              |
+| GET and POST | `/oauth/userinfo`                         | Return OIDC subject claims.                        |
+| GET          | `/.well-known/oauth-authorization-server` | OAuth authorization server metadata.               |
+| GET          | `/.well-known/openid-configuration`       | OIDC discovery.                                    |
+| GET          | `/.well-known/oauth-protected-resource`   | Root protected resource metadata.                  |
+| GET          | `/jwks`                                   | Public signing JWK. Path is configurable.          |
+
+`registerProtectedResource({ resource: '/api/mcp' })` adds `GET /.well-known/oauth-protected-resource/api/mcp`. That method does not register or protect `/api/mcp` itself.
+
+## Client authentication
+
+Token, introspection, and revocation endpoints authenticate the client. Confidential clients can send HTTP Basic credentials or body `client_id` and `client_secret`. Public clients send `client_id` without a secret.
+
+HTTP Basic credentials and body `client_id` cannot be combined in one request.
+
+Client credentials only accepts confidential clients. Browser session authentication is not a substitute for client authentication at these endpoints.
+
+## Authorization
+
+`GET /oauth/authorize` accepts query parameters:
+
+| Parameter               | Requirement                                                                                                   |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `client_id`             | Required registered client ID.                                                                                |
+| `response_type`         | Required. Only `code` is supported.                                                                           |
+| `redirect_uri`          | Required registered URI. HTTP loopback callbacks match regardless of port; host, path, and query still match. |
+| `scope`                 | Optional space-separated list. Defaults to server `defaultScopes`.                                            |
+| `state`                 | Optional value returned in client redirects.                                                                  |
+| `code_challenge`        | Required by the authorization action.                                                                         |
+| `code_challenge_method` | Required value `S256`.                                                                                        |
+| `nonce`                 | Optional OIDC nonce.                                                                                          |
+| `prompt`                | Optional space-separated values. `none` and `consent` change interaction.                                     |
+| `resource`              | Optional absolute target URI. Resolved to a registered resource.                                              |
+
+Requested scopes must pass server validation and the client's allowed scope list.
+
+S256 PKCE remains mandatory even if a client record has `requirePkce: false`. Errors before callback validation produce an HTTP error. Later authorization errors can redirect to the validated callback with `error` and `error_description`.
+
+Active grants without context can skip consent. `prompt=consent` forces consent. `prompt=none` returns `login_required` or `consent_required` rather than displaying a page; combining `none` with another value returns `invalid_request`. Other prompt values and `max_age` are ignored. Metadata document clients always require consent.
+
+Client callback redirects include `iss` and return `state` when present. Login and consent page redirects carry the original authorization query. The consent page also receives `auth_token` and the resolved resource when present.
+
+## Consent
+
+`POST /oauth/consent` requires the default authenticated user and a body `auth_token`. The token must identify that user's unexpired, unconsumed pending authorization request.
+
+A truthy body `accept` approves the saved scopes. A missing or falsy value denies them. The string `'false'` is truthy. An optional `scope` string or array grants a nonempty subset of requested scopes. Omitting it grants every requested scope. Invalid selections fail before consumption. The controller never reads grant context from the body.
+
+A valid decision consumes the request atomically. Submitted client IDs and callback URLs do not replace the saved request. Approval creates a grant; denial leaves existing grants intact.
+
+## Token grants
+
+Every token request has a body `grant_type`. The grant must be enabled by the server.
+
+| Grant                | Body fields                                                  | Result                                                                                  |
+| -------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| `authorization_code` | `code`, `redirect_uri`, `code_verifier`, optional `resource` | Access token; refresh token when enabled on the server; ID token for an OIDC grant.     |
+| `refresh_token`      | `refresh_token`, optional `scope` and `resource`             | New access and refresh tokens; optional ID token.                                       |
+| `client_credentials` | Optional `scope` and `resource`                              | Access token only. Requires a confidential client with `userId` and that grant enabled. |
+
+Refresh exchanges also require the grant on the client. Receiving a refresh token during code exchange does not enable that client grant. Reusing a consumed authorization code revokes its grant, including concurrent exchanges. Codes remain stored with `consumedAt`.
+
+Successful responses have `access_token`, `token_type: 'Bearer'`, `expires_in` in seconds, and space-separated `scope`. Token responses set `Cache-Control: no-store` and `Pragma: no-cache`.
+
+Client credentials rejects `openid`, `profile`, `email`, and `offline_access`. When it omits scope, its defaults are the client's non-built-in, non-OIDC scopes.
+
+## Resource indicators
+
+Authorization and every token grant accept one `resource` parameter. It must be an absolute HTTP or HTTPS URI on the issuer's origin without credentials, a fragment, whitespace, control characters, or backslashes. Repeated parameters and other origins return `invalid_target`.
+
+The value maps to the most specific registered resource path, or the issuer when no path covers it. For a registered `/api/mcp`, the same origin's `/api/mcp/` and `/api/mcp/tools` map to that resource. An unmatched `/other` path maps to the issuer. Scheme and host are lowercased, default ports are removed, and one trailing slash is removed. Prefix matches require a path-segment boundary. A resource containing a query must match an exact registered identifier; otherwise it is rejected.
+
+Codes and tokens store the resolved resource. A token exchange cannot change a bound resource. Refresh preserves a bound resource; an unbound code or refresh token can acquire one at exchange. Omitting the parameter keeps unbound requests valid.
+
+## Introspection and revocation
+
+Both accept body `token` and optional `token_type_hint`, with `access_token` or `refresh_token` values. Lookup is limited to the authenticated client's records. A provided hint selects that token type. Without a hint, access token lookup precedes refresh token lookup.
+
+Introspection returns `{ active: false }` for missing, invalid, expired, revoked, or other-client tokens. Active responses include `active`, `token_type`, `client_id`, `sub`, `scope`, `iss`, `iat`, and `exp`, plus `aud` for bound resources. A missing, revoked, or expired grant makes its tokens inactive.
+
+After valid client authentication, revocation returns 200 with `{}` even for a missing or unknown token. Refresh token revocation revokes its whole grant and every token issued from it. Grant-less legacy tokens revoke the linked access token. Access token revocation only affects that token.
+
+## Dynamic registration
+
+`POST /oauth/register` requires `allowDynamicRegistration`. It also requires an already populated `ctx.auth.user` unless `allowPublicRegistration` is true.
+
+| Field                                             | Default or constraint                                                              |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `redirect_uris`                                   | Required nonempty array of accepted redirect URLs.                                 |
+| `client_name`                                     | Defaults to `'Unnamed Client'`. Maximum 255 characters.                            |
+| `token_endpoint_auth_method`                      | Defaults to `client_secret_basic`. Also accepts `client_secret_post` and `none`.   |
+| `grant_types`                                     | Defaults to `['authorization_code', 'refresh_token']`. Each grant must be enabled. |
+| `response_types`                                  | Defaults to `['code']`. Only `code` is supported.                                  |
+| `scope`                                           | Space-separated string. Defaults to server `defaultScopes`.                        |
+| `client_uri`, `logo_uri`, `tos_uri`, `policy_uri` | Optional metadata URLs.                                                            |
+| `contacts`                                        | Optional array of email addresses.                                                 |
+| `software_id`, `software_version`                 | Optional strings.                                                                  |
+
+Redirect URI validation rejects malformed URLs, fragments, `javascript:`, `data:`, and `vbscript:` schemes. HTTP URLs are accepted only for `localhost`, `127.0.0.1`, and `[::1]`. Custom schemes are not rejected solely for being non-HTTPS. Metadata URL validation requires a protocol and rejects dangerous schemes. It does not require the same host as the redirect URI.
+
+A successful response is 201, has `Cache-Control: no-store`, and includes the registered metadata with `client_id` and `client_secret_expires_at: 0`. Confidential registrations include a raw `client_secret`. Public registrations use `none` and omit the secret.
+
+## Client information
+
+`GET /oauth/client-info` requires query `client_id`. The result has `client_id` and `client_name`, plus stored `client_uri`, `logo_uri`, `tos_uri`, `policy_uri`, `client_id_metadata_document`, and `client_id_host` values when applicable. A metadata document client is unavailable until an authenticated authorization persists it. The endpoint never resolves a document. It is not proof that a pending request belongs to that client.
+
+## Discovery fields
+
+OAuth authorization server metadata includes endpoint URLs, supported grants and scopes, `code` response type, `query` response mode, S256 PKCE, and supported client authentication methods. It advertises `prompt_values_supported: ['none', 'consent']` and issuer response support. The registration endpoint appears only when dynamic registration is enabled. Document resolution adds `client_id_metadata_document_supported: true` when enabled.
+
+OIDC discovery adds UserInfo and JWKS URLs, public subject types, RS256 signing, and supported protocol claims. Resource metadata lists the resource, authorization servers, scopes, and header Bearer authentication. Per-resource scope lists also include `offline_access`.
+
+## OIDC endpoints
+
+OIDC discovery and JWKS return 404 unless both the private JWK and OIDC provider are configured. Without either option, OIDC scopes fail with `invalid_scope`. JWKS exposes public key components and has `Cache-Control: public, max-age=900`.
+
+UserInfo accepts a Bearer header or body `access_token`. Both GET and POST routes exist. It requires an active token with `openid`. The response contains `sub` and the user's allowed claims.
+
+ID tokens are RS256-signed JWTs with `iss`, `sub`, `aud`, `iat`, `exp`, `at_hash`, and permitted user claims. Authorization-code exchange includes the requested nonce; refresh omits it.

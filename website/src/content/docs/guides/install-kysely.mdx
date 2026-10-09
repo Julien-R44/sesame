@@ -1,0 +1,79 @@
+---
+title: Install with Kysely
+description: Connect the Kysely store to your database and run the generated migration.
+---
+
+This guide assumes an AdonisJS 7 application with Node.js 24 or later and an existing Kysely connection. The store supports SQLite, PostgreSQL, and MySQL.
+
+## Configure Auth without Lucid
+
+If Auth is already configured, keep it. Otherwise, install the package:
+
+```bash
+pnpm add @adonisjs/auth
+```
+
+Add this entry to the `providers` array in `adonisrc.ts`:
+
+```ts
+() => import('@adonisjs/auth/auth_provider')
+```
+
+Register Auth's initialization middleware in `start/kernel.ts`:
+
+```ts
+router.use([
+	() => import('@adonisjs/auth/initialize_auth_middleware'),
+])
+```
+
+Do not run Auth's bundled installer for a Lucid-free application. That installer generates a Lucid user model and migration. For browser authorization, configure `@adonisjs/session` and a default session guard with your application's user provider.
+
+## Install the store
+
+Run the installer:
+
+```bash
+pnpm add kysely
+node ace add @julr/sesame --store=kysely
+```
+
+The installer creates `config/sesame.ts` and `database/kysely_migrations/create_oauth_tables.ts`. It also registers the provider, commands, and named scope middleware.
+
+## Connect your database
+
+Replace the generated `#services/kysely` placeholder with your application's connection module. This example assumes `#services/database` exports an initialized Kysely instance named `appDb`:
+
+```ts title="config/sesame.ts"
+import env from '#start/env'
+import { defineConfig, stores } from '@julr/sesame'
+
+export default defineConfig({
+	issuer: env.get('APP_URL'),
+	store: stores.kysely({
+		connection: async () => {
+			const { appDb } = await import('#services/database')
+
+			return appDb
+		},
+	}),
+	loginPage: '/login',
+	consentPage: '/oauth/consent',
+})
+```
+
+Validate `APP_URL` in `start/env.ts`. Set it to the public URL of the authorization server.
+
+If a custom Kysely dialect wraps one of the supported databases, pass `dialect: 'sqlite'`, `dialect: 'postgres'`, or `dialect: 'mysql'` to `stores.kysely()`.
+
+## Run the migration
+
+If your application already has a Kysely migrator, move the generated migration into its `migrationFolder`. Rename the file so it sorts after existing migrations. Run your application's migration command.
+
+If you use a separate migrator, point it at `database/kysely_migrations` and call `migrateToLatest()`. Give it unique `migrationTableName` and `migrationLockTableName` values when another migrator uses the same database.
+
+Keep the generated migration in version control as a schema snapshot. Do not run it with Lucid's `node ace migration:run`.
+
+## Continue setup
+
+[Implement a user provider](/guides/custom-user-provider/) for your application users. Then continue [Getting started](/guides/getting-started/#configure-the-server) with your Kysely store configuration.

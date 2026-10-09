@@ -1,0 +1,93 @@
+---
+title: Upgrade from 0.7 to 0.8
+description: Publish the grants and resource migrations and adapt existing authorization integrations.
+---
+
+This guide upgrades an existing 0.7 installation. Apply the schema migrations before starting the updated application. For an older installation, [complete the 0.7 upgrade](/migrations/0-6-to-0-7/) first.
+
+## Publish and run the migrations
+
+Update Sésame to the version you are deploying. Do not rerun the fresh installation command over your existing config.
+
+For Lucid, publish the 0.8 upgrade and run migrations:
+
+```bash
+node ace sesame:upgrade 0.8
+node ace migration:run
+```
+
+For Kysely, publish the upgrade files:
+
+```bash
+node ace sesame:upgrade 0.8 --store=kysely
+```
+
+Move `sesame_v000800_add_oauth_grants.ts` and `sesame_v000800_add_oauth_resource_columns.ts` next to the `create_oauth_tables.ts` migration used by your existing migrator. Keep their filenames and run your Kysely migration command. Commit these generated schema snapshots with your application's upgrade.
+
+The migrations create `oauth_grants`, add nullable indexed `grant_id` references to codes and tokens, add authorization code `consumed_at`, and drop `oauth_consents`. They also add nullable `resource` columns to pending requests, codes, and tokens.
+
+No consent data is copied. Existing access and refresh tokens keep working with null grant and resource values. The next refresh adopts a legacy token into a grant. A legacy code creates a grant when exchanged.
+
+If you roll back, the migration recreates an empty consents table and removes resource columns. Plan your rollback around the loss of remembered consent.
+
+## Adapt consent handling
+
+Remove any hidden `scope` value copied from the authorize query unless you intend to grant that exact subset. The built-in consent route now reads `scope` as a string or array. An invalid or empty selection returns `invalid_scope` before consuming the pending request.
+
+For application-specific scope selection or context, use [approveAuthorization and denyAuthorization](/guides/login-and-consent/#customize-the-decision). Existing requests without `scope` still approve all requested permissions.
+
+Expect each user to review consent once more when starting a new authorization after the migration. Token refresh is unaffected. Subsequent requests skip consent only when active grants without context cover the requested scopes. Metadata document clients and requests with `prompt=consent` always show consent.
+
+## Replace consent imports and management code
+
+Replace `OAuthConsent` imports from `@julr/sesame/drivers/lucid` with `OAuthGrant` where your code now manages authorizations. Replace `OAuthConsentRecord` with `OAuthGrantRecord` where appropriate.
+
+Use [grant management APIs](/guides/manage-grants/) to build connected applications pages. Do not assume a client-user pair has one grant. Each authorization creates another grant.
+
+Update replay and revocation tests. Refresh replay outside the grace period revokes only its grant. Reusing a consumed authorization code also revokes that code's grant, including concurrent reuse. A refresh-token revocation revokes the whole grant; access-token revocation remains token-specific.
+
+### Existing tokens across an upgrade
+
+Replaying a refresh token rotated before the upgrade revokes only grant-less tokens for that client and user. Tokens already attached to grants remain valid. A retry within the grace period still works and receives its own grant, including concurrent rotation retries.
+
+For current rotation behavior, see [Manage tokens](/guides/manage-tokens/#rotation-and-replay).
+
+## Check resource guards
+
+If a guard already has `resource`, register that path with `registerProtectedResource()`. The option now checks audience as well as building the challenge.
+
+For multiple resources, select their guards explicitly in middleware:
+
+```ts
+middleware.scopes({ scopes: ['read'], guard: 'mcp' })
+```
+
+Keep unbound tokens accepted while older clients transition. Once clients send resource indicators, enable `requireAudience: true` on the resource guard. See [Bind tokens to an API resource](/guides/protect-api/#enforce-a-resource-audience).
+
+If you construct `OAuthGuard` directly, change its last argument from a resource string to `{ resource: '/api/mcp' }`.
+
+Update exact challenge-header assertions. 401 challenges can include resource and route scopes. Guard 403 scope errors now include `resource_metadata` and the union of granted and required scopes.
+
+## Update cleanup and tests
+
+Include the new `grants` count from `purgeTokens()`. Revoked refresh tokens now use retention hours rather than immediate deletion. Revoked access tokens remain eligible for immediate deletion. Add `--clients` only when you want unused dynamic registrations removed.
+
+Change test requests to `withGuard('oauth').loginAs(user)`. Add `{ scopes, context }` options when needed. Successful authentication events now include `accessToken`. The guard exposes `accessToken`, `grantId`, `context`, and `audience`.
+
+## Update a custom store
+
+If you use a bundled store, no store implementation changes are needed. For a custom store, follow the [0.8 storage contract](/reference/storage/) before starting the application.
+
+Persist `resource`, grant references, and code consumption fields. Preserve transactions and inactive-grant checks in issuance. Implement unused-client purge with foreign key race handling.
+
+## Enable optional metadata document clients
+
+To support URL client IDs, [enable Client ID Metadata Documents](/guides/client-metadata-documents/). No extra schema migration is needed. Display document and callback hosts on the consent page.
+
+If a loopback client uses ephemeral callback ports, verify its registered host, path, and query. Loopback port differences are now accepted. Use different paths if you previously distinguished clients by loopback port.
+
+## Verify the upgrade
+
+Run the application's type check and tests. Exercise an existing token, a refresh, a new authorization, consent scope selection, grant revocation, and each resource guard.
+
+Check that revoked or expired grants fail at the guard, introspection, and UserInfo. Verify prompt callback errors and your consent-page identity display before enabling metadata documents.

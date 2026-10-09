@@ -1,0 +1,67 @@
+---
+title: Upgrade from 0.6 to 0.7
+description: Update storage configuration, imports, and client-management results.
+---
+
+For an existing Lucid installation, 0.7 requires configuration and import changes. Your OAuth tables and data remain in place; no new migration is required.
+
+## Update your dependencies
+
+Auth is now a required peer dependency. Keep Lucid installed and add Auth if needed:
+
+```bash
+pnpm add @julr/sesame@^0.7.0 @adonisjs/auth@^10
+```
+
+Do not rerun `node ace add @julr/sesame`. That command publishes a fresh installation.
+
+## Select the Lucid store
+
+In `config/sesame.ts`, import `stores` and add it to your existing config:
+
+```ts
+import { defineConfig, stores } from '@julr/sesame'
+```
+
+```ts
+store: stores.lucid(),
+```
+
+Keep your issuer, scopes, pages, grants, and OIDC options. A 0.6 config without `store` fails on startup. Do not run the Kysely create-table migration against existing OAuth tables.
+
+## Update imports
+
+| Symbol                                                                                           | New import path              |
+| ------------------------------------------------------------------------------------------------ | ---------------------------- |
+| `OAuthClient`, `OAuthAccessToken`, `OAuthRefreshToken`, `OAuthAuthorizationCode`, `OAuthConsent` | `@julr/sesame/drivers/lucid` |
+| `oauthUserProvider`, `OAuthLucidUserProvider`, `OAuthLucidUserProviderOptions`                   | `@julr/sesame/guard/lucid`   |
+| `CreateClientOptions`, `CreateClientResult`, `UpdateClientOptions`, record and store types       | `@julr/sesame/types`         |
+
+Apply the user-provider import change to both Auth and OIDC config. `oauthGuard` remains exported from `@julr/sesame/guard` and the package root.
+
+## Adapt client-management results
+
+The manager's client methods return plain records instead of Lucid models. Replace `.save()`, `.delete()`, and `.serialize()` calls with manager methods:
+
+```ts
+await sesame.updateClient(client.clientId, { name: 'Renamed app' })
+await sesame.deleteClient(client.clientId)
+```
+
+For Lucid-specific queries, import `OAuthClient` from `@julr/sesame/drivers/lucid`. The `clientSecret` record property remains a non-enumerable hash. Raw secrets are returned separately only at creation or rotation.
+
+If you instantiate the manager directly in tests, add the resolved store as its third argument:
+
+```ts
+import { lucidStore } from '@julr/sesame/drivers/lucid'
+
+const manager = new SesameManager(config, router, lucidStore())
+```
+
+Normal applications keep using the injected service.
+
+## Verify the upgrade
+
+Run your application's type check and tests. Verify an existing client and token against the same database, then exercise authorization and refresh.
+
+For a later upgrade, continue with [0.7 to 0.8](/migrations/0-7-to-0-8/). Moving existing data to Kysely is a separate migration.

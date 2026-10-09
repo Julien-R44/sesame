@@ -1,0 +1,80 @@
+---
+title: Implement a user provider
+description: Load application users without the Lucid OAuth user provider.
+---
+
+Use this guide when your users do not use Lucid. The provider must implement `OAuthUserProviderContract`. The OAuth store and user provider have separate responsibilities.
+
+## Define the lookup
+
+This example assumes that `#services/database` exports `appDb`, a Kysely connection with a `users` table. The table has string `id` and `email` columns. Adapt the query to your schema.
+
+```ts title="app/auth/kysely_oauth_user_provider.ts"
+import { symbols } from '@adonisjs/auth'
+import type { OAuthGuardUser, OAuthUserProviderContract } from '@julr/sesame/guard'
+import { appDb } from '#services/database'
+
+type User = {
+	id: string
+	email: string
+	getOidcClaims(scopes: string[]): Record<string, unknown>
+}
+
+class KyselyOAuthUserProvider implements OAuthUserProviderContract<User> {
+	declare [symbols.PROVIDER_REAL_USER]: User
+
+	async createUserForGuard(user: User): Promise<OAuthGuardUser<User>> {
+		return { getId: () => user.id, getOriginal: () => user }
+	}
+
+	async findById(identifier: string | number | BigInt): Promise<OAuthGuardUser<User> | null> {
+		const row = await appDb
+			.selectFrom('users')
+			.select(['id', 'email'])
+			.where('id', '=', String(identifier))
+			.executeTakeFirst()
+
+		if (!row) return null
+
+		const user: User = {
+			id: row.id,
+			email: row.email,
+			getOidcClaims(scopes) {
+				return scopes.includes('email') ? { email: row.email } : {}
+			},
+		}
+
+		return this.createUserForGuard(user)
+	}
+}
+
+export const kyselyOAuthUserProvider = new KyselyOAuthUserProvider()
+```
+
+## Configure the guards
+
+With `@adonisjs/session` configured, use the provider for the session guard and OAuth guard:
+
+```ts title="config/auth.ts"
+import { defineConfig } from '@adonisjs/auth'
+import { sessionGuard } from '@adonisjs/auth/session'
+import { oauthGuard } from '@julr/sesame/guard'
+import { kyselyOAuthUserProvider } from '../app/auth/kysely_oauth_user_provider.js'
+
+const authConfig = defineConfig({
+	default: 'web',
+	guards: {
+		web: sessionGuard({
+			useRememberMeTokens: false,
+			provider: kyselyOAuthUserProvider,
+		}),
+		oauth: oauthGuard({ provider: kyselyOAuthUserProvider }),
+	},
+})
+
+export default authConfig
+```
+
+Add the Auth type augmentations shown in [Protect your API](/guides/protect-api/#add-the-oauth-guard). Your existing login handler must verify credentials and call the session guard's login method with this user object.
+
+For OIDC, set `oidcProvider: kyselyOAuthUserProvider` in `config/sesame.ts`. The optional `getOidcClaims()` method supplies the user's claims.

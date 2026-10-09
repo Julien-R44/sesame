@@ -1,0 +1,145 @@
+---
+title: Connect login and consent
+description: Build browser pages around the session guard and stored authorization requests.
+---
+
+This guide assumes a working login handler that signs users into your default session guard. Sésame supplies the OAuth controllers. Your application supplies the pages.
+
+## Return from login to authorization
+
+Set `loginPage` to your login route. Sésame forwards the authorization query parameters to that page.
+
+After successful login, return the browser to `/oauth/authorize` with those parameters. Keep the destination fixed to your own authorize route rather than accepting an arbitrary return URL.
+
+A login handler can construct the return URL from a saved authorization query:
+
+```ts
+const authorizationUrl = new URL('/oauth/authorize', 'https://auth.example.com')
+
+for (const [key, value] of savedAuthorizationQuery) {
+	authorizationUrl.searchParams.set(key, value)
+}
+
+return response.redirect().toPath(authorizationUrl.pathname + authorizationUrl.search)
+```
+
+Here, `savedAuthorizationQuery` is a `URLSearchParams` value that your login page preserves through the login submission. Preserve `client_id`, `redirect_uri`, `response_type`, `scope`, `state`, `code_challenge`, `code_challenge_method`, `nonce`, `prompt`, and `resource` when present. Sésame validates the request again on `/oauth/authorize`.
+
+## Load the consent page from the stored request
+
+Add a GET route for your configured consent page. The registered Sésame consent endpoint handles POST, so both can use `/oauth/consent`.
+
+This example uses Edge. Create `resources/views/oauth/consent.edge` for the view used below:
+
+```ts title="start/routes.ts"
+import router from '@adonisjs/core/services/router'
+import sesame from '@julr/sesame/services/main'
+
+router.get('/oauth/consent', async ({ auth, request, response, view }) => {
+	await auth.authenticate()
+
+	const authToken = request.input('auth_token')
+	if (typeof authToken !== 'string') return response.badRequest('Missing authorization request')
+
+	const pending = await sesame.findPendingAuthorizationRequest({
+		token: authToken,
+		userId: String(auth.user!.id),
+	})
+	if (!pending) return response.badRequest('Authorization request expired. Start again.')
+
+	const client = await sesame.findClient(pending.clientId)
+	if (!client) return response.badRequest('Client no longer exists')
+
+	return view.render('oauth/consent', {
+		authToken,
+		clientName: client.name,
+		scopes: pending.scopes.map((scope) => ({
+			name: scope,
+			description: sesame.config.scopes[scope] ?? scope,
+		})),
+	})
+})
+```
+
+Read the client name and scopes from the stored request. Do not display untrusted query values as the requested permissions or client identity.
+
+## Submit the decision
+
+Render the supplied values and post `auth_token` with the decision:
+
+```html title="resources/views/oauth/consent.edge"
+<h1>Allow {{ clientName }} to access your account?</h1>
+<ul>
+	@each(scope in scopes)
+		<li>{{ scope.description }}</li>
+	@end
+</ul>
+<form method="POST" action="/oauth/consent">
+	{{ csrfField() }}
+	<input type="hidden" name="auth_token" value="{{ authToken }}">
+	<button type="submit" name="accept" value="1">Allow</button>
+	<button type="submit">Deny</button>
+</form>
+```
+
+The allow button sends a truthy value; the deny button omits `accept`. For JSON, use booleans. The string `'false'` is truthy.
+
+To approve fewer permissions, submit `scope` as a string or array of requested names. Omit it to approve all scopes. The stored request controls the client and callback. See the [consent contract](/reference/endpoints/#consent) for validation and redirect behavior.
+
+## Customize the decision
+
+For a custom decision field or validated application context, submit to your own controller instead of the built-in consent POST:
+
+```ts title="app/controllers/oauth_consent_controller.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+import vine from '@vinejs/vine'
+import sesame from '@julr/sesame/services/main'
+
+const decisionValidator = vine.create({
+	auth_token: vine.string(),
+	decision: vine.enum(['approve', 'deny']),
+	read_only: vine.boolean().optional(),
+})
+
+export default class OAuthConsentController {
+	async decide({ auth, request, response }: HttpContext) {
+		const user = await auth.authenticate()
+		const input = await request.validateUsing(decisionValidator)
+		const options = { authToken: input.auth_token, userId: String(user.id) }
+
+		if (input.decision === 'deny') {
+			const { redirectUrl } = await sesame.denyAuthorization(options)
+
+			return response.redirect().toPath(redirectUrl)
+		}
+
+		const { redirectUrl } = await sesame.approveAuthorization({
+			...options,
+			scopes: input.read_only ? ['read'] : undefined,
+		})
+
+		return response.redirect().toPath(redirectUrl)
+	}
+}
+```
+
+This example assumes `read` is a configured scope requested by the client. If it was not requested, approval fails with `invalid_scope`.
+
+Register the application's route separately from the built-in consent POST:
+
+```ts title="start/routes.ts"
+router.post('/oauth/decision', [
+	() => import('#controllers/oauth_consent_controller'),
+	'decide',
+])
+```
+
+Use the existing `router` import in `start/routes.ts`. Keep CSRF protection on this browser endpoint. Submit the page through a native form to `/oauth/decision`, with `auth_token`, `decision`, and optional `read_only`.
+
+Both decision methods return `{ redirectUrl, clientId, scopes }`. To attach a team or workspace, [validate and store grant context](/guides/manage-grants/#attach-application-context). The built-in consent route does not accept context.
+
+## Submit from Inertia
+
+You can render the consent page with Inertia and submit through the native form above. The browser follows Sésame's redirect to the client's callback, including callbacks on another origin.
+
+For an Inertia submission, your application must convert that redirect to your adapter's external-location response. Sésame uses standard HTTP redirects and has no built-in Inertia option. After login, also return through browser navigation to `/oauth/authorize` with the preserved query.
