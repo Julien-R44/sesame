@@ -14,6 +14,8 @@ import { SesameManager } from '../../src/sesame_manager.ts'
 import { findClientByExactId } from '../../src/storage/find_client_by_exact_id.ts'
 import { ClientIdMetadataDocumentService } from '../../src/services/client_id_metadata_document_service.ts'
 import { createTestConfig } from '../helpers/app.ts'
+import { TokenService } from '../../src/services/token_service.ts'
+import { ExchangeRefreshTokenAction } from '../../src/actions/exchange_refresh_token.ts'
 import { FakeClientMetadataDocumentFetcher } from '../helpers/fake_client_metadata_fetcher.ts'
 import { ClientMetadataDocumentResolutionCache } from '../../src/client_id_metadata_documents/resolution_cache.ts'
 
@@ -397,6 +399,57 @@ async function testClientIdCollation(store: SesameStore, assert: Assert) {
   assert.isTrue(await store.deleteClient(aliceId))
 }
 
+/**
+ * Several processes refreshing with the same refresh token at once all get
+ * working tokens: the requests losing the row lock reuse the grace period.
+ */
+async function testConcurrentRefresh(store: SesameStore, clientId: string, assert: Assert) {
+  const manager = new SesameManager(createTestConfig(), {} as any, store)
+  const tokenService = new TokenService(manager)
+  const client = (await store.findClient(clientId))!
+  const userId = `refresh-user-${crypto.randomUUID()}`
+  const grantId = crypto.randomUUID()
+  const accessTokenId = crypto.randomUUID()
+  const { raw, hash } = tokenService.createRefreshToken()
+  const expiresAt = DateTime.now().plus({ hours: 1 })
+
+  await store.createGrant({ id: grantId, clientId, userId, scopes: ['read'], expiresAt })
+  await store.issueTokenPair({
+    accessToken: {
+      id: accessTokenId,
+      tokenHash: `access-${crypto.randomUUID()}`,
+      clientId,
+      userId,
+      grantId,
+      scopes: ['read'],
+      expiresAt,
+    },
+    refreshToken: {
+      id: crypto.randomUUID(),
+      token: hash,
+      accessTokenId,
+      clientId,
+      userId,
+      grantId,
+      scopes: ['read'],
+      expiresAt,
+    },
+  })
+
+  const action = new ExchangeRefreshTokenAction()
+  const results = await Promise.all(
+    [1, 2, 3].map(() => action.execute(manager, { client, refreshToken: raw }))
+  )
+  assert.equal(new Set(results.map((result) => result.refresh_token)).size, 3)
+
+  for (const result of results) {
+    const next = await action.execute(manager, { client, refreshToken: result.refresh_token })
+    assert.isString(next.access_token)
+  }
+
+  assert.isNotNull(await store.findGrant(grantId))
+}
+
 for (const dialect of ['postgres', 'mysql', 'mariadb'] as const) {
   const connectionUrl = process.env[`SESAME_TEST_${dialect.toUpperCase()}_URL`]
   const sqlTest = test(`Kysely ${dialect} | migration and OAuth persistence`, async ({
@@ -415,6 +468,7 @@ for (const dialect of ['postgres', 'mysql', 'mariadb'] as const) {
       const clientId = await testClientRecords(store, assert)
       await testConsent(store, clientId, assert)
       await testTokenExchange(store, clientId, assert)
+      await testConcurrentRefresh(store, clientId, assert)
       await testCleanup(store, clientId, assert)
       await testUnusedClientPurge(store, assert)
       await testClientIdCollation(store, assert)

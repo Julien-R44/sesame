@@ -78,8 +78,8 @@ interface RefreshRotation {
  * To handle this, we allow a recently-rotated refresh token to be
  * reused within a short configurable window (`refreshTokenRotationGracePeriod`,
  * defaults to 120 s). During that window the old token issues fresh
- * tokens without triggering replay-attack revocation. Tokens rotated
- * before grants existed (no `grant_id`) get no grace period.
+ * tokens without triggering replay-attack revocation. A request that
+ * loses a concurrent rotation of the same token is served the same way.
  *
  * This is the same approach used by Auth0 ("reuse interval") and
  * Cloudflare workers-oauth-provider ("previous token"). It provides
@@ -159,7 +159,7 @@ export class ExchangeRefreshTokenAction {
       accessTokenExpiresAt: accessToken.expiresAt,
       refreshTokenExpiresAt: newRefreshToken.expiresAt,
     })
-    await this.#atomicRotation(manager, {
+    const rotated = await this.#atomicRotation(manager, {
       client: input.client,
       oldRefreshToken: refreshToken,
       accessToken,
@@ -168,6 +168,8 @@ export class ExchangeRefreshTokenAction {
       grant,
       resource,
     })
+
+    if (!rotated) return this.#recoverLostRotation(manager, input, hashedToken)
 
     const ttlSeconds = string.seconds.parse(manager.config.accessTokenTtl)
 
@@ -183,12 +185,12 @@ export class ExchangeRefreshTokenAction {
 
   /**
    * Whether a revoked refresh token can still be reused. Tokens rotated
-   * before grants existed never can: their successor may already belong
-   * to a new grant, and reusing them would fork the authorization into a
-   * second grant that replay detection on the first one cannot revoke.
+   * before grants existed get the grace period too: refusing them would
+   * revoke the refresh token the client just received when it retries
+   * across an upgrade. Such a retry is adopted into its own grant.
    */
   #isInGracePeriod(manager: SesameManager, refreshToken: OAuthRefreshTokenRecord): boolean {
-    if (!refreshToken.grantId || !refreshToken.revokedAt) return false
+    if (!refreshToken.revokedAt) return false
 
     const gracePeriodSeconds = manager.config.refreshTokenRotationGracePeriod
     if (gracePeriodSeconds <= 0) return false
@@ -196,6 +198,31 @@ export class ExchangeRefreshTokenAction {
     const revokedSecondsAgo = DateTime.now().diff(refreshToken.revokedAt, 'seconds').seconds
 
     return revokedSecondsAgo <= gracePeriodSeconds
+  }
+
+  /**
+   * Another request rotated the same refresh token between our read and
+   * our write (concurrent refreshes from several processes). Serve this
+   * request like a grace-period reuse instead of failing it, so the
+   * client does not discard its credentials.
+   */
+  async #recoverLostRotation(
+    manager: SesameManager,
+    input: ExchangeRefreshTokenInput,
+    hashedToken: string
+  ) {
+    const refreshToken = await manager.store.findRefreshToken({
+      hash: hashedToken,
+      clientId: input.client.clientId,
+    })
+    if (!refreshToken) throw new E_INVALID_GRANT('Refresh token not found')
+
+    if (refreshToken.revokedAt && this.#isInGracePeriod(manager, refreshToken)) {
+      return this.#issueFreshTokens(manager, input, refreshToken)
+    }
+
+    await new GrantService(manager).assertActive(refreshToken.grantId)
+    throw new E_INVALID_GRANT('Refresh token has already been consumed')
   }
 
   /**
@@ -389,9 +416,10 @@ export class ExchangeRefreshTokenAction {
   /**
    * Atomically revoke the old token pair, persist the new
    * access + refresh tokens, and extend the grant inside a
-   * single transaction.
+   * single transaction. Returns false when the refresh token
+   * was already rotated or its grant is no longer active.
    */
-  async #atomicRotation(manager: SesameManager, rotation: RefreshRotation) {
+  async #atomicRotation(manager: SesameManager, rotation: RefreshRotation): Promise<boolean> {
     const { client, oldRefreshToken, accessToken, newRefreshToken, scopes, grant, resource } =
       rotation
     const store = manager.store
@@ -424,9 +452,6 @@ export class ExchangeRefreshTokenAction {
       },
     })
 
-    if (rotated) return
-
-    await new GrantService(manager).assertActive(oldRefreshToken.grantId)
-    throw new E_INVALID_GRANT('Refresh token has already been consumed')
+    return rotated
   }
 }

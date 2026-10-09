@@ -108,7 +108,7 @@ No data is copied. Instead:
 
 - Existing access and refresh tokens keep working without a grant. The guard exposes `grantId` as `undefined` and `context` as `null` for them.
 - An existing refresh token is attached to a new grant the next time it is used, together with its access token, so active clients appear in `listGrants()` after their next refresh. Replaying that refresh token afterwards revokes the new grant and every token issued from it. The same applies to an authorization code issued before the upgrade and exchanged after it.
-- Replaying a refresh token that was rotated before the upgrade, and therefore never got a grant, revokes the grant-less refresh and access tokens of the same client and user. Tokens already attached to a grant are not affected. This applies even within `refreshTokenRotationGracePeriod`: a refresh token rotated before the upgrade gets no grace period, so it cannot be attached to a second grant next to its successor.
+- Replaying a refresh token that was rotated before the upgrade, and therefore never got a grant, revokes the grant-less refresh and access tokens of the same client and user. Tokens already attached to a grant are not affected. Within `refreshTokenRotationGracePeriod`, such a refresh token is still accepted, so a client retrying a refresh across the deployment keeps its session. The retry is attached to its own grant, next to the one its successor gets on its next refresh.
 - Remembered consents are dropped. Each user sees your consent page once more the next time a client starts a new authorization. Token refreshes are not affected.
 
 ### 3. Behavior changes

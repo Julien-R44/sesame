@@ -174,9 +174,32 @@ test.group('Integration | Refresh Token Grant', (group) => {
     assert.equal(result.token_type, 'Bearer')
   })
 
-  test('rejects concurrent rotation of the same refresh token', async ({ assert }) => {
+  test('serves concurrent rotations of the same refresh token', async ({ assert }) => {
     const client = await createTestClient()
     const { rawRefreshToken, manager } = await createTestRefreshToken({ scopes: ['read'] })
+
+    const action = new ExchangeRefreshTokenAction()
+    const results = await Promise.all([
+      action.execute(manager, { client, refreshToken: rawRefreshToken }),
+      action.execute(manager, { client, refreshToken: rawRefreshToken }),
+      action.execute(manager, { client, refreshToken: rawRefreshToken }),
+    ])
+
+    const refreshTokens = new Set(results.map((result) => result.refresh_token))
+    assert.equal(refreshTokens.size, 3)
+
+    for (const refreshToken of refreshTokens) {
+      const next = await action.execute(manager, { client, refreshToken })
+      assert.isString(next.access_token)
+    }
+  })
+
+  test('rejects concurrent rotation of the same refresh token without a grace period', async ({
+    assert,
+  }) => {
+    const manager = createManager({ refreshTokenRotationGracePeriod: 0 })
+    const client = await createTestClient()
+    const { rawRefreshToken } = await createTestRefreshToken({ manager, scopes: ['read'] })
 
     const action = new ExchangeRefreshTokenAction()
     const results = await Promise.allSettled([

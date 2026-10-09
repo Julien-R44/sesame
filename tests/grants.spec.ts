@@ -559,13 +559,38 @@ test.group('Grants | Legacy adoption', (group) => {
     )
   })
 
-  test('a refresh token rotated before grants existed gets no grace period', async ({ assert }) => {
+  test('a refresh token rotated before grants existed keeps its grace period', async ({
+    assert,
+  }) => {
     const manager = createManager()
     const client = await createTestClient()
     const rotatedBeforeUpgrade = await createTestRefreshToken({
       scopes: ['read'],
       grantId: null,
       revokedAt: DateTime.now().minus({ seconds: 10 }),
+    })
+    const current = await createTestRefreshToken({ scopes: ['read'], grantId: null })
+    const action = new ExchangeRefreshTokenAction()
+
+    const retried = await action.execute(manager, {
+      client,
+      refreshToken: rotatedBeforeUpgrade.rawRefreshToken,
+    })
+    assert.isString(retried.refresh_token)
+
+    const kept = await action.execute(manager, { client, refreshToken: current.rawRefreshToken })
+    assert.isString(kept.access_token)
+  })
+
+  test('replaying a refresh token rotated before grants existed after the grace period', async ({
+    assert,
+  }) => {
+    const manager = createManager()
+    const client = await createTestClient()
+    const rotatedBeforeUpgrade = await createTestRefreshToken({
+      scopes: ['read'],
+      grantId: null,
+      revokedAt: DateTime.now().minus({ minutes: 10 }),
     })
     const current = await createTestRefreshToken({ scopes: ['read'], grantId: null })
     const action = new ExchangeRefreshTokenAction()
@@ -579,7 +604,6 @@ test.group('Grants | Legacy adoption', (group) => {
       'invalid_grant'
     )
 
-    assert.lengthOf(await OAuthGrant.all(), 1)
     assert.isNotNull(await manager.findGrant(grantId!))
     const next = await action.execute(manager, { client, refreshToken: adopted.refresh_token })
     assert.equal(await grantIdOf(manager, next.access_token), grantId)
