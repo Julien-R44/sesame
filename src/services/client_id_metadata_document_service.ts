@@ -49,6 +49,9 @@ const DISPLAY_PROPERTIES = [
 /**
  * Metadata keys derived from the document. Any other key (added by an
  * administrator) is preserved when the document is refreshed.
+ * `token_endpoint_auth_method` is not stored (it would mark the client as
+ * dynamically registered for the unused client purge) but is still
+ * dropped from rows written by earlier versions.
  */
 const DOCUMENT_METADATA_KEYS = new Set<string>([
   ...DISPLAY_PROPERTIES,
@@ -179,7 +182,6 @@ export class ClientIdMetadataDocumentService {
     const fetchedAt = DateTime.now()
 
     return {
-      token_endpoint_auth_method: 'none',
       response_types: ['code'],
       ...Object.fromEntries(display),
       client_id_metadata_document: {
