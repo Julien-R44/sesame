@@ -390,7 +390,9 @@ export class LucidStore implements SesameStore {
   }
 
   /**
-   * Revoke a refresh token and its associated active access token together.
+   * Delete a refresh token and revoke its associated access token together.
+   * The refresh token is deleted rather than marked revoked so the rotation
+   * grace period cannot bring it back.
    */
   async revokeRefreshToken(options: {
     hash: string
@@ -401,12 +403,7 @@ export class LucidStore implements SesameStore {
       const token = await store.findRefreshToken(options)
       if (!token) return
 
-      const result = await store.#query(OAuthRefreshToken)
-        .where('id', token.id)
-        .whereNull('revokedAt')
-        .update({ revokedAt: options.now.toSQL(), updatedAt: options.now.toSQL() })
-      if (this.#affectedRows(result) !== 1) return
-
+      await store.#query(OAuthRefreshToken).where('id', token.id).delete()
       await store.#query(OAuthAccessToken)
         .where('id', token.accessTokenId)
         .whereNull('revokedAt')
@@ -680,10 +677,7 @@ export class LucidStore implements SesameStore {
         .where('userId', options.userId)
         .whereNull('revokedAt')
         .update({ revokedAt: options.now.toSQL(), updatedAt: options.now.toSQL() })
-      await store.#query(OAuthRefreshToken)
-        .where('userId', options.userId)
-        .whereNull('revokedAt')
-        .update({ revokedAt: options.now.toSQL(), updatedAt: options.now.toSQL() })
+      await store.#query(OAuthRefreshToken).where('userId', options.userId).delete()
       await store.#query(OAuthAuthorizationCode).where('userId', options.userId).delete()
       await store.#query(OAuthPendingAuthorizationRequest).where('userId', options.userId).delete()
       await store.#query(OAuthGrant).where('userId', options.userId).delete()

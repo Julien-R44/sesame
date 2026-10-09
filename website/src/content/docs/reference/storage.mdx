@@ -11,7 +11,7 @@ description: Grant, transaction, resource, and purge requirements for custom OAu
 
 The store methods for grant management are `createGrant`, `findGrant`, `listGrants`, `updateGrant`, `revokeGrant`, and `revokeGrants`. `findAccessToken` returns its joined grant or null in one query.
 
-`revokeLegacyTokenFamily` affects only records without a grant. The old `findConsent`, `grantConsent`, and `revokeTokenFamily` methods no longer define the contract.
+`revokeLegacyTokenFamily` affects only records without a grant. `revokeRefreshToken` and `revokeAllForUser` must delete refresh tokens rather than set `revoked_at`: a revoked refresh token is treated as rotated and accepted during the rotation grace period. The old `findConsent`, `grantConsent`, and `revokeTokenFamily` methods no longer define the contract.
 
 ## Transactional issuance
 

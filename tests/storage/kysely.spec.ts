@@ -358,6 +358,68 @@ test.group('Kysely store | OAuth flows', () => {
     }
   })
 
+  test('explicitly revoked legacy refresh tokens get no grace period', async ({ assert }) => {
+    const { db, manager } = await createKyselyManager()
+
+    try {
+      const { client } = await manager.createClient({
+        name: 'Kysely App',
+        redirectUris: ['https://app.example.com/callback'],
+        scopes: ['read'],
+        grantTypes: ['authorization_code', 'refresh_token'],
+        isPublic: true,
+      })
+      const tokenService = new TokenService(manager)
+      const action = new ExchangeRefreshTokenAction()
+
+      const issueLegacyRefreshToken = async () => {
+        const raw = tokenService.generateOpaqueToken()
+        const accessTokenId = crypto.randomUUID()
+        await manager.store.issueTokenPair({
+          accessToken: {
+            id: accessTokenId,
+            tokenHash: tokenService.hashToken(tokenService.generateOpaqueToken()),
+            clientId: client.clientId,
+            userId: 'user-1',
+            grantId: null,
+            scopes: ['read'],
+            resource: null,
+            expiresAt: DateTime.now().plus({ hours: 1 }),
+          },
+          refreshToken: {
+            id: crypto.randomUUID(),
+            token: tokenService.hashToken(raw),
+            accessTokenId,
+            clientId: client.clientId,
+            userId: 'user-1',
+            grantId: null,
+            scopes: ['read'],
+            resource: null,
+            expiresAt: DateTime.now().plus({ days: 30 }),
+          },
+        })
+
+        return raw
+      }
+
+      const revoked = await issueLegacyRefreshToken()
+      await manager.store.revokeRefreshToken({
+        hash: tokenService.hashToken(revoked),
+        clientId: client.clientId,
+        now: DateTime.now(),
+      })
+      await assert.rejects(() => action.execute(manager, { client, refreshToken: revoked }))
+
+      const loggedOut = await issueLegacyRefreshToken()
+      await manager.revokeAllForUser('user-1')
+      await assert.rejects(() => action.execute(manager, { client, refreshToken: loggedOut }))
+
+      assert.lengthOf(await db.selectFrom('oauth_grants').selectAll().execute(), 0)
+    } finally {
+      await db.destroy()
+    }
+  })
+
   test('rolls back token writes when a transaction fails', async ({ assert }) => {
     const { db, manager } = await createKyselyManager()
 

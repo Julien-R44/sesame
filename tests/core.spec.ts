@@ -131,10 +131,8 @@ test.group('Integration | revokeAllForUser', (group) => {
     const accessToken = await OAuthAccessToken.query().where('tokenHash', 'at-1').firstOrFail()
     assert.isNotNull(accessToken.revokedAt)
 
-    const refreshToken = await OAuthRefreshToken.query()
-      .where('accessTokenId', accessTokenId)
-      .firstOrFail()
-    assert.isNotNull(refreshToken.revokedAt)
+    const refreshTokens = await OAuthRefreshToken.query().where('accessTokenId', accessTokenId)
+    assert.lengthOf(refreshTokens, 0)
 
     const codes = await OAuthAuthorizationCode.query().where('userId', 'user-1')
     assert.lengthOf(codes, 0)

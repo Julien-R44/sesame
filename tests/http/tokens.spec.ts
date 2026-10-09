@@ -217,10 +217,11 @@ test.group('HTTP | Revocation', (group) => {
 
     response.assertStatus(200)
 
-    const refresh = await OAuthRefreshToken.query()
-      .where('token', tokenService.hashToken(rawRefreshToken))
-      .firstOrFail()
-    assert.isNotNull(refresh.revokedAt)
+    const refresh = await OAuthRefreshToken.query().where(
+      'token',
+      tokenService.hashToken(rawRefreshToken)
+    )
+    assert.lengthOf(refresh, 0)
 
     const access = await OAuthAccessToken.query()
       .where('tokenHash', 'linked-token-hash')

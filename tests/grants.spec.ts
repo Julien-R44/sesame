@@ -609,6 +609,45 @@ test.group('Grants | Legacy adoption', (group) => {
     assert.equal(await grantIdOf(manager, next.access_token), grantId)
   })
 
+  test('an explicitly revoked legacy refresh token gets no grace period', async ({ assert }) => {
+    const manager = createManager()
+    const client = await createTestClient()
+    const legacy = await createTestRefreshToken({ scopes: ['read'], grantId: null })
+    const tokenService = new TokenService(manager)
+    const action = new ExchangeRefreshTokenAction()
+
+    await manager.store.revokeRefreshToken({
+      hash: tokenService.hashToken(legacy.rawRefreshToken),
+      clientId: client.clientId,
+      now: DateTime.now(),
+    })
+
+    await assertOAuthError(
+      assert,
+      () => action.execute(manager, { client, refreshToken: legacy.rawRefreshToken }),
+      'invalid_grant'
+    )
+    assert.lengthOf(await OAuthGrant.all(), 0)
+  })
+
+  test('revoking every token of a user leaves no legacy refresh token usable', async ({
+    assert,
+  }) => {
+    const manager = createManager()
+    const client = await createTestClient()
+    const legacy = await createTestRefreshToken({ scopes: ['read'], grantId: null })
+    const action = new ExchangeRefreshTokenAction()
+
+    await manager.revokeAllForUser('user-1')
+
+    await assertOAuthError(
+      assert,
+      () => action.execute(manager, { client, refreshToken: legacy.rawRefreshToken }),
+      'invalid_grant'
+    )
+    assert.lengthOf(await OAuthGrant.all(), 0)
+  })
+
   test('reusing an exchanged legacy code revokes its new grant', async ({ assert }) => {
     await createTestClient()
     const { client, rawCode, codeVerifier, redirectUri, manager } = await createAuthCodeExchange({

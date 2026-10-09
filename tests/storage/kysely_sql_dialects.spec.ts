@@ -211,6 +211,7 @@ async function testTokenExchange(store: SesameStore, clientId: string, assert: A
   assert.isNotNull((await store.findAccessToken({ hash: accessHash }))?.revokedAt)
 
   await store.revokeRefreshToken({ hash: newRefreshHash, clientId, now: DateTime.now() })
+  assert.isNull(await store.findRefreshToken({ hash: newRefreshHash, clientId }))
   assert.isNotNull((await store.findAccessToken({ hash: newAccessHash }))?.revokedAt)
 }
 

@@ -120,7 +120,7 @@ No data is copied. Instead:
 - **Introspection and userinfo check the grant.** Tokens whose grant was revoked or has expired are reported as `active: false` and rejected by `/oauth/userinfo`, like the OAuth guard already does.
 - **`POST /oauth/revoke` with a refresh token revokes its whole grant**, including every access token issued from it (RFC 7009 §2.1). Revoking an access token still only revokes that token.
 - **Purge keeps revoked refresh tokens for the retention period** (`--hours`, 168 by default) instead of deleting them immediately, so a replay is still detected after a purge. Expired grants are purged too, and `purgeTokens()` returns an additional `grants` count.
-- **`revokeAllForUser()` and `deleteClient()`** delete grants instead of consents.
+- **`revokeAllForUser()` and `deleteClient()`** delete grants instead of consents. `revokeAllForUser()` also deletes the user's refresh tokens instead of marking them revoked, as does `POST /oauth/revoke` for a refresh token issued before grants existed. A revoked refresh token is only kept when it was rotated, so the rotation grace period cannot revive an explicitly revoked one.
 
 ### 4. Code changes
 
@@ -129,6 +129,7 @@ No data is copied. Instead:
 - **Custom stores:** update your `SesameStore` implementation. Both bundled stores (`src/storage/drivers/lucid.ts` and `src/storage/drivers/kysely.ts`) can serve as references.
   - Remove `findConsent()` and `grantConsent()`.
   - Rename `revokeTokenFamily()` to `revokeLegacyTokenFamily()`. It must only touch tokens whose `grant_id` is null.
+  - `revokeRefreshToken()` and `revokeAllForUser()` must delete refresh tokens instead of setting `revoked_at`. Sésame treats a refresh token with `revoked_at` as rotated, and accepts it during `refreshTokenRotationGracePeriod`.
   - Add `createGrant()`, `findGrant()`, `listGrants()`, `updateGrant()`, `revokeGrant()`, and `revokeGrants()`.
   - `findAccessToken()` returns the token joined with its `grant` (or `null`) in a single query.
   - `exchangeAuthorizationCode()` receives `consumedAt` and must mark the code consumed instead of deleting it.

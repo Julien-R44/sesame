@@ -554,7 +554,9 @@ export class KyselyStore implements SesameStore {
   }
 
   /**
-   * Revoke a refresh token and the access token paired with it atomically.
+   * Delete a refresh token and revoke the access token paired with it
+   * atomically. The refresh token is deleted rather than marked revoked
+   * so the rotation grace period cannot bring it back.
    */
   async revokeRefreshToken(options: {
     hash: string
@@ -563,21 +565,9 @@ export class KyselyStore implements SesameStore {
   }): Promise<void> {
     await this.#transaction(async (store) => {
       const token = await store.findRefreshToken(options)
-      if (!token || token.revokedAt) return
+      if (!token) return
 
-      const values = encodeRow(
-        { revokedAt: options.now, updatedAt: options.now },
-        tables.refreshTokens,
-        this.#dialect
-      )
-      const result = await store.#db
-        .updateTable(tables.refreshTokens.name)
-        .set(values)
-        .where('id', '=', token.id)
-        .where('revoked_at', 'is', null)
-        .executeTakeFirst()
-      if (Number(result.numUpdatedRows ?? 0) === 0) return
-
+      await store.#db.deleteFrom(tables.refreshTokens.name).where('id', '=', token.id).execute()
       await store.#db
         .updateTable(tables.accessTokens.name)
         .set(
@@ -927,16 +917,8 @@ export class KyselyStore implements SesameStore {
         .where('revoked_at', 'is', null)
         .execute()
       await store.#db
-        .updateTable(tables.refreshTokens.name)
-        .set(
-          encodeRow(
-            { revokedAt: options.now, updatedAt: options.now },
-            tables.refreshTokens,
-            this.#dialect
-          )
-        )
+        .deleteFrom(tables.refreshTokens.name)
         .where('user_id', '=', options.userId)
-        .where('revoked_at', 'is', null)
         .execute()
       await store.#db
         .deleteFrom(tables.authorizationCodes.name)

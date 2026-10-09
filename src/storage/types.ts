@@ -265,6 +265,11 @@ export interface SesameStore {
     hash: string
     clientId: string
   }): Promise<OAuthRefreshTokenRecord | null>
+  /**
+   * Delete the refresh token and revoke its paired access token. A
+   * `revoked_at` on a refresh token means it was rotated and enables the
+   * rotation grace period, so explicit revocation must delete it.
+   */
   revokeRefreshToken(options: { hash: string; clientId: string; now: DateTime }): Promise<void>
   /**
    * Replay detection for tokens without a grant: delete the refresh tokens
@@ -309,6 +314,11 @@ export interface SesameStore {
 
   issueTokenPair(options: IssueTokenPairOptions): Promise<boolean>
   rotateRefreshToken(options: RotateRefreshTokenOptions): Promise<boolean>
+  /**
+   * Revoke the user's access tokens and delete their refresh tokens, codes,
+   * pending requests and grants. Refresh tokens are deleted, not marked
+   * revoked, for the same reason as in `revokeRefreshToken`.
+   */
   revokeAllForUser(options: { userId: string; now: DateTime }): Promise<void>
   purgeTokens(options: PurgeTokensOptions): Promise<SesamePurgeResult>
   purgeUnusedClients(options: PurgeUnusedClientsOptions): Promise<number>
