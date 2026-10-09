@@ -174,6 +174,66 @@ test.group('Grants | Authorization', (group) => {
     assert.isNull((await manager.findGrant(code.grantId!))?.context)
   })
 
+  test('never skips consent for public clients with an impersonable redirect URI', async ({
+    assert,
+  }) => {
+    const manager = createManager()
+    await createTestClient({
+      isPublic: true,
+      type: 'public',
+      clientSecret: null,
+      redirectUris: ['http://127.0.0.1/callback', 'com.example.app:/callback', REDIRECT_URI],
+    })
+    await createTestGrant({ scopes: ['read'] })
+    const { codeChallenge } = createPkce()
+    const input = {
+      clientId: 'test-client',
+      responseType: 'code',
+      scope: 'read',
+      codeChallenge,
+      codeChallengeMethod: 'S256',
+      userId: 'user-1',
+    }
+
+    for (const redirectUri of ['http://127.0.0.1:51234/callback', 'com.example.app:/callback']) {
+      const result = await new AuthorizeAction().execute(manager, { ...input, redirectUri })
+      assert.equal(result.type, 'consent_required')
+
+      const silent = await new AuthorizeAction().execute(manager, {
+        ...input,
+        redirectUri,
+        prompt: 'none',
+      })
+      assert.equal(silent.type, 'redirect_error')
+    }
+
+    const https = await new AuthorizeAction().execute(manager, {
+      ...input,
+      redirectUri: REDIRECT_URI,
+    })
+    assert.equal(https.type, 'authorized')
+  })
+
+  test('skips consent for confidential clients with a loopback redirect URI', async ({
+    assert,
+  }) => {
+    const manager = createManager()
+    await createTestClient({ redirectUris: ['http://127.0.0.1/callback'] })
+    await createTestGrant({ scopes: ['read'] })
+    const { codeChallenge } = createPkce()
+
+    const result = await new AuthorizeAction().execute(manager, {
+      clientId: 'test-client',
+      responseType: 'code',
+      redirectUri: 'http://127.0.0.1:51234/callback',
+      scope: 'read',
+      codeChallenge,
+      codeChallengeMethod: 'S256',
+      userId: 'user-1',
+    })
+    assert.equal(result.type, 'authorized')
+  })
+
   test('revoking one authorization keeps the others of the same client', async ({ assert }) => {
     const manager = createManager()
     await createTestClient()

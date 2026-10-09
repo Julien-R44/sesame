@@ -36,7 +36,7 @@ Remove any hidden `scope` value copied from the authorize query unless you inten
 
 For application-specific scope selection or context, use [approveAuthorization and denyAuthorization](/guides/login-and-consent/#customize-the-decision). Existing requests without `scope` still approve all requested permissions.
 
-Expect each user to review consent once more when starting a new authorization after the migration. Token refresh is unaffected. Subsequent requests skip consent only when active grants without context cover the requested scopes. Metadata document clients and requests with `prompt=consent` always show consent.
+Expect each user to review consent once more when starting a new authorization after the migration. Token refresh is unaffected. Subsequent requests skip consent only when active grants without context cover the requested scopes. Metadata document clients, public clients redirecting to a loopback or custom scheme URI, and requests with `prompt=consent` always show consent.
 
 ## Replace consent imports and management code
 

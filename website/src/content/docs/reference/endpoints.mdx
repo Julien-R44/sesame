@@ -53,7 +53,7 @@ Requested scopes must pass server validation and the client's allowed scope list
 
 S256 PKCE remains mandatory even if a client record has `requirePkce: false`. Errors before callback validation produce an HTTP error. Later authorization errors can redirect to the validated callback with `error` and `error_description`.
 
-Active grants without context can skip consent. `prompt=consent` forces consent. `prompt=none` returns `login_required` or `consent_required` rather than displaying a page; combining `none` with another value returns `invalid_request`. Other prompt values and `max_age` are ignored. Metadata document clients always require consent.
+Active grants without context can skip consent. `prompt=consent` forces consent. `prompt=none` returns `login_required` or `consent_required` rather than displaying a page; combining `none` with another value returns `invalid_request`. Other prompt values and `max_age` are ignored. Metadata document clients, and public clients redirecting to a loopback or custom scheme URI, always require consent: any local application can reuse their `client_id`.
 
 Client callback redirects include `iss` and return `state` when present. Login and consent page redirects carry the original authorization query. The consent page also receives `auth_token` and the resolved resource when present.
 

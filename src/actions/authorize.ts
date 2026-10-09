@@ -296,14 +296,29 @@ export class AuthorizeAction {
   }
 
   /**
+   * Whether the client identity can be impersonated: a public client
+   * redirecting to a loopback or custom scheme URI. Any local application
+   * can listen on that redirect URI and reuse the public `client_id`.
+   *
+   * @see https://datatracker.ietf.org/doc/html/rfc8252#section-8.6
+   */
+  #isImpersonable(options: ResolveConsentOptions): boolean {
+    if (!options.client.isPublic) return false
+
+    return URL.parse(options.input.redirectUri)?.protocol !== 'https:'
+  }
+
+  /**
    * Whether the consent page can be skipped. It never is with
    * `prompt=consent`, nor for Client ID Metadata Document clients: their
    * `client_id` is public, so another application (for example a local
-   * process using a loopback redirect URI) can reuse it.
+   * process using a loopback redirect URI) can reuse it. The same goes
+   * for any public client redirecting to a loopback or custom scheme URI.
    */
   async #canSkipConsent(options: ResolveConsentOptions): Promise<boolean> {
     if (options.prompts.has('consent')) return false
     if (options.client.metadata?.client_id_metadata_document) return false
+    if (this.#isImpersonable(options)) return false
 
     return this.#hasConsent(options.manager, {
       clientId: options.client.clientId,
