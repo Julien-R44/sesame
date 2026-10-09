@@ -3,6 +3,9 @@ import { AuthManager } from '@adonisjs/auth'
 import { setupHttpGroup } from '../helpers/app.ts'
 import { createTestClient } from '../helpers/create_test_client.ts'
 import { createTestAccessToken } from '../helpers/create_test_access_token.ts'
+import { OAuthGuard } from '../../src/guard/guard.ts'
+import type { SesameManager } from '../../src/sesame_manager.ts'
+import { FakeUserProvider, createFakeEmitter } from '../helpers/fakes.ts'
 import ScopeMiddleware from '../../src/middleware/scope_middleware.ts'
 import AnyScopeMiddleware from '../../src/middleware/any_scope_middleware.ts'
 
@@ -255,5 +258,101 @@ test.group('HTTP | ScopeMiddleware with @adonisjs/auth', (group) => {
 
     response.assertStatus(403)
     assert.include(response.header('www-authenticate'), 'scope="read write"')
+  })
+})
+
+test.group('HTTP | Scope middleware with a per-resource guard', (group) => {
+  const resourceB = 'https://auth.example.com/mcp-b'
+  const metadataB = `resource_metadata="https://auth.example.com/.well-known/oauth-protected-resource/mcp-b"`
+  let manager: SesameManager
+
+  const ctx = setupHttpGroup(group, undefined, {
+    createAuth: ({ ctx: httpCtx, guard }) => {
+      const provider = new FakeUserProvider([{ id: 'user-1', name: 'Test User' }])
+      const guardB = new OAuthGuard('mcp_b', httpCtx, createFakeEmitter(), provider, manager, {
+        resource: '/mcp-b',
+      })
+
+      return new AuthManager({
+        default: 'oauth',
+        guards: { oauth: () => guard, mcp_b: () => guardB },
+      }).createAuthenticator(httpCtx)
+    },
+    setupRoutes(router, sesame) {
+      manager = sesame
+      sesame.registerProtectedResource({ resource: '/mcp', scopes: ['read', 'write'] })
+      sesame.registerProtectedResource({ resource: '/mcp-b', scopes: ['read'] })
+
+      router
+        .post('/mcp-b', async () => ({ ok: true }))
+        .use(async (mCtx: any, next: any) => {
+          await new ScopeMiddleware().handle(mCtx, next, { scopes: ['read'], guard: 'mcp_b' })
+        })
+
+      router
+        .post('/mcp-b-any', async () => ({ ok: true }))
+        .use(async (mCtx: any, next: any) => {
+          await new AnyScopeMiddleware().handle(mCtx, next, {
+            scopes: ['read', 'write'],
+            guard: 'mcp_b',
+          })
+        })
+    },
+  })
+
+  test('401 points to the protected resource metadata of the guard resource', async ({
+    client,
+  }) => {
+    const response = await client.post(`${ctx.baseUrl}/mcp-b`)
+
+    response.assertStatus(401)
+    response.assertHeader('www-authenticate', `Bearer ${metadataB}, scope="read"`)
+  })
+
+  test('accepts a token issued for the guard resource', async ({ client }) => {
+    await createTestClient()
+    const { raw } = await createTestAccessToken({ scopes: ['read'], resource: resourceB })
+
+    const response = await client.post(`${ctx.baseUrl}/mcp-b`).bearerToken(raw)
+
+    response.assertStatus(200)
+    response.assertBodyContains({ ok: true })
+  })
+
+  test('rejects a token issued for another resource', async ({ client, assert }) => {
+    await createTestClient()
+    const { raw } = await createTestAccessToken({
+      scopes: ['read'],
+      resource: 'https://auth.example.com/mcp',
+    })
+
+    const response = await client.post(`${ctx.baseUrl}/mcp-b`).bearerToken(raw)
+
+    response.assertStatus(401)
+    assert.include(response.header('www-authenticate'), metadataB)
+    assert.include(response.header('www-authenticate'), 'error="invalid_token"')
+  })
+
+  test('403 challenge points to the guard resource', async ({ client, assert }) => {
+    await createTestClient()
+    const { raw } = await createTestAccessToken({ scopes: ['write'], resource: resourceB })
+
+    const response = await client.post(`${ctx.baseUrl}/mcp-b`).bearerToken(raw)
+
+    response.assertStatus(403)
+    assert.include(response.header('www-authenticate'), metadataB)
+    assert.include(response.header('www-authenticate'), 'scope="write read"')
+  })
+
+  test('anyScope uses the guard option', async ({ client }) => {
+    await createTestClient()
+    const { raw } = await createTestAccessToken({ scopes: ['write'], resource: resourceB })
+
+    const anonymous = await client.post(`${ctx.baseUrl}/mcp-b-any`)
+    anonymous.assertStatus(401)
+    anonymous.assertHeader('www-authenticate', `Bearer ${metadataB}, scope="read"`)
+
+    const response = await client.post(`${ctx.baseUrl}/mcp-b-any`).bearerToken(raw)
+    response.assertStatus(200)
   })
 })
