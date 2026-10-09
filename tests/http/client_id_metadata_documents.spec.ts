@@ -8,6 +8,7 @@ import { FakeClientMetadataDocumentFetcher } from '../helpers/fake_client_metada
 import { ClientMetadataDocumentFetcher } from '../../src/client_id_metadata_documents/fetcher.ts'
 import { ClientMetadataDocumentResolutionCache } from '../../src/client_id_metadata_documents/resolution_cache.ts'
 import { OAuthClient } from '../../src/models/oauth_client.ts'
+import { SesameManager } from '../../src/sesame_manager.ts'
 import { lucidStore } from '../../src/storage/drivers/lucid.ts'
 import { caseInsensitiveClientStore } from '../helpers/store_overrides.ts'
 import { createManager } from '../helpers/app.ts'
@@ -48,6 +49,7 @@ type AuthorizeOptions = {
   redirectUri: string
   userId?: string
   scope?: string
+  prompt?: string
 }
 
 function authorize(client: ApiClient, options: AuthorizeOptions) {
@@ -62,6 +64,7 @@ function authorize(client: ApiClient, options: AuthorizeOptions) {
       state: 'cimd-state',
       code_challenge: codeChallenge,
       code_challenge_method: 'S256',
+      ...(options.prompt ? { prompt: options.prompt } : {}),
     })
     .redirects(0)
 
@@ -427,6 +430,91 @@ test.group('HTTP | Client ID Metadata Documents', (group) => {
       client_name: 'Test Client',
       client_id_metadata_document: false,
     })
+  })
+})
+
+/**
+ * Run a full authorization (forcing the consent page so each run creates
+ * its own grant) and exchange the code. Returns the token response body.
+ */
+async function connectInstallation(
+  client: ApiClient,
+  options: { baseUrl: string; redirectUri: string }
+) {
+  const authorizeResponse = await authorize(client, {
+    baseUrl: options.baseUrl,
+    clientId: CLAUDE_CODE_ID,
+    redirectUri: options.redirectUri,
+    userId: 'user-1',
+    prompt: 'consent',
+  })
+  const consentUrl = new URL(authorizeResponse.header('location')!, 'https://auth.example.com')
+
+  const consentResponse = await client
+    .post(`${options.baseUrl}/oauth/consent`)
+    .json({ accept: true, auth_token: consentUrl.searchParams.get('auth_token') })
+    .header('X-Test-User-Id', 'user-1')
+    .redirects(0)
+  const callback = new URL(consentResponse.header('location')!)
+
+  const tokenResponse = await client.post(`${options.baseUrl}/oauth/token`).form({
+    grant_type: 'authorization_code',
+    client_id: CLAUDE_CODE_ID,
+    code: callback.searchParams.get('code'),
+    redirect_uri: options.redirectUri,
+    code_verifier: 'cimd-verifier-cimd-verifier-cimd-verifier-1234',
+  })
+  tokenResponse.assertStatus(200)
+
+  return tokenResponse.body() as { access_token: string; refresh_token: string }
+}
+
+test.group('HTTP | Client ID Metadata Documents (installations)', (group) => {
+  const ctx = setupHttpGroup(group, {
+    clientIdMetadataDocuments: true,
+    refreshTokenRotationGracePeriod: 0,
+  })
+  const fetcher = useFakeFetcher(group, ctx)
+
+  test('a replay on one installation keeps the other installation grant', async ({
+    client,
+    assert,
+  }) => {
+    fetcher.serve(CLAUDE_CODE_ID, claudeCodeDocument)
+    const refresh = (refreshToken: string) =>
+      client.post(`${ctx.baseUrl}/oauth/token`).form({
+        grant_type: 'refresh_token',
+        client_id: CLAUDE_CODE_ID,
+        refresh_token: refreshToken,
+      })
+
+    const laptop = await connectInstallation(client, {
+      baseUrl: ctx.baseUrl,
+      redirectUri: 'http://localhost:3118/callback',
+    })
+    const desktop = await connectInstallation(client, {
+      baseUrl: ctx.baseUrl,
+      redirectUri: 'http://127.0.0.1:4000/callback',
+    })
+
+    const manager = await ctx.app.container.make(SesameManager)
+    const grants = await manager.listGrants({ userId: 'user-1' })
+    assert.lengthOf(grants, 2)
+    assert.isTrue(grants.every((grant) => grant.clientId === CLAUDE_CODE_ID))
+
+    const rotated = await refresh(laptop.refresh_token)
+    rotated.assertStatus(200)
+
+    const replay = await refresh(laptop.refresh_token)
+    replay.assertStatus(400)
+    replay.assertBodyContains({ error: 'invalid_grant' })
+
+    const afterReplay = await refresh(rotated.body().refresh_token)
+    afterReplay.assertStatus(400)
+
+    const desktopRefresh = await refresh(desktop.refresh_token)
+    desktopRefresh.assertStatus(200)
+    assert.lengthOf(await manager.listGrants({ userId: 'user-1' }), 1)
   })
 })
 
