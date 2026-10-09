@@ -21,6 +21,7 @@ export class MyStore implements SesameStore {
     // - created before options.createdBefore
     // - dynamically registered: metadata.registration === 'dynamic',
     //   or metadata.token_endpoint_auth_method is set (clients registered before 0.8.0)
+    // - not a Client ID Metadata Document client: metadata.client_id_metadata_document is not set
     // - never authorized: metadata.first_authorized_at is not set
     // - no access token, refresh token, authorization code, grant,
     //   or pending authorization request references the client
@@ -219,4 +220,5 @@ No migration is needed. Metadata document clients are stored in the existing `oa
 - While the feature is disabled, any `client_id` starting with `https://` is rejected with `invalid_client`. Sésame never generates such ids.
 - On MySQL/MariaDB, client ids are compared case-insensitively by the default collations. Sésame now rejects a client whose stored `client_id` differs from the requested one, so URLs that only differ by case are refused. Use `utf8mb4_bin` on the `client_id` columns if you need them (see the [Client ID Metadata Documents security notes](../README.md#security)).
 - Update your consent page to display the document host and the redirect URI host (see [Consent screen](../README.md#consent-screen)). `GET /oauth/client-info` returns new fields for this: `client_uri`, `logo_uri`, `tos_uri`, `policy_uri`, `client_id_metadata_document`, and `client_id_host`. For a metadata document client, it returns `invalid_client` until an authenticated user has authorized it once.
+- `sesame:purge` never deletes metadata document clients: they carry neither `registration: 'dynamic'` nor `token_endpoint_auth_method` in their `metadata`. Delete one with `sesame.deleteClient(url)`.
 - Custom `SesameStore` implementations need no change. Sésame only uses `findClient`, `createClient`, and `updateClient`. When two requests insert the same client concurrently, `createClient` must throw, as with the unique `client_id` constraint.

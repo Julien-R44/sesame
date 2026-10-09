@@ -15,6 +15,9 @@ import { TokenService } from '../src/services/token_service.ts'
 import { ExchangeAuthorizationCodeAction } from '../src/actions/exchange_authorization_code.ts'
 import { markFirstAuthorization } from '../src/storage/unused_clients.ts'
 import { createAuthCodeExchange } from './helpers/create_auth_code_exchange.ts'
+import { FakeClientMetadataDocumentFetcher } from './helpers/fake_client_metadata_fetcher.ts'
+import { ClientIdMetadataDocumentService } from '../src/services/client_id_metadata_document_service.ts'
+import { ClientMetadataDocumentResolutionCache } from '../src/client_id_metadata_documents/resolution_cache.ts'
 
 test.group('SesameManager | purgeTokens', (group) => {
   setupIntegrationGroup(group)
@@ -437,6 +440,32 @@ test.group('SesameManager | purgeUnusedClients', (group) => {
 
     const stored = await manager.findClient('mcp-client')
     assert.isString(stored?.metadata?.first_authorized_at)
+  })
+
+  test('keeps Client ID Metadata Document clients', async ({ assert }) => {
+    const clientId = 'https://app.example.com/client.json'
+    const manager = createManager({ clientIdMetadataDocuments: true })
+    const fetcher = new FakeClientMetadataDocumentFetcher()
+    fetcher.serve(clientId, {
+      client_id: clientId,
+      client_name: 'Metadata document client',
+      redirect_uris: ['http://127.0.0.1/callback'],
+      token_endpoint_auth_method: 'none',
+    })
+    const service = new ClientIdMetadataDocumentService({
+      manager,
+      fetcher,
+      cache: new ClientMetadataDocumentResolutionCache(),
+    })
+    await service.resolve({ clientId, persist: true })
+    await createOldClient('https://legacy.example.com/client.json', {
+      token_endpoint_auth_method: 'none',
+      client_id_metadata_document: { expires_at: '2020-01-01T00:00:00.000Z' },
+    })
+    await OAuthClient.query().update({ createdAt: DateTime.now().minus({ days: 40 }).toSQL() })
+
+    assert.equal(await manager.purgeUnusedClients(), 0)
+    assert.lengthOf(await OAuthClient.query(), 2)
   })
 
   test('keeps dynamic clients carrying first_authorized_at', async ({ assert }) => {

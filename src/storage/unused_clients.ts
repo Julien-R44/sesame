@@ -31,10 +31,13 @@ const DELETE_CHUNK_SIZE = 500
  *
  * Clients registered before the explicit marker existed are recognized by
  * `token_endpoint_auth_method`, which the registration endpoint always stores
- * and `createClient()` never adds on its own.
+ * and `createClient()` never adds on its own. Client ID Metadata Document
+ * clients are never considered dynamically registered: their identity lives
+ * at a URL the client controls.
  */
 export function isDynamicallyRegistered(metadata: Record<string, any> | null): boolean {
   if (!metadata) return false
+  if (metadata.client_id_metadata_document) return false
   if (metadata.registration === DYNAMIC_REGISTRATION) return true
 
   return metadata.token_endpoint_auth_method !== undefined

@@ -128,7 +128,8 @@ test.group('HTTP | Client ID Metadata Documents', (group) => {
     assert.deepEqual(stored.grantTypes, ['authorization_code', 'refresh_token'])
     assert.deepEqual(stored.scopes, ['read'])
     assert.equal(stored.metadata!.client_uri, 'https://claude.ai')
-    assert.equal(stored.metadata!.token_endpoint_auth_method, 'none')
+    assert.notProperty(stored.metadata, 'token_endpoint_auth_method')
+    assert.notProperty(stored.metadata, 'registration')
 
     const expiresAt = DateTime.fromISO(stored.metadata!.client_id_metadata_document.expires_at)
     assert.closeTo(expiresAt.diffNow('seconds').seconds, 3600, 5)

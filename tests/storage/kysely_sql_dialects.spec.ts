@@ -312,6 +312,10 @@ async function testUnusedClientPurge(store: SesameStore, assert: Assert) {
 
   await createClient('dynamic-unused', { registration: 'dynamic' })
   await createClient('manual-unused', null)
+  await createClient('metadata-document-unused', {
+    token_endpoint_auth_method: 'none',
+    client_id_metadata_document: { expires_at: '2020-01-01T00:00:00.000Z' },
+  })
   const used = await createClient('dynamic-used', { registration: 'dynamic' })
   await store.createGrant({
     id: crypto.randomUUID(),
@@ -328,8 +332,10 @@ async function testUnusedClientPurge(store: SesameStore, assert: Assert) {
   assert.equal(deleted, 1)
   assert.isNull(await store.findClient(`dynamic-unused-${suffix}`))
   assert.isNotNull(await store.findClient(`manual-unused-${suffix}`))
+  assert.isNotNull(await store.findClient(`metadata-document-unused-${suffix}`))
   assert.isNotNull(await store.findClient(used.clientId))
   await store.deleteClient(`manual-unused-${suffix}`)
+  await store.deleteClient(`metadata-document-unused-${suffix}`)
   await store.deleteClient(used.clientId)
 }
 
