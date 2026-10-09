@@ -67,9 +67,12 @@ function assertDocumentIdentity(options: { body: Record<string, unknown>; client
   const authMethod = options.body.token_endpoint_auth_method
   if (authMethod === undefined || authMethod === 'none') return
 
-  const reason = UNSUPPORTED_AUTH_METHODS[String(authMethod)]
+  const reason =
+    typeof authMethod === 'string' && Object.hasOwn(UNSUPPORTED_AUTH_METHODS, authMethod)
+      ? UNSUPPORTED_AUTH_METHODS[authMethod]
+      : 'token_endpoint_auth_method must be "none"'
 
-  throw invalidDocument(reason ?? 'token_endpoint_auth_method must be "none"')
+  throw invalidDocument(reason)
 }
 
 /**
