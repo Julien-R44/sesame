@@ -296,21 +296,30 @@ export class AuthorizeAction {
   }
 
   /**
-   * Issue the code directly when a stored consent covers the
-   * requested scopes and `prompt=consent` was not sent. Otherwise,
-   * create a pending authorization request for the consent page,
-   * or fail with `consent_required` under `prompt=none`.
+   * Whether the consent page can be skipped. It never is with
+   * `prompt=consent`, nor for Client ID Metadata Document clients: their
+   * `client_id` is public, so another application (for example a local
+   * process using a loopback redirect URI) can reuse it.
+   */
+  async #canSkipConsent(options: ResolveConsentOptions): Promise<boolean> {
+    if (options.prompts.has('consent')) return false
+    if (options.client.metadata?.client_id_metadata_document) return false
+
+    return this.#hasConsent(options.manager, {
+      clientId: options.client.clientId,
+      userId: options.input.userId,
+      scopes: options.scopes,
+    })
+  }
+
+  /**
+   * Issue the code directly when a stored consent covers the requested
+   * scopes and the consent page can be skipped. Otherwise, create a
+   * pending authorization request for the consent page, or fail with
+   * `consent_required` under `prompt=none`.
    */
   async #resolveConsent(options: ResolveConsentOptions): Promise<AuthorizeResult> {
-    const consented =
-      !options.prompts.has('consent') &&
-      (await this.#hasConsent(options.manager, {
-        clientId: options.client.clientId,
-        userId: options.input.userId,
-        scopes: options.scopes,
-      }))
-
-    if (consented) {
+    if (await this.#canSkipConsent(options)) {
       const action = new IssueAuthorizationCodeAction()
       const code = await action.execute(options.manager, {
         client: options.client,

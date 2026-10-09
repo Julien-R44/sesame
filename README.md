@@ -183,7 +183,7 @@ sesame.registerDiscoveryRoutes({ jwksPath: '/.well-known/jwks.json' })
 
 The authorization code flow works in three steps. All clients must use PKCE with S256 (mandatory per OAuth 2.1).
 
-1. The consuming app redirects the user to `GET /oauth/authorize` with `client_id`, `redirect_uri`, `response_type=code`, `scope`, `state`, `code_challenge`, and `code_challenge_method=S256`. If the user is not logged in, they are sent to your `loginPage`. Once authenticated, they see the consent screen (your `consentPage`). If the user already has an active [grant](#grants) without context covering the requested scopes, consent is skipped and the code is issued directly.
+1. The consuming app redirects the user to `GET /oauth/authorize` with `client_id`, `redirect_uri`, `response_type=code`, `scope`, `state`, `code_challenge`, and `code_challenge_method=S256`. If the user is not logged in, they are sent to your `loginPage`. Once authenticated, they see the consent screen (your `consentPage`). If the user already has an active [grant](#grants) without context covering the requested scopes, consent is skipped and the code is issued directly, except for [Client ID Metadata Document](#client-id-metadata-documents) clients.
 
 2. After the user approves, they are redirected back to the `redirect_uri` with a `code` and `state` parameter. The consuming app exchanges the code at `POST /oauth/token` with `grant_type=authorization_code`, the `code`, `redirect_uri`, client credentials, and the PKCE `code_verifier`. The response contains an `access_token`, `refresh_token` (when the `refresh_token` grant is enabled), `token_type`, `expires_in`, and `scope`. The `iss` parameter is included in all redirect responses per RFC 9207.
 
@@ -255,7 +255,7 @@ Both methods throw the standard Sésame OAuth errors, which render as JSON when 
 
 Declining `offline_access` does not prevent a refresh token: Sésame issues one whenever the `refresh_token` grant is enabled, regardless of that scope (RFC 6749 §5.1). The scope is only removed from the granted list. To stop issuing refresh tokens, remove `refresh_token` from `grantTypes`.
 
-Every approval creates a [grant](#grants) holding the granted scopes. Future requests whose scopes are covered by the user's active grants for that client skip the consent page, unless the client sends `prompt=consent` or the grants carry a context. Denying a request does not touch existing grants.
+Every approval creates a [grant](#grants) holding the granted scopes. Future requests whose scopes are covered by the user's active grants for that client skip the consent page, unless the client sends `prompt=consent`, the grants carry a context, or the client is a [Client ID Metadata Document](#client-id-metadata-documents) client. Denying a request does not touch existing grants.
 
 #### Attaching application context
 
@@ -289,7 +289,7 @@ declare module '@julr/sesame/types' {
 Sésame supports two values of the OpenID Connect `prompt` parameter, with or without the `openid` scope, and advertises them in `prompt_values_supported`:
 
 - `prompt=consent` always shows the consent page, even when the user already approved the requested scopes.
-- `prompt=none` never shows a page. Sésame redirects back to the client with `error=login_required` when the user is not logged in, or `error=consent_required` when the requested scopes are not covered by an active grant without context. Combining `none` with another value returns `error=invalid_request`.
+- `prompt=none` never shows a page. Sésame redirects back to the client with `error=login_required` when the user is not logged in, or `error=consent_required` when the requested scopes are not covered by an active grant without context. Client ID Metadata Document clients always get `consent_required`. Combining `none` with another value returns `error=invalid_request`.
 
 Other values (`login`, `select_account`, `create`) and `max_age` are ignored.
 
@@ -785,6 +785,8 @@ The token, introspection, and revocation endpoints use the stored client and nev
 
 Every installation of a metadata document client (for example Claude Code on two machines) shares the same `client_id`. Each authorization creates its own grant, so revoking a grant or detecting a refresh token replay only affects the installation it belongs to. Metadata document clients are never deleted by `sesame:purge --clients`.
 
+Sésame never skips the consent page for a metadata document client, even when the user's grants already cover the requested scopes, and `prompt=none` always returns `consent_required` for them. Their `client_id` is public: any application, including a local process listening on a loopback redirect URI, can start an authorization with it. Showing the consent page each time lets the user check the redirect host before approving (see [Consent screen](#consent-screen)).
+
 Any failure returns an `invalid_client` error to the browser. Sésame does not redirect to the `redirect_uri` because it cannot be trusted yet. Network errors are reported as `Unable to fetch client metadata document`: the details (connection refused, timeout, TLS error, blocked address, etc.) are only logged with the request logger under the `err` key, so the endpoint cannot be used to scan ports. Validation errors keep a precise description to help client developers.
 
 Anonymous resolutions are not persisted, so they are kept in a bounded in-memory cache (500 entries, per process): successful resolutions for `minTtl`, failures for 5 seconds. Repeated anonymous requests for the same `client_id` therefore do not trigger repeated fetches.
@@ -1025,7 +1027,7 @@ A guard compares tokens with its `resource` mapped the same way as the `resource
 
 MCP clients identify themselves through [Client ID Metadata Documents](#client-id-metadata-documents) (preferred by the MCP specification) or by self-registering. Enable `clientIdMetadataDocuments`, and keep dynamic client registration with public access for clients that do not support metadata documents yet (see [Dynamic Client Registration](#dynamic-client-registration)).
 
-The official MCP TypeScript SDK requests the scopes listed in the `scope` of the `WWW-Authenticate` challenge, and only falls back to `scopes_supported` of the protected resource metadata when the challenge has none. The OAuth guard lists the resource and route scopes in its 401 challenge (see [Scope challenges](#scope-challenges)), so the SDK requests exactly those scopes. It does not add `offline_access`, and since it only sends `prompt=consent` together with `offline_access`, it does not send `prompt=consent` either. A returning user whose grants without context already cover these scopes skips your consent page. Sésame still issues a refresh token whenever the `refresh_token` grant type is enabled, with or without `offline_access`. When the challenge has no `scope` (no scopes declared on the resource nor on the route), the SDK requests `scopes_supported`, which includes `offline_access`, and sends `prompt=consent`: your consent page is then shown on every new connection.
+The official MCP TypeScript SDK requests the scopes listed in the `scope` of the `WWW-Authenticate` challenge, and only falls back to `scopes_supported` of the protected resource metadata when the challenge has none. The OAuth guard lists the resource and route scopes in its 401 challenge (see [Scope challenges](#scope-challenges)), so the SDK requests exactly those scopes. It does not add `offline_access`, and since it only sends `prompt=consent` together with `offline_access`, it does not send `prompt=consent` either. A returning user whose grants without context already cover these scopes skips your consent page, unless the client uses a Client ID Metadata Document. Sésame still issues a refresh token whenever the `refresh_token` grant type is enabled, with or without `offline_access`. When the challenge has no `scope` (no scopes declared on the resource nor on the route), the SDK requests `scopes_supported`, which includes `offline_access`, and sends `prompt=consent`: your consent page is then shown on every new connection.
 
 When a tool needs a scope the token lacks, reject the request with `guard.insufficientScopeError(['write'])`. The 403 challenge lists the scopes to request, and Sésame handles the new authorization like any other. However, the current MCP TypeScript SDK first refreshes its token on a 403, which cannot add scopes, then gives up when the server answers 403 again. With that SDK, the client must drop its tokens (for example by reconnecting the server) to obtain the wider scopes.
 
