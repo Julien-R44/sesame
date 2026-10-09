@@ -25,6 +25,7 @@
     "./guard/lucid": "./build/src/guard/lucid.js",
     "./scope_middleware": "./build/src/middleware/scope_middleware.js",
     "./any_scope_middleware": "./build/src/middleware/any_scope_middleware.js",
+    "./client_id_metadata_documents/fetcher": "./build/src/client_id_metadata_documents/fetcher.js",
     "./services/main": "./build/services/main.js",
     "./commands/*": "./build/commands/*.js",
     "./commands": "./build/commands/main.js"

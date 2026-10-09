@@ -10,6 +10,13 @@ import type {
   LookupCallback,
 } from './types.ts'
 
+export { isSpecialUseAddress } from './special_use_addresses.ts'
+export type {
+  ClientMetadataDocumentFetcherOptions,
+  FetchClientMetadataDocumentOptions,
+  FetchedClientMetadataDocument,
+} from './types.ts'
+
 /**
  * Media types accepted for documents: `application/json` or any
  * `application/*+json` type.
@@ -30,13 +37,15 @@ export class ClientMetadataDocumentFetchError extends Error {}
  * - Redirects are never followed and only `200` is accepted
  * - The whole exchange is bounded by a timeout and a byte limit
  *
- * Resolved from the container, so it can be swapped in tests.
+ * Resolved from the container, so applications can swap it, e.g. to
+ * reach a local document server during development or to trust an
+ * internal certificate authority.
  *
  * @see https://datatracker.ietf.org/doc/html/draft-ietf-oauth-client-id-metadata-document-02#section-8.6
  */
 export class ClientMetadataDocumentFetcher {
   #isAddressAllowed: (address: string) => boolean
-  #ca?: string | Buffer
+  #ca?: ClientMetadataDocumentFetcherOptions['ca']
 
   constructor(options: ClientMetadataDocumentFetcherOptions = {}) {
     this.#isAddressAllowed =
