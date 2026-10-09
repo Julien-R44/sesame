@@ -50,6 +50,4 @@ Anonymous resolutions use a per-process cache of at most 500 entries. Successes 
 
 The fetcher constructor accepts `isAddressAllowed(address)` and `ca`. `ca` replaces Node's default certificate authorities. The container resolves the fetcher, so an application provider or test can swap it. A subclass can override `fetch()` for fixture documents.
 
-An application using an internal certificate authority can construct the same fetcher with its CA while keeping address restrictions. A development-only swap can permit known loopback addresses. Relaxing address restrictions permits client-supplied URLs to reach those addresses.
-
-The [custom fetcher guide](/guides/custom-metadata-fetcher/) contains a development-only example.
+The [development fetcher example](/guides/client-metadata-documents/#configure-a-development-fetcher) shows a CA and address override. Relaxing address restrictions permits client-supplied URLs to reach those addresses.

@@ -49,6 +49,8 @@ Client credentials only accepts confidential clients. Browser session authentica
 | `prompt`                | Optional space-separated values. `none` and `consent` change interaction.                                     |
 | `resource`              | Optional absolute target URI. Resolved to a registered resource.                                              |
 
+Requested scopes must pass server validation and the client's allowed scope list.
+
 S256 PKCE remains mandatory even if a client record has `requirePkce: false`. Errors before callback validation produce an HTTP error. Later authorization errors can redirect to the validated callback with `error` and `error_description`.
 
 Active grants without context can skip consent. `prompt=consent` forces consent. `prompt=none` returns `login_required` or `consent_required` rather than displaying a page; combining `none` with another value returns `invalid_request`. Other prompt values and `max_age` are ignored. Metadata document clients always require consent.
@@ -73,7 +75,7 @@ Every token request has a body `grant_type`. The grant must be enabled by the se
 | `refresh_token`      | `refresh_token`, optional `scope` and `resource`             | New access and refresh tokens; optional ID token.                                       |
 | `client_credentials` | Optional `scope` and `resource`                              | Access token only. Requires a confidential client with `userId` and that grant enabled. |
 
-Refresh exchanges also require the grant on the client. Receiving a refresh token during code exchange does not enable that client grant.
+Refresh exchanges also require the grant on the client. Receiving a refresh token during code exchange does not enable that client grant. Reusing a consumed authorization code revokes its grant, including concurrent exchanges. Codes remain stored with `consumedAt`.
 
 Successful responses have `access_token`, `token_type: 'Bearer'`, `expires_in` in seconds, and space-separated `scope`. Token responses set `Cache-Control: no-store` and `Pragma: no-cache`.
 
@@ -127,6 +129,8 @@ OIDC discovery adds UserInfo and JWKS URLs, public subject types, RS256 signing,
 
 ## OIDC endpoints
 
-OIDC discovery and JWKS return 404 unless both the private JWK and OIDC provider are configured. JWKS exposes public key components and has `Cache-Control: public, max-age=900`.
+OIDC discovery and JWKS return 404 unless both the private JWK and OIDC provider are configured. Without either option, OIDC scopes fail with `invalid_scope`. JWKS exposes public key components and has `Cache-Control: public, max-age=900`.
 
 UserInfo accepts a Bearer header or body `access_token`. Both GET and POST routes exist. It requires an active token with `openid`. The response contains `sub` and the user's allowed claims.
+
+ID tokens are RS256-signed JWTs with `iss`, `sub`, `aud`, `iat`, `exp`, `at_hash`, and permitted user claims. Authorization-code exchange includes the requested nonce; refresh omits it.

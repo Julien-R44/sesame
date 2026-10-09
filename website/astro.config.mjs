@@ -1,10 +1,12 @@
 import { defineConfig } from 'astro/config'
 import starlight from '@astrojs/starlight'
+import { docRedirects, legacyDocRedirects } from './src/integrations/legacy-doc-redirects.mjs'
 
 const repository = 'https://github.com/Julien-R44/sesame'
 
 export default defineConfig({
   site: 'https://sesame.julr.dev',
+  redirects: docRedirects,
   /**
    * Serve the brand assets straight from `docs/assets` so the website
    * always uses the exact same logo files as the README.
@@ -75,46 +77,29 @@ export default defineConfig({
       sidebar: [
         {
           label: 'Start here',
-          items: [
-            { slug: 'guides/getting-started' },
-            { slug: 'guides/install-lucid' },
-            { slug: 'guides/install-kysely' },
-            { slug: 'guides/configure-server' },
-            { slug: 'guides/register-routes' },
-          ],
+          items: [{ slug: 'guides/getting-started' }, { slug: 'guides/install-kysely' }],
         },
         {
           label: 'Guides',
           items: [
             { slug: 'guides/manage-clients' },
             { slug: 'guides/login-and-consent' },
-            { slug: 'guides/custom-consent' },
-            { slug: 'guides/manage-grants' },
-            { slug: 'guides/authorization-prompts' },
             { slug: 'guides/authorize-a-client' },
             { slug: 'guides/protect-api' },
-            { slug: 'guides/custom-user-provider' },
+            { slug: 'guides/manage-grants' },
             { slug: 'guides/manage-tokens' },
             { slug: 'guides/enable-oidc' },
             { slug: 'guides/client-credentials' },
-            { slug: 'guides/dynamic-registration' },
             { slug: 'guides/mcp' },
-            { slug: 'guides/resource-indicators' },
-            { slug: 'guides/client-metadata-documents' },
-            { slug: 'guides/custom-metadata-fetcher' },
-            { slug: 'guides/test-and-operate' },
           ],
         },
         {
-          label: 'Migrations',
-          items: [{ slug: 'migrations/0-7-to-0-8' }, { slug: 'migrations/0-6-to-0-7' }],
-        },
-        {
-          label: 'Concepts',
+          label: 'Advanced',
           items: [
-            { slug: 'explanations/token-lifecycle' },
-            { slug: 'explanations/oauth-and-identity' },
-            { slug: 'explanations/inertia-redirects' },
+            { slug: 'guides/dynamic-registration' },
+            { slug: 'guides/client-metadata-documents' },
+            { slug: 'guides/custom-user-provider' },
+            { slug: 'guides/test-and-operate' },
           ],
         },
         {
@@ -129,7 +114,12 @@ export default defineConfig({
             { slug: 'reference/storage' },
           ],
         },
+        {
+          label: 'Migrations',
+          items: [{ slug: 'migrations/0-7-to-0-8' }, { slug: 'migrations/0-6-to-0-7' }],
+        },
       ],
     }),
+    legacyDocRedirects(),
   ],
 })

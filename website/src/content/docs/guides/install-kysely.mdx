@@ -74,6 +74,6 @@ If you use a separate migrator, point it at `database/kysely_migrations` and cal
 
 Keep the generated migration in version control as a schema snapshot. Do not run it with Lucid's `node ace migration:run`.
 
-## Connect your users
+## Continue setup
 
-The OAuth store does not load your users. [Implement a user provider](/guides/custom-user-provider/) for the OAuth guard, then [configure the server](/guides/configure-server/) and [register the routes](/guides/register-routes/).
+[Implement a user provider](/guides/custom-user-provider/) for your application users. Then continue [Getting started](/guides/getting-started/#configure-the-server) with your Kysely store configuration.

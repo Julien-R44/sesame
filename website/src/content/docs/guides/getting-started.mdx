@@ -1,23 +1,101 @@
 ---
 title: Getting started
-description: Choose a storage driver and connect Sésame to your AdonisJS application.
+description: Install Sésame, configure the server, and mount its OAuth routes.
 ---
 
-Sésame adds an OAuth authorization server to an AdonisJS application. Your application supplies the user accounts, login page, and consent page.
+This guide sets up Sésame in an AdonisJS 7 application with Node.js 24 or later and Lucid. Your application supplies user accounts, a login page, and a consent page.
 
-Start with the installation guide for your database layer:
+For a Kysely application, [install the Kysely store](/guides/install-kysely/), then continue at [Configure the server](#configure-the-server). For an existing installation, use the [migration guides](/migrations/0-7-to-0-8/).
 
-- [Install with Lucid](/guides/install-lucid/) for applications that use Lucid models and migrations.
-- [Install with Kysely](/guides/install-kysely/) for applications that use a Kysely connection, including applications without Lucid.
-- [Upgrade from 0.7 to 0.8](/migrations/0-7-to-0-8/) for existing 0.7 installations.
-- [Upgrade from 0.6 to 0.7](/migrations/0-6-to-0-7/) before applying the 0.8 migration to an older installation.
+## Configure browser authentication
 
-After installation, complete these tasks in order:
+If your application already has a session guard, keep it as the default. Otherwise, install Auth:
 
-1. [Configure the server](/guides/configure-server/).
-2. [Register the routes](/guides/register-routes/).
-3. [Create a client](/guides/manage-clients/).
-4. [Connect login and consent](/guides/login-and-consent/).
-5. [Protect your API](/guides/protect-api/).
+```bash
+node ace add @adonisjs/auth --guard=session
+```
 
-For identity claims, [enable OpenID Connect](/guides/enable-oidc/). For service accounts, [issue a client credentials token](/guides/client-credentials/).
+Authorization and consent use the default guard to identify the logged-in user.
+
+## Install the package
+
+With your Lucid database configured, run:
+
+```bash
+node ace add @julr/sesame
+node ace migration:run
+```
+
+The installer adds the provider, commands, named scope middleware, `config/sesame.ts`, and six migrations. The database now contains clients, codes, tokens, grants, and pending requests.
+
+## Configure the server
+
+Validate `APP_URL` in `start/env.ts` and set it to the public URL of the authorization server. Use HTTPS in production. Do not use the frontend URL or a bind address such as `0.0.0.0`.
+
+Edit the generated config:
+
+```ts title="config/sesame.ts"
+import env from '#start/env'
+import { defineConfig, stores } from '@julr/sesame'
+import type { InferScopes } from '@julr/sesame/types'
+
+const sesameConfig = defineConfig({
+	issuer: env.get('APP_URL'),
+	store: stores.lucid(),
+	scopes: {
+		read: 'Read access',
+		write: 'Write access',
+	},
+	defaultScopes: ['read'],
+	loginPage: '/login',
+	consentPage: '/oauth/consent',
+})
+
+export default sesameConfig
+
+declare module '@julr/sesame/types' {
+	interface SesameScopes extends InferScopes<typeof sesameConfig> {}
+}
+```
+
+For Kysely, keep [your connection configuration](/guides/install-kysely/#connect-your-database) instead of `stores.lucid()`. The module augmentation checks scope names in your middleware and guard calls.
+
+The default grants are authorization code and refresh token. For lifetimes and other options, see the [configuration reference](/reference/configuration/).
+
+## Register the routes
+
+Mount OAuth endpoints under `/oauth` and discovery at the root:
+
+```ts title="start/routes.ts"
+import router from '@adonisjs/core/services/router'
+import sesame from '@julr/sesame/services/main'
+
+router.group(() => {
+	sesame.registerRoutes()
+}).prefix('/oauth')
+
+sesame.registerDiscoveryRoutes()
+```
+
+Keep the OAuth group accessible without a browser session. External clients call token, introspection, revocation, and registration endpoints directly.
+
+If your application uses CSRF protection, exempt the endpoints called by external clients. Keep protection on browser consent submissions. To change the JWKS path, pass `{ jwksPath: '/.well-known/jwks.json' }` to `registerDiscoveryRoutes()`.
+
+## Verify discovery
+
+With the application running, request:
+
+```bash
+curl http://localhost:3333/.well-known/oauth-authorization-server
+```
+
+The JSON response contains your issuer and endpoint URLs. Confirm that they use the public issuer and `/oauth` prefix.
+
+## Complete the authorization flow
+
+1. [Create a client](/guides/manage-clients/).
+2. [Connect login and consent](/guides/login-and-consent/).
+3. [Protect an API route](/guides/protect-api/).
+4. [Authorize the client with PKCE](/guides/authorize-a-client/) and call that route.
+
+For identity claims, [enable OpenID Connect](/guides/enable-oidc/). For a service account, [issue a client credentials token](/guides/client-credentials/).

@@ -34,7 +34,7 @@ If you roll back, the migration recreates an empty consents table and removes re
 
 Remove any hidden `scope` value copied from the authorize query unless you intend to grant that exact subset. The built-in consent route now reads `scope` as a string or array. An invalid or empty selection returns `invalid_scope` before consuming the pending request.
 
-For application-specific scope selection or context, use [approveAuthorization and denyAuthorization](/guides/custom-consent/). Existing requests without `scope` still approve all requested permissions.
+For application-specific scope selection or context, use [approveAuthorization and denyAuthorization](/guides/login-and-consent/#customize-the-decision). Existing requests without `scope` still approve all requested permissions.
 
 Expect each user to review consent once more when starting a new authorization after the migration. Token refresh is unaffected. Subsequent requests skip consent only when active grants without context cover the requested scopes. Metadata document clients and requests with `prompt=consent` always show consent.
 
@@ -46,7 +46,11 @@ Use [grant management APIs](/guides/manage-grants/) to build connected applicati
 
 Update replay and revocation tests. Refresh replay outside the grace period revokes only its grant. Reusing a consumed authorization code also revokes that code's grant, including concurrent reuse. A refresh-token revocation revokes the whole grant; access-token revocation remains token-specific.
 
-For legacy replay and deployment retries, see [token storage and rotation](/explanations/token-lifecycle/#existing-tokens-across-an-upgrade).
+### Existing tokens across an upgrade
+
+Replaying a refresh token rotated before the upgrade revokes only grant-less tokens for that client and user. Tokens already attached to grants remain valid. A retry within the grace period still works and receives its own grant, including concurrent rotation retries.
+
+For current rotation behavior, see [Manage tokens](/guides/manage-tokens/#rotation-and-replay).
 
 ## Check resource guards
 
@@ -58,7 +62,7 @@ For multiple resources, select their guards explicitly in middleware:
 middleware.scopes({ scopes: ['read'], guard: 'mcp' })
 ```
 
-Keep unbound tokens accepted while older clients transition. Once clients send resource indicators, enable `requireAudience: true` on the resource guard. See [Bind tokens to an API resource](/guides/resource-indicators/).
+Keep unbound tokens accepted while older clients transition. Once clients send resource indicators, enable `requireAudience: true` on the resource guard. See [Bind tokens to an API resource](/guides/protect-api/#enforce-a-resource-audience).
 
 If you construct `OAuthGuard` directly, change its last argument from a resource string to `{ resource: '/api/mcp' }`.
 

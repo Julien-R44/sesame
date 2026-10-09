@@ -125,14 +125,8 @@ The attempted event runs when guard authentication starts, including requests wi
 
 The Lucid adapter `oauthUserProvider`, class `OAuthLucidUserProvider`, and type `OAuthLucidUserProviderOptions` are exported from `@julr/sesame/guard/lucid`.
 
-`OidcSubject`, `Scope`, and `collectOidcClaims` are exported from `@julr/sesame/types`. The helper combines claims mapped to granted scopes and filters protocol-managed claims.
+`OidcSubject`, `Scope`, and `collectOidcClaims` are exported from `@julr/sesame/types`. The helper combines claims mapped to granted scopes. Sésame filters protocol-managed `sub`, `iss`, `aud`, `exp`, `iat`, `nonce`, and `at_hash` from custom claims.
 
 ## Custom storage
 
-`SesameStore` describes OAuth-specific operations, not generic CRUD. Custom stores are wrapped in an AdonisJS `ConfigProvider<SesameStore>`.
-
-`exchangeAuthorizationCode`, `rotateRefreshToken`, and `issueTokenPair` require database transactions. Code exchange and rotation return `false` when another request consumed the credential first. Pending request consumption must be atomic and check the authenticated owner and deadline.
-
-`issueTokenPair` now returns a boolean as well. Grant writes, legacy adoption, code consumption, and revoked refresh retention follow [the storage contract](/reference/storage/).
-
-The complete method and record contracts live in `src/storage/types.ts` in the repository and are exported through `@julr/sesame/storage/types`. The Lucid and Kysely drivers implement those contracts.
+`SesameStore` and record types are exported from `@julr/sesame/storage/types`. Custom stores use an AdonisJS `ConfigProvider<SesameStore>`. Transactional issuance, legacy adoption, and purge behavior are specified in [the storage contract](/reference/storage/).

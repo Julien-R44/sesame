@@ -3,6 +3,8 @@ title: Manage connected applications
 description: List and revoke authorizations and attach application context to a grant.
 ---
 
+Each authorization creates a grant with a client, user, approved scopes, expiry, and optional context. Its codes and tokens reference that grant. Refresh extends the grant lifetime.
+
 ## List a user's authorizations
 
 In an authenticated session handler, derive the user ID from the session rather than request input:
@@ -43,7 +45,7 @@ To disconnect one application, call `sesame.revokeGrants({ userId, clientId })` 
 
 ## Attach application context
 
-In [your consent controller](/guides/custom-consent/), validate a selected team or workspace against the user's memberships before approval. This fragment assumes `authorizedTeamId` comes from that server-side membership check:
+In [your consent controller](/guides/login-and-consent/#customize-the-decision), validate a selected team or workspace against the user's memberships before approval. This fragment assumes `authorizedTeamId` comes from that server-side membership check:
 
 ```ts
 const { redirectUrl } = await sesame.approveAuthorization({

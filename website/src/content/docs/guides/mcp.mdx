@@ -1,40 +1,64 @@
 ---
 title: Protect an MCP resource
-description: Configure MCP discovery, audience checks, and scope challenges.
+description: Add discovery, Bearer authentication, and scope challenges to an existing MCP endpoint.
 ---
 
-Sésame supplies OAuth authentication and discovery. Your application supplies the MCP transport and handler.
+This guide assumes an MCP handler at `/api/mcp`. Sésame supplies OAuth authentication and discovery; your application supplies the transport.
 
-## Register discovery and audience checks
+## Register the resource and guard
 
-[Register the OAuth and discovery routes](/guides/register-routes/), then [bind tokens to your MCP resource](/guides/resource-indicators/). Use the same resource path in `registerProtectedResource()` and the protecting guard.
+After [registering OAuth routes](/guides/getting-started/#register-the-routes), publish resource metadata:
 
-For multiple MCP resources, define one guard per resource. Pass the matching guard to scope middleware, such as `middleware.scopes({ scopes: ['read'], guard: 'mcp' })`. Read token context from that same guard in your handler.
+```ts title="start/routes.ts"
+sesame.registerProtectedResource({ resource: '/api/mcp', scopes: ['read', 'write'] })
+```
 
-Enable `requireAudience` when clients send resource indicators. An unconfigured audience guard accepts tokens bound to other resources; a configured resource guard rejects those tokens.
+Declare those scopes in config. Add a guard to your [existing Auth configuration](/guides/protect-api/#add-the-oauth-guard):
 
-## Enable client identification
+```ts title="config/auth.ts"
+mcp: oauthGuard({
+	provider: oauthUserProvider({ model: () => import('#models/user') }),
+	resource: '/api/mcp',
+	requireAudience: true,
+}),
+```
 
-[Enable Client ID Metadata Documents](/guides/client-metadata-documents/) for URL client IDs. Keep [dynamic registration](/guides/dynamic-registration/) enabled for clients that still need it. Select an unauthenticated-registration policy deliberately.
+Clients must request this resource when obtaining tokens. For older unbound tokens, omit `requireAudience` during migration. See [audience checks](/guides/protect-api/#enforce-a-resource-audience).
 
-For metadata document clients, show document and callback hosts on consent. Each authorization requires consent and creates a separate grant.
+## Authenticate before the transport runs
 
-## Advertise required scopes
+Attach authentication to your MCP route. This example assumes `McpController.handle` already implements the transport:
 
-Declare resource scopes when registering metadata. Use scope middleware or pass route scopes to `guard.authenticate({ scopes: ['read'] })` so 401 challenges advertise the needed permissions.
+```ts title="start/routes.ts"
+router.post('/api/mcp', [
+	() => import('#controllers/mcp_controller'),
+	'handle',
+]).use(async ({ auth }, next) => {
+	const guard = auth.use('mcp')
+	await guard.authenticate({ scopes: ['read'] })
 
-For a tool that needs more permissions after authentication, return a guard scope error:
+	if (!guard.hasScope('read')) throw guard.insufficientScopeError(['read'])
+
+	await next()
+})
+```
+
+Apply the same protection to GET or DELETE routes if your transport exposes them. For multiple resources, register one guard per resource.
+
+Inside a handler that needs more permissions, check the same guard:
 
 ```ts
 if (!guard.hasScope('write')) throw guard.insufficientScopeError(['write'])
 ```
 
-The 403 challenge includes the resource metadata URL and the union of granted and required scopes. A refresh cannot add permissions; the client needs a new authorization for the wider grant.
+The 403 challenge advertises resource metadata and the union of granted and required scopes. A refresh cannot add permissions; the client needs a new authorization. Declare resource or route scopes so 401 challenges also advertise the required permissions.
 
-## Verify a client connection
+## Enable client identification
 
-Check discovery, an unauthenticated challenge, PKCE authorization, token audience, and a scoped handler call. Then test grant revocation and a client reconnect.
+For URL client IDs, [enable Client ID Metadata Documents](/guides/client-metadata-documents/). For clients that register through HTTP, [enable dynamic registration](/guides/dynamic-registration/) with your chosen access policy.
 
-The repository's integration notes describe an MCP TypeScript SDK limitation: its 403 retry refreshes tokens before giving up, rather than automatically completing a wider authorization. For a client with that behavior, discard the saved tokens and reconnect to request wider scopes. Client retry behavior belongs to the SDK version your application uses.
+## Verify the connection
 
-Declare scopes on the resource or route so clients can request the challenge's scope list. Otherwise clients can fall back to discovery scopes, which include `offline_access` and can cause an explicit consent prompt. Refresh token issuance depends on the server grant setting, not on `offline_access`.
+Request `/.well-known/oauth-protected-resource/api/mcp`, then call the handler without a token. Confirm that its 401 challenge points to that metadata URL. Complete PKCE authorization and test a scoped call, an incorrect audience, and grant revocation.
+
+Client retry behavior depends on the MCP SDK version. If a client responds to 403 only by refreshing, discard its saved tokens and reconnect to request broader scopes. Discovery scopes include `offline_access`, which can trigger consent when clients request the full list.

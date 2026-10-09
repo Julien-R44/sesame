@@ -69,9 +69,7 @@ import sesame from '@julr/sesame/services/main'
 const result = await sesame.purgeTokens({ retentionHours: 168 })
 ```
 
-The result has `accessTokens`, `refreshTokens`, `authorizationCodes`, `pendingRequests`, and `grants` counts. The CLI total includes tokens, codes, grants, and purged clients, but omits pending requests.
-
-Expired pending requests are removed immediately, including with `--revoked`. The retention window applies to expired tokens, authorization codes, and grants. It also applies to revoked refresh tokens so replay detection keeps working. Revoked access tokens are removed immediately. Purging removes history, so choose the retention period before scheduling the command.
+Choose retention before scheduling purge. Revoked refresh tokens remain until the retention cutoff so replay detection works. See [purge flags and counts](/reference/commands/#sesamepurge) for selection behavior.
 
 ## Remove unused dynamic clients
 
@@ -83,4 +81,4 @@ node ace sesame:purge --clients --client-days=30
 
 For application code, call `sesame.purgeUnusedClients({ olderThanDays: 30 })`. The age must be a positive integer.
 
-Only dynamic clients without authorization history or related OAuth records qualify. Clients created programmatically or from the CLI, and metadata document clients, are excluded. Do not add `registration` or `token_endpoint_auth_method` metadata markers to your manually managed clients.
+Only dynamic clients without authorization history or related OAuth records qualify. Manually created clients and metadata document clients are excluded. See [eligibility and metadata markers](/reference/storage/#purge-behavior) before writing registration metadata yourself.

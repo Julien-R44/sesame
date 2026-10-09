@@ -57,7 +57,7 @@ router.get('/api/me', async ({ auth }) => {
 })
 ```
 
-Declare `read` in [your scope config](/guides/configure-server/). A request without a valid Bearer token returns 401. A valid token without `read` returns 403.
+Declare `read` in [your scope config](/guides/getting-started/#configure-the-server). A request without a valid Bearer token returns 401. A valid token without `read` returns 403.
 
 Use `guard.hasScope('read', 'write')` for all listed scopes. Use `guard.hasAnyScope('read', 'write')` for any listed scope.
 
@@ -78,8 +78,38 @@ router.get('/summary', async () => ({ ok: true }))
 
 `scopes` requires all listed scopes. `anyScope` requires at least one. With an `Authorization` header, both authenticate the OAuth guard. Without that header, a valid default session passes without an OAuth scope check.
 
-To use a resource-specific guard, pass `guard: 'mcp'` to either middleware and define that guard in Auth config. See [resource indicators and audience checks](/guides/resource-indicators/).
-
 After authentication, `guard.accessToken` identifies the token record without its raw value or hash. `guard.grantId`, `guard.context`, and `guard.audience` describe its authorization and target resource.
 
 For a route that requires a token, always authenticate `auth.use('oauth')` before the scope middleware, or use the explicit guard check above.
+
+## Enforce a resource audience
+
+To restrict tokens to one API, register its resource and configure a matching guard. This example uses `/api/mcp`; replace it with your API path.
+
+```ts title="start/routes.ts"
+import sesame from '@julr/sesame/services/main'
+
+sesame.registerProtectedResource({ resource: '/api/mcp', scopes: ['read'] })
+```
+
+Resource registration publishes discovery and records the target for audience matching. It does not protect the handler. Add a guard to your existing Auth config:
+
+```ts title="config/auth.ts"
+mcp: oauthGuard({
+	provider: oauthUserProvider({ model: () => import('#models/user') }),
+	resource: '/api/mcp',
+	requireAudience: true,
+}),
+```
+
+Authenticate `auth.use('mcp')` on that resource, using the token and scope checks above. For scope middleware, pass `guard: 'mcp'`.
+
+`requireAudience: true` rejects unbound tokens. Omit it during a transition to accept older unbound tokens while rejecting tokens bound elsewhere. A guard without `resource` does not check audience.
+
+### Request a bound token
+
+Add `resource=https://auth.example.com/api/mcp` to [the authorization request](/guides/authorize-a-client/#open-the-authorize-url) and its code exchange. On refresh, omit the parameter or send the same value. A bound token cannot change targets; an unbound code or refresh token can acquire a target at exchange.
+
+Call the API with a token bound to that resource. It succeeds and `guard.audience` contains the target URL. A token bound to another resource returns 401.
+
+Register the exact guard path. An unregistered path falls back to the closest registered resource and logs a warning once. See [resource matching](/reference/endpoints/#resource-indicators) for normalization and errors.

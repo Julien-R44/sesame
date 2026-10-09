@@ -1,9 +1,9 @@
 ---
-title: Refresh and revoke tokens
+title: Manage tokens
 description: Renew OAuth grants, revoke credentials, and inspect token state.
 ---
 
-These requests assume that [OAuth routes](/guides/register-routes/) use the `/oauth` prefix. Set `CLIENT_ID` and `CLIENT_SECRET` to confidential client credentials.
+These requests assume that [OAuth routes](/guides/getting-started/#register-the-routes) use the `/oauth` prefix. Set `CLIENT_ID` and `CLIENT_SECRET` to confidential client credentials.
 
 ## Refresh a token
 
@@ -20,7 +20,15 @@ For a public client, omit `-u` and send `client_id` in the body. Both the server
 
 Replace your saved access token and refresh token with the response values. To narrow permissions, add `--data-urlencode scope=read`. A refresh cannot add scopes that the original grant did not contain.
 
-Coordinate refresh attempts in the consuming application. The default grace period accepts recently revoked refresh tokens for 120 seconds. [Token rotation](/explanations/token-lifecycle/) explains the consequences.
+### Rotation and replay
+
+Each refresh issues a new pair and revokes the old refresh token. Save both new values together and coordinate refresh requests.
+
+The default 120-second grace period permits a recently revoked refresh token to issue another pair after a lost response or concurrent request. The server does not return the original pair. This also permits reuse of a stolen token during the window.
+
+Outside the window, replay revokes that grant and its tokens. Other grants remain valid. Set `refreshTokenRotationGracePeriod: 0` for strict detection, including retries after a lost response. Purge retains revoked refresh tokens for replay detection; [configure retention](/guides/test-and-operate/#purge-old-records) accordingly.
+
+The `offline_access` scope does not enable refresh by itself. Server and client grant settings control token issuance.
 
 ## Revoke a token
 
@@ -59,3 +67,9 @@ curl https://auth.example.com/oauth/introspect \
 ```
 
 An active token returns `active: true` and metadata, including `aud` for a bound resource. Tokens with an expired or revoked grant are inactive. An invalid, expired, revoked, or other client's token returns `{ "active": false }`. Introspection does not provide unrestricted lookup across clients.
+
+## Token storage
+
+The database stores SHA-256 hashes of access tokens, refresh tokens, codes, pending authorization tokens, and client secrets. The OAuth guard looks up the token and its grant on each request, so revocation takes effect without waiting for expiry.
+
+ID tokens are [signed identity JWTs](/guides/enable-oidc/). For tokens issued before grants existed, see [existing tokens across an upgrade](/migrations/0-7-to-0-8/#existing-tokens-across-an-upgrade).

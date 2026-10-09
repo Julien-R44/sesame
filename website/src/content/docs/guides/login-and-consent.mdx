@@ -82,16 +82,64 @@ Render the supplied values and post `auth_token` with the decision:
 </form>
 ```
 
-The allow button sends a truthy value. The deny button omits `accept`. For JSON, send `accept: true` or `accept: false`. Do not send the string `'false'`, which is truthy.
+The allow button sends a truthy value; the deny button omits `accept`. For JSON, use booleans. The string `'false'` is truthy.
 
-To approve fewer permissions, send an optional `scope` field containing a space-separated string or an array. It must be a nonempty subset of the stored request. Omit `scope` to approve every requested scope. Invalid scope selections do not consume the request.
+To approve fewer permissions, submit `scope` as a string or array of requested names. Omit it to approve all scopes. The stored request controls the client and callback. See the [consent contract](/reference/endpoints/#consent) for validation and redirect behavior.
 
-Do not send `client_id` or `redirect_uri` as authorization proof. The POST controller uses the stored request selected by `auth_token` and the authenticated user.
+## Customize the decision
 
-After submission, Sésame consumes the pending request atomically and redirects to its saved callback URL. Allow returns a code. Deny returns `error=access_denied`. Both responses include `iss` and preserve `state` when provided.
+For a custom decision field or validated application context, submit to your own controller instead of the built-in consent POST:
 
-If the request expires or another submission consumes it, start a new authorization request. Its lifetime is controlled by `authorizationRequestTtl`.
+```ts title="app/controllers/oauth_consent_controller.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+import vine from '@vinejs/vine'
+import sesame from '@julr/sesame/services/main'
 
-For application-specific decisions, scope selection, or grant context, [complete consent in your own controller](/guides/custom-consent/). When enabling metadata document clients, [display the document and callback hosts](/guides/client-metadata-documents/#show-the-client-and-callback-hosts).
+const decisionValidator = vine.create({
+	auth_token: vine.string(),
+	decision: vine.enum(['approve', 'deny']),
+	read_only: vine.boolean().optional(),
+})
 
-For an Inertia application, see [browser redirects with Inertia](/explanations/inertia-redirects/).
+export default class OAuthConsentController {
+	async decide({ auth, request, response }: HttpContext) {
+		const user = await auth.authenticate()
+		const input = await request.validateUsing(decisionValidator)
+		const options = { authToken: input.auth_token, userId: String(user.id) }
+
+		if (input.decision === 'deny') {
+			const { redirectUrl } = await sesame.denyAuthorization(options)
+
+			return response.redirect().toPath(redirectUrl)
+		}
+
+		const { redirectUrl } = await sesame.approveAuthorization({
+			...options,
+			scopes: input.read_only ? ['read'] : undefined,
+		})
+
+		return response.redirect().toPath(redirectUrl)
+	}
+}
+```
+
+This example assumes `read` is a configured scope requested by the client. If it was not requested, approval fails with `invalid_scope`.
+
+Register the application's route separately from the built-in consent POST:
+
+```ts title="start/routes.ts"
+router.post('/oauth/decision', [
+	() => import('#controllers/oauth_consent_controller'),
+	'decide',
+])
+```
+
+Use the existing `router` import in `start/routes.ts`. Keep CSRF protection on this browser endpoint. Submit the page through a native form to `/oauth/decision`, with `auth_token`, `decision`, and optional `read_only`.
+
+Both decision methods return `{ redirectUrl, clientId, scopes }`. To attach a team or workspace, [validate and store grant context](/guides/manage-grants/#attach-application-context). The built-in consent route does not accept context.
+
+## Submit from Inertia
+
+You can render the consent page with Inertia and submit through the native form above. The browser follows Sésame's redirect to the client's callback, including callbacks on another origin.
+
+For an Inertia submission, your application must convert that redirect to your adapter's external-location response. Sésame uses standard HTTP redirects and has no built-in Inertia option. After login, also return through browser navigation to `/oauth/authorize` with the preserved query.

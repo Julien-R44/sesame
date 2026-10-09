@@ -36,11 +36,9 @@ url.search = new URLSearchParams({
 }).toString()
 ```
 
-Replace `CLIENT_ID` with your registered ID. Navigate the browser to `url.toString()`. Sign in and approve consent. Sésame skips consent when active grants without context cover the requested scopes, unless `prompt=consent` is present or the client uses a metadata document.
+Replace `CLIENT_ID` with your registered ID. Navigate the browser to `url.toString()`, sign in, and approve consent.
 
 ## Validate the callback
-
-For tokens bound to one API, add [a resource indicator](/guides/resource-indicators/) to this request and the token exchange. To control browser interaction, use [the prompt parameter](/guides/authorization-prompts/).
 
 On the consuming application's callback, compare the returned `state` with the saved state. Verify `iss` against the expected issuer. If the callback contains `error`, handle it before exchanging a code.
 
@@ -71,3 +69,17 @@ curl https://auth.example.com/api/me \
 ```
 
 Use [the OAuth guard](/guides/protect-api/) on the resource endpoint. For later renewal, [refresh the token](/guides/manage-tokens/).
+
+## Control browser interaction
+
+To force a new consent decision, add `prompt=consent`:
+
+```ts
+url.searchParams.set('prompt', 'consent')
+```
+
+To attempt authorization without displaying login or consent, use `prompt=none`. Handle `login_required` and `consent_required` in the callback, then retry without `none` when interaction is needed. Do not combine `none` with another prompt value.
+
+These options work without `openid`. Other prompt values and `max_age` do not change the flow. See the [authorization reference](/reference/endpoints/#authorization) for consent reuse rules.
+
+To bind tokens to one API, send the same `resource` on authorization and code exchange. [Configure audience checks](/guides/protect-api/#enforce-a-resource-audience) on that API.
