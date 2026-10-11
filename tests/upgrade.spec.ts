@@ -139,6 +139,24 @@ async function seedLegacyTokens(options: { manager: SesameManager; insert: Legac
 
 type LegacyInsert = (table: string, row: Record<string, unknown>) => Promise<void>
 
+/**
+ * Keep an unconsumed code as a control: rollback must remove only used codes.
+ */
+async function seedRollbackCodes(store: SesameStore) {
+  for (const consumedAt of [DateTime.now(), null]) {
+    await store.createAuthorizationCode({
+      id: crypto.randomUUID(),
+      code: consumedAt ? 'consumed-code' : 'pending-code',
+      clientId: 'test-client',
+      userId: 'user-1',
+      scopes: ['read'],
+      redirectUri: 'https://app.example.com/callback',
+      expiresAt: DateTime.now().plus({ minutes: 10 }),
+      consumedAt,
+    })
+  }
+}
+
 test.group('sesame:upgrade command', () => {
   test('publishes every Lucid upgrade stub of a version', async ({ assert, cleanup }) => {
     const { command, root } = await runUpgradeCommand(['0.8'], cleanup)
@@ -242,10 +260,14 @@ test.group('Upgrade 0.7 to 0.8 | Kysely', () => {
       assert.notInclude(tables, 'oauth_consents')
 
       await assertLegacyTokensWork({ manager, ...tokens, assert })
+      await seedRollbackCodes(manager.store)
 
       await kyselyResourceUpgrade.down(db)
       assert.deepEqual(await kyselyResourceTables(db), [])
       await kyselyUpgrade.down(db)
+      assert.deepEqual(await db.selectFrom('oauth_authorization_codes').select('code').execute(), [
+        { code: 'pending-code' },
+      ])
       const restored = await db.introspection.getTables()
       assert.include(
         restored.map((table) => table.name),
@@ -339,6 +361,13 @@ test.group('Upgrade 0.7 to 0.8 | Lucid', () => {
     }
 
     await assertLegacyTokensWork({ manager, ...tokens, assert })
+    await seedRollbackCodes(manager.store)
+
+    await runLucidMigrations(app, 'down', 1)
+    assert.isTrue(await db.connection().schema.hasTable('oauth_consents'))
+    assert.deepEqual(await db.from('oauth_authorization_codes').select('code'), [
+      { code: 'pending-code' },
+    ])
 
     await runLucidMigrations(app, 'down')
     assert.isFalse(await db.connection().schema.hasTable('oauth_grants'))
@@ -347,14 +376,14 @@ test.group('Upgrade 0.7 to 0.8 | Lucid', () => {
 })
 
 /**
- * Run every pending Lucid migration, or roll every batch back.
+ * Run pending Lucid migrations, or roll back to the given batch.
  */
-async function runLucidMigrations(app: ApplicationService, direction: 'up' | 'down') {
+async function runLucidMigrations(app: ApplicationService, direction: 'up' | 'down', batch = 0) {
   const db = await app.container.make('lucid.db')
   const runner = new MigrationRunner(db, app, {
     direction,
     connectionName: 'sqlite',
-    ...(direction === 'down' ? { batch: 0 } : {}),
+    ...(direction === 'down' ? { batch } : {}),
   })
   await runner.run()
   if (runner.error) throw runner.error
