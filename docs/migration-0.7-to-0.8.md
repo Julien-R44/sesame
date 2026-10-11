@@ -106,15 +106,9 @@ The migrations:
 
 Rolling them back drops the grant and resource columns and recreates an empty `oauth_consents` table. A rollback does not restore remembered consent, grant context, or token audience restrictions.
 
-Before a rollback, stop OAuth traffic and background jobs. Ensure that the grants migration deletes consumed authorization codes before dropping `consumed_at`. Otherwise, older versions can exchange those codes again while they remain unexpired and the client has the PKCE verifier.
+The grants rollback deletes consumed authorization codes before dropping `consumed_at`, so older versions cannot exchange them again. Unconsumed codes are preserved.
 
-Migration files published by 0.8.0 omit this deletion. Updating the package does not update files already published in your application. Add the following deletion to their `down` operation, before dropping `consumed_at`:
-
-```sql
-DELETE FROM oauth_authorization_codes WHERE consumed_at IS NOT NULL;
-```
-
-For Lucid, queue this statement with `this.schema.raw(...)`. For Kysely, await the deletion before altering the table. After the rollback, start the older application before resuming OAuth traffic.
+Before a rollback, stop OAuth traffic and background jobs. After the rollback, start the older application before resuming OAuth traffic.
 
 ### 2. Existing tokens and remembered consents
 

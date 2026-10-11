@@ -34,15 +34,9 @@ No consent data is copied. Existing access and refresh tokens keep working with 
 
 A rollback recreates an empty consents table and removes grant and resource columns. It does not restore remembered consent, grant context, or token audience restrictions.
 
-Before a rollback, stop OAuth traffic and background jobs. Ensure that the grants migration deletes consumed authorization codes before dropping `consumed_at`. Otherwise, older versions can exchange those codes again while they remain unexpired and the client has the PKCE verifier.
+The grants rollback deletes consumed authorization codes before dropping `consumed_at`, so older versions cannot exchange them again. Unconsumed codes are preserved.
 
-Migration files published by 0.8.0 omit this deletion. Updating Sésame does not update files already published in your application. Add this deletion to their `down` operation, before dropping `consumed_at`:
-
-```sql
-DELETE FROM oauth_authorization_codes WHERE consumed_at IS NOT NULL;
-```
-
-For Lucid, queue the statement with `this.schema.raw(...)`. For Kysely, await the deletion before altering the table. Start the older application after the rollback, then resume OAuth traffic.
+Before a rollback, stop OAuth traffic and background jobs. Start the older application after the rollback, then resume OAuth traffic.
 
 ## Adapt consent handling
 
