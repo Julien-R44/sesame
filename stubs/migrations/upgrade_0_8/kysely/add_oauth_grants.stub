@@ -72,6 +72,9 @@ export async function down(db: Kysely<any>): Promise<void> {
     .unique()
     .execute()
 
+  // Older versions cannot distinguish consumed codes once the marker is removed.
+  await db.deleteFrom('oauth_authorization_codes').where('consumed_at', 'is not', null).execute()
+
   await db.schema.alterTable('oauth_authorization_codes').dropColumn('consumed_at').execute()
 
   // MySQL scopes index names to their table.

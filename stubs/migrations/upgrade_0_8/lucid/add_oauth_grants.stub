@@ -55,6 +55,9 @@ export default class extends BaseSchema {
       table.unique(['client_id', 'user_id'])
     })
 
+    // Older versions cannot distinguish consumed codes once the marker is removed.
+    this.schema.raw('DELETE FROM oauth_authorization_codes WHERE consumed_at IS NOT NULL')
+
     this.schema.alterTable('oauth_authorization_codes', (table) => {
       table.dropColumn('consumed_at')
     })

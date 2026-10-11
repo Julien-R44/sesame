@@ -60,7 +60,7 @@ In 0.7.0, a `scope` field posted to `/oauth/consent` was ignored. It is now the 
 
 Previously, Sésame ignored `prompt` and skipped the consent page whenever a remembered consent covered the requested scopes. Requests with `prompt=consent` now always show the consent page.
 
-The official MCP TypeScript SDK requests the scopes listed in the `scope` of the 401 challenge, which the OAuth guard now includes (see [Header changes](#header-changes)). With 0.7.0, the challenge had no `scope`, so the SDK requested `scopes_supported` from the protected resource metadata, including `offline_access`, and sent `prompt=consent` along with it. With 0.8.0, it requests only the challenge scopes, without `offline_access` nor `prompt=consent`, so a returning user whose grants without context cover these scopes skips the consent page (except with Client ID Metadata Document clients). Sésame still issues a refresh token whenever the `refresh_token` grant type is enabled. Tokens issued to these clients no longer list `offline_access` in their `scope`.
+The official MCP TypeScript SDK requests the scopes listed in the `scope` of the 401 challenge, which the OAuth guard now includes (see [Header changes](#header-changes)). With 0.7.0, the challenge had no `scope`, so the SDK requested `scopes_supported` from the protected resource metadata, including `offline_access`, and sent `prompt=consent` along with it. With 0.8.0, it requests only the challenge scopes, without `offline_access` or `prompt=consent`. A returning user can skip consent when active grants without context cover those scopes. Client ID Metadata Document clients and public clients with loopback or custom scheme callbacks still require consent on every authorization. Sésame still issues a refresh token whenever the `refresh_token` grant type is enabled. Tokens issued to these clients no longer list `offline_access` in their `scope`.
 
 The SDK still sends `prompt=consent` when the challenge has no `scope`, that is when neither the resource nor the route declares scopes. See [MCP Support](../README.md#mcp-support) for the step-up limitation of the current SDK.
 
@@ -69,7 +69,7 @@ The SDK still sends `prompt=consent` when the challenge has no `scope`, that is 
 Requests with `prompt=none` no longer redirect to your login or consent page:
 
 - When the user is not logged in, Sésame redirects to the client with `error=login_required`.
-- When the requested scopes are not covered by the user's active grants without context, or when the client is a Client ID Metadata Document client, Sésame redirects to the client with `error=consent_required`.
+- When active grants without context do not cover the requested scopes, Sésame redirects to the client with `error=consent_required`. Metadata document clients and public clients with loopback or custom scheme callbacks receive the same error even when grants cover the scopes.
 - `prompt=none` combined with another value returns `error=invalid_request`.
 
 Other `prompt` values (`login`, `select_account`, `create`) are still ignored. Discovery documents now include `prompt_values_supported: ["none", "consent"]`. The authorization server metadata (`/.well-known/oauth-authorization-server`) also lists `scopes_supported` (RFC 8414), with the same values as the OpenID Connect discovery document.
@@ -80,7 +80,11 @@ Sésame 0.8.0 records every authorization a user gives to a client as a **grant*
 
 ### 1. Publish and run the upgrade migrations
 
-One command publishes every 0.8.0 migration for your store: the grants migration below and the [resource indicators](#resource-indicators-and-token-audience) migration. Run them before starting the application with 0.8.0:
+Install the Sésame version you are deploying before running `sesame:upgrade`. If upgrading from 0.6, first apply the configuration and import changes in the [0.7 migration guide](migration-0.6-to-0.7.md). Do not rerun `node ace add @julr/sesame` over an existing installation.
+
+One command publishes every 0.8.0 migration for your store: the grants migration below and the [resource indicators](#resource-indicators-and-token-audience) migration. Run them before starting the application with 0.8.0.
+
+Stop OAuth traffic and background jobs that access OAuth tables before running the migrations. The upgrade drops `oauth_consents`, which older application instances still query. Do not serve old and new versions concurrently against the migrated schema. Resume traffic and jobs only after all instances use the updated version.
 
 ```bash title="Terminal"
 # Lucid
@@ -100,22 +104,26 @@ The migrations:
 - drop the `oauth_consents` table;
 - add a nullable `resource` text column to `oauth_pending_authorization_requests`, `oauth_authorization_codes`, `oauth_access_tokens`, and `oauth_refresh_tokens`.
 
-Rolling them back drops the `resource` columns and recreates an empty `oauth_consents` table.
+Rolling them back drops the grant and resource columns and recreates an empty `oauth_consents` table. A rollback does not restore remembered consent, grant context, or token audience restrictions.
+
+The grants rollback deletes consumed authorization codes before dropping `consumed_at`, so older versions cannot exchange them again. Unconsumed codes are preserved.
+
+Before a rollback, stop OAuth traffic and background jobs. After the rollback, start the older application before resuming OAuth traffic.
 
 ### 2. Existing tokens and remembered consents
 
 No data is copied. Instead:
 
 - Existing access and refresh tokens keep working without a grant. The guard exposes `grantId` as `undefined` and `context` as `null` for them.
-- An existing refresh token is attached to a new grant the next time it is used, together with its access token, so active clients appear in `listGrants()` after their next refresh. Replaying that refresh token afterwards revokes the new grant and every token issued from it. The same applies to an authorization code issued before the upgrade and exchanged after it.
+- An existing refresh token is attached to a new grant the next time it is used, together with its access token, so active clients appear in `listGrants()` after their next refresh. Replaying that refresh token outside `refreshTokenRotationGracePeriod` revokes the new grant and every token issued from it. An authorization code issued before the upgrade also creates a grant when exchanged; reusing that code revokes its grant without a grace period.
 - Replaying a refresh token that was rotated before the upgrade, and therefore never got a grant, revokes the grant-less refresh and access tokens of the same client and user. Tokens already attached to a grant are not affected. Within `refreshTokenRotationGracePeriod`, such a refresh token is still accepted, so a client retrying a refresh across the deployment keeps its session. The retry is attached to its own grant, next to the one its successor gets on its next refresh.
-- Remembered consents are dropped. Each user sees your consent page once more the next time a client starts a new authorization. Token refreshes are not affected.
+- Remembered consent rows are dropped, but another consent screen is not guaranteed. Refreshing a legacy token creates an active grant without context. If that grant covers the next authorization's scopes, eligible clients can skip consent. Token refreshes do not require user interaction. The exceptions below still require consent on every authorization.
 
 ### 3. Behavior changes
 
 - **Remembered consent follows grants.** The consent page is skipped when the user's active grants without context cover the requested scopes. Revoking every grant of a client, or letting them expire, shows the consent page again. A grant with a context never skips the consent page, and neither does any grant of a [Client ID Metadata Document](#client-id-metadata-documents-opt-in) client or of a public client redirecting to a loopback or custom scheme URI: any local application can reuse such a `client_id`.
 - **Every authorization creates a grant.** A user who connects the same client twice, for example from two devices sharing a [Client ID Metadata Document](https://datatracker.ietf.org/doc/draft-ietf-oauth-client-id-metadata-document/) `client_id`, now holds two grants.
-- **Refresh token replay only revokes the replayed grant.** Previously, every token of the client and user pair was revoked, which logged out other devices and contexts. The grant itself is now deleted, so that authorization has to be approved again (OAuth 2.1 §4.3.1).
+- **Refresh token replay outside the grace period only revokes the replayed grant.** Previously, every token of the client and user pair was revoked, which logged out other devices and contexts. The grant itself is now deleted. Another active grant without context may still cover consent for a new authorization (OAuth 2.1 §4.3.1).
 - **Reusing an authorization code revokes its grant.** Exchanged codes are kept with `consumed_at` instead of being deleted. A second exchange returns `invalid_grant` with `Authorization code has already been consumed` and revokes the tokens issued from the first exchange (OAuth 2.1 §4.1.3). This includes two concurrent exchanges of the same code: the slower one revokes the tokens of the faster one.
 - **Introspection and userinfo check the grant.** Tokens whose grant was revoked or has expired are reported as `active: false` and rejected by `/oauth/userinfo`, like the OAuth guard already does.
 - **`POST /oauth/revoke` with a refresh token revokes its whole grant**, including every access token issued from it (RFC 7009 §2.1). Revoking an access token still only revokes that token.
@@ -157,9 +165,11 @@ Existing codes and tokens keep a `null` resource: they are not bound to any reso
 
 ### How `resource` values are resolved
 
-A `resource` value is mapped to the most specific path registered with `registerProtectedResource()` on the issuer's origin, or to the issuer itself when no registered path covers it. For example, without a registered `/api/mcp`, a client requesting `https://app.com/api/mcp` gets a token bound to `https://app.com`. Only malformed values (relative URIs, fragments, whitespace, control characters, or backslashes), resources on another origin, and repeated `resource` parameters fail with `invalid_target`, where 0.7.0 ignored the parameter.
+A `resource` value is mapped to the most specific path registered with `registerProtectedResource()` on the issuer's origin, or to the issuer itself when its path covers the requested resource. For example, with issuer `https://app.com` and no registered `/api/mcp`, a client requesting `https://app.com/api/mcp` gets a token bound to `https://app.com`.
 
-Requesting another resource than the one granted, at the token endpoint or on refresh, fails with `invalid_target`. Requests without `resource` keep working and produce unbound tokens.
+Values must be absolute HTTP or HTTPS URLs without fragments, credentials, whitespace, control characters, or backslashes. Query-bearing URLs require an exact registered resource match. Invalid values, resources with no registered match, and repeated `resource` parameters return `invalid_target`; 0.7.0 ignored the parameter.
+
+Requesting a different resource for an already-bound code or refresh token fails with `invalid_target`. A new authorization without `resource` is unbound. Omitting `resource` during code exchange or refresh preserves the existing binding; it does not make a bound token unbound.
 
 ### Declare `resource` on the guard of each MCP server
 
@@ -203,6 +213,8 @@ Tokens that are not bound to a resource are still accepted by default. Once your
 Redirect URIs on `http://127.0.0.1`, `http://[::1]` and `http://localhost` now match regardless of the port used in the authorization request, as required by OAuth 2.1 and RFC 8252 §7.3. Host, path and query must still match exactly. This allows native and CLI clients to bind an ephemeral port.
 
 No action is required. If you relied on the port to distinguish two loopback redirect URIs, register different paths instead.
+
+At the token endpoint, send the exact `redirect_uri` used in the authorization request, including its selected port.
 
 ## Client ID Metadata Documents (opt-in)
 
