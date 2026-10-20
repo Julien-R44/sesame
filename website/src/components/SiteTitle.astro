@@ -15,7 +15,6 @@ const path =
     <path d={path} fill="currentColor" fill-rule="evenodd" />
   </svg>
   <span class="sr-only" translate="no">{siteTitle}</span>
-  <span class="badge" aria-hidden="true">/docs</span>
 </a>
 
 <style>
@@ -33,19 +32,5 @@ const path =
     flex-shrink: 0;
     height: var(--h);
     width: calc(var(--h) * 1251 / 275);
-  }
-
-  .badge {
-    font-family: var(--sl-font-mono);
-    font-size: 0.6875rem;
-    line-height: 1;
-    color: var(--sl-color-gray-3);
-    translate: 0 2px;
-  }
-
-  @media (max-width: 30rem) {
-    .badge {
-      display: none;
-    }
   }
 </style>
