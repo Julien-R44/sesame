@@ -1,0 +1,228 @@
+---
+/**
+ * Prototype "Ledger": no container at all. Three rows on hairlines, what the
+ * step does on the left, the command or the code on the right.
+ */
+import CopyButton from '../../components/CopyButton.astro'
+import { title, lead, guide, install, migrate, routes, routesHtml } from './data'
+
+const steps = [
+  { name: 'Install', text: 'Config, migrations, provider and scope middleware.', command: install },
+  { name: 'Migrate', text: 'Clients, codes, tokens, grants and pending requests.', command: migrate },
+]
+---
+
+<section class="ledger">
+  <header class="head">
+    <h2>{title}</h2>
+    <p class="lead">{lead}</p>
+  </header>
+
+  <ol class="rows">
+    {
+      steps.map((step) => (
+        <li class="row">
+          <div class="label">
+            <span class="name">{step.name}</span>
+            <span class="text">{step.text}</span>
+          </div>
+          <div class="cmd">
+            <span class="p" aria-hidden="true">$</span>
+            <code>{step.command}</code>
+            <CopyButton text={step.command} label={`Copy ${step.command}`} />
+          </div>
+        </li>
+      ))
+    }
+    <li class="row">
+      <div class="label">
+        <span class="name">Register routes</span>
+        <span class="text">Authorization, token and discovery endpoints.</span>
+      </div>
+      <div class="file">
+        <div class="file-head">
+          <span>start/routes.ts</span>
+          <CopyButton text={routes} label="Copy start/routes.ts" />
+        </div>
+        <pre class="code"><code set:html={routesHtml} /></pre>
+      </div>
+    </li>
+  </ol>
+
+  <a class="link" href={guide}>Read the setup guide <span aria-hidden="true">→</span></a>
+</section>
+
+<style>
+  .head {
+    max-width: 38rem;
+    margin-bottom: 3rem;
+  }
+
+  h2 {
+    margin: 0;
+    font-size: clamp(1.875rem, 1.4rem + 1.6vw, 2.5rem);
+    font-weight: 600;
+    line-height: 1.1;
+    letter-spacing: -0.035em;
+    color: var(--sl-color-white);
+    text-wrap: balance;
+  }
+
+  .lead {
+    margin: 1rem 0 0;
+    font-size: 1.0625rem;
+    line-height: 1.6;
+    color: var(--sl-color-gray-3);
+  }
+
+  .rows {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border-bottom: 1px solid var(--sesame-border);
+  }
+
+  .row {
+    display: grid;
+    grid-template-columns: minmax(0, 17rem) minmax(0, 1fr);
+    column-gap: 4rem;
+    align-items: baseline;
+    margin: 0;
+    padding: 1.75rem 0;
+    border-top: 1px solid var(--sesame-border);
+  }
+
+  .label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .name {
+    font-size: 1rem;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    color: var(--sl-color-white);
+  }
+
+  .text {
+    font-size: 0.875rem;
+    line-height: 1.55;
+    color: var(--sl-color-gray-3);
+  }
+
+  .cmd {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+    font-family: var(--sl-font-mono);
+    font-size: 0.875rem;
+  }
+
+  .p {
+    color: var(--sl-color-accent);
+    user-select: none;
+  }
+
+  .cmd code,
+  .code code {
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+  }
+
+  .cmd code {
+    color: var(--sl-color-white);
+    white-space: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  /* Copy buttons sit at the row's end, aligned on the same edge. */
+  .cmd :global(sesame-copy-button),
+  .file-head :global(sesame-copy-button) {
+    margin-inline-start: auto;
+  }
+
+  .file {
+    min-width: 0;
+    font-family: var(--sl-font-mono);
+    font-size: 0.8125rem;
+  }
+
+  .file-head {
+    display: flex;
+    align-items: center;
+    margin-top: -0.5rem;
+    font-size: 0.75rem;
+    color: var(--sl-color-gray-4);
+  }
+
+  .code {
+    margin: 0.5rem 0 0;
+    padding: 0;
+    overflow-x: auto;
+    background: none;
+    border: 0;
+    line-height: 1.7;
+    color: var(--sl-color-gray-2);
+  }
+
+  .code :global(.k) {
+    color: var(--sl-color-accent-high);
+  }
+  .code :global(.s) {
+    color: var(--sl-color-purple);
+  }
+  .code :global(.f) {
+    color: var(--sl-color-white);
+  }
+  .code :global(.c) {
+    color: var(--sl-color-gray-4);
+  }
+
+  .link {
+    display: inline-flex;
+    gap: 0.375rem;
+    margin-top: 2rem;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    color: var(--sl-color-white);
+    text-decoration: none;
+  }
+
+  .link span {
+    color: var(--sl-color-accent);
+    transition: transform 200ms var(--sesame-ease-out);
+  }
+
+  @media (hover: hover) {
+    .link:hover span {
+      transform: translateX(3px);
+    }
+  }
+
+  @media (max-width: 48rem) {
+    .row {
+      grid-template-columns: minmax(0, 1fr);
+      row-gap: 1rem;
+    }
+
+    .file-head {
+      margin-top: 0;
+    }
+
+    .cmd,
+    .file {
+      font-size: 0.75rem;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .link span {
+      transition: none;
+    }
+  }
+</style>

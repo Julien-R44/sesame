@@ -1,0 +1,294 @@
+---
+/**
+ * Prototype "Session": one centred column. The terminal shows what the two
+ * commands actually do, and the routes file follows under it. The output
+ * lines come in once, when the terminal scrolls into view.
+ */
+import CopyButton from '../../components/CopyButton.astro'
+import { title, lead, guide, install, migrate, installOutput, tables, routes, routesHtml } from './data'
+
+let i = 0
+---
+
+<proto-session class="session">
+  <header class="head">
+    <h2>{title}</h2>
+    <p class="lead">{lead}</p>
+  </header>
+
+  <div class="pane term">
+    <div class="cmd">
+      <span class="p" aria-hidden="true">$</span>
+      <code>{install}</code>
+      <CopyButton text={install} label={`Copy ${install}`} />
+    </div>
+    <ul class="out">
+      {
+        installOutput.map(([verb, path, note]) => (
+          <li style={`--i: ${i++}`}>
+            <span class="verb">{verb}</span>
+            <span class="path">{path}</span>
+            {note && <span class="note">{note}</span>}
+          </li>
+        ))
+      }
+    </ul>
+
+    <div class="cmd">
+      <span class="p" aria-hidden="true">$</span>
+      <code>{migrate}</code>
+      <CopyButton text={migrate} label={`Copy ${migrate}`} />
+    </div>
+    <ul class="out">
+      {
+        tables.map((table) => (
+          <li style={`--i: ${i++}`}>
+            <span class="ok">❯ migrated</span>
+            <span class="path">create_{table}_table</span>
+          </li>
+        ))
+      }
+    </ul>
+  </div>
+
+  <div class="pane file">
+    <div class="file-head">
+      <span>start/routes.ts</span>
+      <CopyButton text={routes} label="Copy start/routes.ts" />
+    </div>
+    <pre class="code"><code set:html={routesHtml} /></pre>
+  </div>
+
+  <a class="link" href={guide}>Read the setup guide <span aria-hidden="true">→</span></a>
+</proto-session>
+
+<script>
+  class ProtoSession extends HTMLElement {
+    connectedCallback() {
+      const observer = new IntersectionObserver(
+        (entries) => {
+          if (!entries.some((e) => e.isIntersecting)) return
+          this.toggleAttribute('data-in', true)
+          observer.disconnect()
+        },
+        { threshold: 0.35 },
+      )
+      observer.observe(this.querySelector('.term')!)
+    }
+  }
+
+  if (!customElements.get('proto-session')) customElements.define('proto-session', ProtoSession)
+</script>
+
+<style>
+  .session {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .head {
+    max-width: 36rem;
+    margin-bottom: 3rem;
+    text-align: center;
+  }
+
+  h2 {
+    margin: 0;
+    font-size: clamp(1.875rem, 1.4rem + 1.6vw, 2.5rem);
+    font-weight: 600;
+    line-height: 1.1;
+    letter-spacing: -0.035em;
+    color: var(--sl-color-white);
+    text-wrap: balance;
+  }
+
+  .lead {
+    margin: 1rem 0 0;
+    font-size: 1.0625rem;
+    line-height: 1.6;
+    color: var(--sl-color-gray-3);
+  }
+
+  /* Same radius and surface as the feature cards above. */
+  .pane {
+    width: 100%;
+    max-width: 44rem;
+    border: 1px solid var(--sesame-border);
+    border-radius: 0.75rem;
+    background: var(--sesame-code-bg);
+    font-family: var(--sl-font-mono);
+    font-size: 0.8125rem;
+    line-height: 1.7;
+  }
+
+  .term {
+    padding: 1rem 0.75rem 1.25rem 1.25rem;
+  }
+
+  .file {
+    margin-top: 1rem;
+    overflow: hidden;
+  }
+
+  .cmd {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .out + .cmd {
+    margin-top: 1rem;
+  }
+
+  .p {
+    color: var(--sl-color-accent);
+    user-select: none;
+  }
+
+  .cmd code,
+  .code code {
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+  }
+
+  .cmd code {
+    color: var(--sl-color-white);
+    white-space: nowrap;
+  }
+
+  .cmd :global(sesame-copy-button) {
+    margin-inline-start: auto;
+  }
+
+  .out {
+    margin: 0.125rem 0 0;
+    padding: 0 0 0 1.375rem;
+    list-style: none;
+    font-size: 0.75rem;
+    line-height: 1.75;
+    color: var(--sl-color-gray-3);
+  }
+
+  .out li {
+    display: flex;
+    gap: 0.75rem;
+    margin: 0;
+    white-space: nowrap;
+  }
+
+  .verb {
+    width: 3.5rem;
+    color: var(--sl-color-purple);
+  }
+
+  .ok {
+    color: var(--sl-color-purple);
+  }
+
+  .path {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--sl-color-gray-2);
+  }
+
+  .note {
+    color: var(--sl-color-gray-4);
+  }
+
+  /* Output lines arrive one after another, once. */
+  @media (prefers-reduced-motion: no-preference) {
+    .out li {
+      opacity: 0;
+      transform: translateY(4px);
+      transition:
+        opacity 220ms var(--sesame-ease-out),
+        transform 220ms var(--sesame-ease-out);
+      transition-delay: calc(var(--i) * 45ms + 120ms);
+    }
+
+    .session[data-in] .out li {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .file-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.25rem 0.75rem 0.25rem 1.25rem;
+    border-bottom: 1px solid var(--sesame-border);
+    font-size: 0.75rem;
+    color: var(--sl-color-gray-3);
+  }
+
+  .code {
+    margin: 0;
+    padding: 1rem 1.25rem 1.25rem;
+    overflow-x: auto;
+    border: 0;
+    background: none;
+    color: var(--sl-color-gray-2);
+  }
+
+  .code :global(.k) {
+    color: var(--sl-color-accent-high);
+  }
+  .code :global(.s) {
+    color: var(--sl-color-purple);
+  }
+  .code :global(.f) {
+    color: var(--sl-color-white);
+  }
+  .code :global(.c) {
+    color: var(--sl-color-gray-4);
+  }
+
+  .link {
+    display: inline-flex;
+    gap: 0.375rem;
+    margin-top: 2.25rem;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    color: var(--sl-color-white);
+    text-decoration: none;
+  }
+
+  .link span {
+    color: var(--sl-color-accent);
+    transition: transform 200ms var(--sesame-ease-out);
+  }
+
+  @media (hover: hover) {
+    .link:hover span {
+      transform: translateX(3px);
+    }
+  }
+
+  @media (max-width: 48rem) {
+    .pane {
+      font-size: 0.75rem;
+    }
+
+    .term {
+      padding-inline: 1rem 0.5rem;
+    }
+
+    .out {
+      padding-left: 0;
+    }
+
+    .note {
+      display: none;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .link span {
+      transition: none;
+    }
+  }
+</style>

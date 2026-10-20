@@ -1,0 +1,220 @@
+---
+/**
+ * Prototype "Bookend": the page closes the way it opens. A full-width dark
+ * band with the door drawn in ASCII on the right, the copy and the two
+ * commands straight on the black, then the last call to action.
+ */
+import CopyButton from '../../components/CopyButton.astro'
+import Ascii from '../../components/Ascii.astro'
+import heroImage from '../../assets/hero-duo-arches.jpg'
+import { title, guide, install, migrate } from './data'
+
+const commands = [install, migrate]
+---
+
+<section class="bookend">
+  <div class="art" aria-hidden="true">
+    <Ascii src={heroImage} place={0.68} />
+  </div>
+
+  <div class="inner">
+    <h2>{title}</h2>
+    <p class="lead">
+      Install Sésame and run the migrations. Then call <code>sesame.registerRoutes()</code>{' in '}<code
+        >start/routes.ts</code
+      > and your app is an authorization server.
+    </p>
+
+    <div class="cmds">
+      {
+        commands.map((command) => (
+          <div class="cmd">
+            <span class="p" aria-hidden="true">$</span>
+            <code>{command}</code>
+            <CopyButton text={command} label={`Copy ${command}`} />
+          </div>
+        ))
+      }
+    </div>
+
+    <div class="actions">
+      <a class="button primary" href={guide}>Read the setup guide</a>
+      <a class="button ghost" href="/reference/configuration/">Browse the reference</a>
+    </div>
+  </div>
+</section>
+
+<style>
+  /* Dark in both themes, like the hero. Breaks out of the content column. */
+  .bookend {
+    position: relative;
+    isolation: isolate;
+    display: flex;
+    align-items: center;
+    width: 100vw;
+    min-height: 36rem;
+    margin-inline: calc(50% - 50vw);
+    /* The bleed is padded back, so the copy stays on the content column. */
+    padding: 5rem calc(50vw - 50%);
+    background: linear-gradient(180deg, var(--sl-color-black), #0a0a0a 6rem);
+    color: #f2f0ec;
+  }
+
+  .art {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    -webkit-mask-image:
+      linear-gradient(90deg, transparent 30%, #000 58%, #000 88%, transparent),
+      linear-gradient(180deg, transparent, #000 22%, #000 80%, transparent);
+    -webkit-mask-composite: source-in;
+    mask-image:
+      linear-gradient(90deg, transparent 30%, #000 58%, #000 88%, transparent),
+      linear-gradient(180deg, transparent, #000 22%, #000 80%, transparent);
+    mask-composite: intersect;
+  }
+
+  .inner {
+    width: 100%;
+  }
+
+  h2 {
+    max-width: 30rem;
+    margin: 0;
+    font-size: clamp(2.25rem, 1.5rem + 2.6vw, 3.5rem);
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: -0.05em;
+    color: #f2f0ec;
+    text-wrap: balance;
+  }
+
+  .lead {
+    max-width: 28rem;
+    margin: 1.5rem 0 0;
+    font-size: 1.0625rem;
+    line-height: 1.6;
+    color: #a19d97;
+  }
+
+  .lead code {
+    padding: 0;
+    border: 0;
+    background: none;
+    font-family: var(--sl-font-mono);
+    font-size: 0.875em;
+    color: #d6d3ce;
+  }
+
+  .cmds {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin-top: 2rem;
+  }
+
+  .cmd {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-family: var(--sl-font-mono);
+    font-size: 0.875rem;
+    color: #d6d3ce;
+  }
+
+  .p {
+    color: #ffaa3b;
+    user-select: none;
+  }
+
+  .cmd code {
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    color: inherit;
+    white-space: nowrap;
+  }
+
+  /* The copy button sits on the dark band in both themes. */
+  .cmd :global(sesame-copy-button) {
+    --sl-color-gray-4: #6e6a65;
+    --sl-color-gray-6: rgb(255 255 255 / 0.08);
+    --sl-color-white: #f2f0ec;
+    --sl-color-accent: #ffaa3b;
+    margin-inline-start: -0.25rem;
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.625rem;
+    margin-top: 2.25rem;
+  }
+
+  .button {
+    display: inline-flex;
+    align-items: center;
+    height: 2.625rem;
+    padding-inline: 1.125rem;
+    border-radius: 0.5rem;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    text-decoration: none;
+    white-space: nowrap;
+    transition:
+      background-color 150ms ease-out,
+      border-color 150ms ease-out,
+      transform 150ms var(--sesame-ease-out);
+  }
+
+  .button:active {
+    transform: scale(0.97);
+  }
+
+  .primary {
+    background: #f2f0ec;
+    color: #0a0a0a;
+  }
+
+  .ghost {
+    border: 1px solid rgb(255 255 255 / 0.14);
+    color: #f2f0ec;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .primary:hover {
+      background: #fff;
+    }
+
+    .ghost:hover {
+      border-color: rgb(255 255 255 / 0.3);
+      background: rgb(255 255 255 / 0.04);
+    }
+  }
+
+  /* Narrow screens: the door goes behind the copy, dimmed. */
+  @media (max-width: 48rem) {
+    .bookend {
+      min-height: 0;
+      padding-block: 4rem;
+    }
+
+    .art {
+      opacity: 0.35;
+      -webkit-mask-image: linear-gradient(180deg, transparent, #000 25%, #000 75%, transparent);
+      mask-image: linear-gradient(180deg, transparent, #000 25%, #000 75%, transparent);
+    }
+
+    .cmd {
+      font-size: 0.75rem;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .button {
+      transition: none;
+    }
+  }
+</style>
