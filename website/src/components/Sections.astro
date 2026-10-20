@@ -82,27 +82,66 @@ sesame.<span class="f">registerDiscoveryRoutes</span>()  <span class="c">// /.we
       </a>
     </header>
 
-    <div class="term">
-      <div class="cmds">
-        {
-          commands.map((c) => (
-            <div class="cmd">
-              <span class="p" aria-hidden="true">$</span>
-              <code>{c.command}</code>
-              <CopyButton text={c.command} label={`Copy ${c.command}`} />
-              <span class="note">{c.note}</span>
-            </div>
-          ))
-        }
+    <sesame-quick-start class="win">
+      <div class="tabs" role="tablist" aria-label="Quick start">
+        <button type="button" role="tab" id="qs-tab-term" aria-controls="qs-term" aria-selected="true">
+          Terminal
+        </button>
+        <button type="button" role="tab" id="qs-tab-routes" aria-controls="qs-routes" aria-selected="false" tabindex="-1">
+          start/routes.ts
+        </button>
       </div>
-      <div class="file">
-        <span>start/routes.ts</span>
-        <CopyButton text={routes} label="Copy start/routes.ts" />
+
+      <div class="panels">
+        <div class="panel term" role="tabpanel" id="qs-term" aria-labelledby="qs-tab-term">
+          {
+            commands.map((c) => (
+              <div class="cmd">
+                <span class="p" aria-hidden="true">$</span>
+                <code>{c.command}</code>
+                <CopyButton text={c.command} label={`Copy ${c.command}`} />
+                <span class="note">{c.note}</span>
+              </div>
+            ))
+          }
+        </div>
+
+        <div class="panel file" role="tabpanel" id="qs-routes" aria-labelledby="qs-tab-routes" hidden>
+          <pre class="code"><code set:html={routesHtml} /></pre>
+          <CopyButton class="copy" text={routes} label="Copy start/routes.ts" />
+        </div>
       </div>
-      <pre class="code"><code set:html={routesHtml} /></pre>
-    </div>
+    </sesame-quick-start>
   </section>
 </div>
+
+<script>
+  /** Tabs for the quick start window: click, or arrow keys between tabs. */
+  class SesameQuickStart extends HTMLElement {
+    connectedCallback() {
+      const tabs = [...this.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
+      const select = (tab: HTMLButtonElement) => {
+        for (const t of tabs) {
+          const on = t === tab
+          t.setAttribute('aria-selected', String(on))
+          t.tabIndex = on ? 0 : -1
+          document.getElementById(t.getAttribute('aria-controls')!)!.hidden = !on
+        }
+      }
+      tabs.forEach((tab, i) => {
+        tab.addEventListener('click', () => select(tab))
+        tab.addEventListener('keydown', (e) => {
+          if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+          const next = tabs[(i + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length]
+          select(next)
+          next.focus()
+        })
+      })
+    }
+  }
+
+  if (!customElements.get('sesame-quick-start')) customElements.define('sesame-quick-start', SesameQuickStart)
+</script>
 
 <style>
   .sections {
@@ -146,7 +185,7 @@ sesame.<span class="f">registerDiscoveryRoutes</span>()  <span class="c">// /.we
     display: grid;
     grid-template-columns: minmax(0, 19rem) minmax(0, 1fr);
     column-gap: 4rem;
-    align-items: start;
+    align-items: center;
   }
 
   .qs .head {
@@ -174,20 +213,87 @@ sesame.<span class="f">registerDiscoveryRoutes</span>()  <span class="c">// /.we
     }
   }
 
-  .term {
+  /* Like the code frames in the docs, dark in both themes. */
+  .win {
+    display: block;
     min-width: 0;
-    border: 1px solid var(--sesame-code-border);
-    background: var(--sesame-code-bg);
+    border: 1px solid #252524;
+    border-radius: 0.75rem;
+    background: #0d0d0d;
+    overflow: hidden;
     font-family: var(--sl-font-mono);
     font-size: 0.8125rem;
     line-height: 1.7;
+    color: #d6d3ce;
   }
 
-  .cmds {
+  .tabs {
+    display: flex;
+    border-bottom: 1px solid #252524;
+    background: #121212;
+  }
+
+  [role='tab'] {
+    position: relative;
+    height: 2.5rem;
+    padding: 0 1.25rem;
+    border: 0;
+    border-right: 1px solid #252524;
+    background: transparent;
+    font: inherit;
+    font-size: 0.75rem;
+    color: #6e6a65;
+    cursor: pointer;
+    transition: color 150ms ease-out;
+  }
+
+  [role='tab'][aria-selected='true'] {
+    margin-bottom: -1px;
+    border-bottom: 1px solid #0d0d0d;
+    background: #0d0d0d;
+    color: #f2f0ec;
+  }
+
+  [role='tab'][aria-selected='true']::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto;
+    height: 1px;
+    background: #ffaa3b;
+  }
+
+  @media (hover: hover) {
+    [role='tab']:hover {
+      color: #f2f0ec;
+    }
+  }
+
+  [role='tab']:focus-visible {
+    outline: 2px solid #ffaa3b;
+    outline-offset: -2px;
+  }
+
+  /* Both panels share one cell: the window keeps the taller one's height. */
+  .panels {
+    display: grid;
+  }
+
+  .panel {
+    grid-area: 1 / 1;
+    min-width: 0;
+  }
+
+  .panel[hidden] {
+    display: block;
+    visibility: hidden;
+  }
+
+  .term {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
-    padding: 1.125rem 0.75rem 1.125rem 1.25rem;
+    justify-content: center;
+    gap: 1rem;
+    padding: 1.25rem 0.75rem 1.25rem 1.25rem;
   }
 
   .cmd {
@@ -198,15 +304,22 @@ sesame.<span class="f">registerDiscoveryRoutes</span>()  <span class="c">// /.we
   }
 
   .p {
-    color: var(--sl-color-accent);
+    color: #ffaa3b;
     user-select: none;
   }
 
+  .cmd code,
+  .code code {
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+  }
+
   .cmd code {
-    overflow-x: auto;
-    font-family: inherit;
-    color: var(--sl-color-white);
+    color: #f2f0ec;
     white-space: nowrap;
+    overflow-x: auto;
     scrollbar-width: none;
   }
 
@@ -214,44 +327,48 @@ sesame.<span class="f">registerDiscoveryRoutes</span>()  <span class="c">// /.we
     grid-column: 2 / -1;
     margin-top: -0.25rem;
     font-size: 0.75rem;
-    line-height: 1.5;
-    color: var(--sl-color-gray-4);
+    color: #6e6a65;
   }
 
   .file {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.25rem 0.75rem 0.25rem 1.25rem;
-    border-block: 1px solid var(--sesame-code-border);
-    background: var(--sesame-code-chrome);
-    font-size: 0.75rem;
-    color: var(--sl-color-gray-3);
+    position: relative;
   }
 
   .code {
     margin: 0;
-    padding: 1.125rem 1.25rem 1.25rem;
+    padding: 1.25rem 3rem 1.25rem 1.25rem;
     overflow-x: auto;
-    font-family: inherit;
-    color: var(--sl-color-gray-2);
+    border: 0;
+    background: none;
+    color: #d6d3ce;
   }
 
-  .code code {
-    font-family: inherit;
+  .file :global(.copy) {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
   }
 
+  /* Vesper, like the code blocks in the docs. */
   .code :global(.k) {
-    color: var(--sl-color-accent-high);
+    color: #a0a0a0;
   }
   .code :global(.s) {
-    color: var(--sl-color-purple);
+    color: #99ffe4;
   }
   .code :global(.f) {
-    color: var(--sl-color-white);
+    color: #ffc799;
   }
   .code :global(.c) {
-    color: var(--sl-color-gray-4);
+    color: #585858;
+  }
+
+  /* The copy buttons sit on the dark window in both themes. */
+  .win :global(sesame-copy-button) {
+    --sl-color-gray-4: #6e6a65;
+    --sl-color-gray-6: rgb(255 255 255 / 0.08);
+    --sl-color-white: #f2f0ec;
+    --sl-color-accent: #ffaa3b;
   }
 
   /* ------------------------------------------------------------ Responsive */
@@ -273,22 +390,19 @@ sesame.<span class="f">registerDiscoveryRoutes</span>()  <span class="c">// /.we
       row-gap: 2.5rem;
     }
 
-    .term {
+    .win {
       font-size: 0.75rem;
     }
 
-    .cmds,
+    .term,
     .code {
-      padding-inline: 1rem 0.5rem;
-    }
-
-    .file {
-      padding-inline: 1rem 0.5rem;
+      padding-left: 1rem;
     }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .link span {
+    .link span,
+    [role='tab'] {
       transition: none;
     }
   }
