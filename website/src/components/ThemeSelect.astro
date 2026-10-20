@@ -100,28 +100,20 @@ const options = [
 <style>
   .switch {
     display: inline-flex;
-    gap: 0.125rem;
-    padding: 0.1875rem;
-    border: 1px solid var(--sesame-border);
-    border-radius: var(--sesame-radius-sm);
-    background: var(--sesame-surface);
   }
 
   button {
     display: grid;
     place-items: center;
     width: 1.75rem;
-    height: 1.75rem;
+    height: 2rem;
     padding: 0;
     border: 0;
     border-radius: var(--sesame-radius-sm);
     background: transparent;
-    color: var(--sl-color-gray-3);
+    color: var(--sl-color-gray-4);
     cursor: pointer;
-    transition:
-      color 160ms ease,
-      background-color 160ms ease,
-      box-shadow 160ms ease;
+    transition: color 160ms ease;
   }
 
   button:hover {
@@ -129,9 +121,7 @@ const options = [
   }
 
   button[aria-pressed='true'] {
-    background: var(--sl-color-gray-6);
-    color: var(--sl-color-accent-high);
-    box-shadow: inset 0 0 0 1px var(--sesame-border-strong);
+    color: var(--sl-color-accent);
   }
 
   button:focus-visible {
@@ -139,8 +129,8 @@ const options = [
   }
 
   svg {
-    width: 0.9375rem;
-    height: 0.9375rem;
+    width: 0.875rem;
+    height: 0.875rem;
     fill: none;
     stroke: currentColor;
     stroke-width: 1.6;
