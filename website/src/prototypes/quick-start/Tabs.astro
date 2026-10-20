@@ -1,0 +1,308 @@
+---
+/**
+ * Prototype "Tabs": the title on the left, one code window on the right with
+ * two tabs, the terminal and the routes file, styled like the code blocks in
+ * the docs. Both panels share one height, so switching never moves the page.
+ */
+import CopyButton from '../../components/CopyButton.astro'
+import { title, lead, guide, commands, routes, routesHtml } from './data'
+---
+
+<section class="split">
+  <header class="head">
+    <h2>{title}</h2>
+    <p class="lead">{lead}</p>
+    <a class="link" href={guide}>Read the setup guide <span aria-hidden="true">→</span></a>
+  </header>
+
+  <proto-tabs class="win">
+    <div class="tabs" role="tablist" aria-label="Quick start">
+      <button type="button" role="tab" id="qs-tab-term" aria-controls="qs-term" aria-selected="true">Terminal</button>
+      <button type="button" role="tab" id="qs-tab-routes" aria-controls="qs-routes" aria-selected="false" tabindex="-1">
+        start/routes.ts
+      </button>
+    </div>
+
+    <div class="panels">
+      <div class="panel term" role="tabpanel" id="qs-term" aria-labelledby="qs-tab-term">
+        {
+          commands.map((c) => (
+            <div class="cmd">
+              <span class="p" aria-hidden="true">$</span>
+              <code>{c.command}</code>
+              <CopyButton text={c.command} label={`Copy ${c.command}`} />
+              <span class="note">{c.note}</span>
+            </div>
+          ))
+        }
+      </div>
+
+      <div class="panel file" role="tabpanel" id="qs-routes" aria-labelledby="qs-tab-routes" hidden>
+        <pre class="code"><code set:html={routesHtml} /></pre>
+        <CopyButton class="copy" text={routes} label="Copy start/routes.ts" />
+      </div>
+    </div>
+  </proto-tabs>
+</section>
+
+<script>
+  class ProtoTabs extends HTMLElement {
+    connectedCallback() {
+      const tabs = [...this.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
+      const select = (tab: HTMLButtonElement) => {
+        for (const t of tabs) {
+          const on = t === tab
+          t.setAttribute('aria-selected', String(on))
+          t.tabIndex = on ? 0 : -1
+          document.getElementById(t.getAttribute('aria-controls')!)!.hidden = !on
+        }
+      }
+      tabs.forEach((tab, i) => {
+        tab.addEventListener('click', () => select(tab))
+        tab.addEventListener('keydown', (e) => {
+          if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+          e.stopPropagation()
+          const next = tabs[(i + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length]
+          select(next)
+          next.focus()
+        })
+      })
+    }
+  }
+
+  if (!customElements.get('proto-tabs')) customElements.define('proto-tabs', ProtoTabs)
+</script>
+
+<style>
+  .split {
+    display: grid;
+    grid-template-columns: minmax(0, 19rem) minmax(0, 1fr);
+    column-gap: 4rem;
+    align-items: center;
+  }
+
+  h2 {
+    margin: 0;
+    font-size: clamp(1.875rem, 1.4rem + 1.6vw, 2.5rem);
+    font-weight: 600;
+    line-height: 1.1;
+    letter-spacing: -0.035em;
+    color: var(--sl-color-white);
+    text-wrap: balance;
+  }
+
+  .lead {
+    margin: 1rem 0 0;
+    font-size: 1.0625rem;
+    line-height: 1.6;
+    color: var(--sl-color-gray-3);
+  }
+
+  .link {
+    display: inline-flex;
+    gap: 0.375rem;
+    margin-top: 1.75rem;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    color: var(--sl-color-white);
+    text-decoration: none;
+  }
+
+  .link span {
+    color: var(--sl-color-accent);
+    transition: transform 200ms var(--sesame-ease-out);
+  }
+
+  @media (hover: hover) {
+    .link:hover span {
+      transform: translateX(3px);
+    }
+  }
+
+  /* Like the expressive-code frames in the docs; dark in both themes. */
+  .win {
+    display: block;
+    min-width: 0;
+    border: 1px solid #252524;
+    border-radius: 0.75rem;
+    background: #0d0d0d;
+    overflow: hidden;
+    font-family: var(--sl-font-mono);
+    font-size: 0.8125rem;
+    line-height: 1.7;
+    color: #d6d3ce;
+  }
+
+  .tabs {
+    display: flex;
+    border-bottom: 1px solid #252524;
+    background: #121212;
+  }
+
+  [role='tab'] {
+    position: relative;
+    height: 2.5rem;
+    padding: 0 1.25rem;
+    border: 0;
+    border-right: 1px solid #252524;
+    background: transparent;
+    font: inherit;
+    font-size: 0.75rem;
+    color: #6e6a65;
+    cursor: pointer;
+    transition: color 150ms ease-out;
+  }
+
+  [role='tab'][aria-selected='true'] {
+    margin-bottom: -1px;
+    border-bottom: 1px solid #0d0d0d;
+    background: #0d0d0d;
+    color: #f2f0ec;
+  }
+
+  [role='tab'][aria-selected='true']::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto;
+    height: 1px;
+    background: #ffaa3b;
+  }
+
+  @media (hover: hover) {
+    [role='tab']:hover {
+      color: #f2f0ec;
+    }
+  }
+
+  [role='tab']:focus-visible {
+    outline: 2px solid #ffaa3b;
+    outline-offset: -2px;
+  }
+
+  /* Both panels in one cell: the window keeps the taller one's height. */
+  .panels {
+    display: grid;
+  }
+
+  .panel {
+    grid-area: 1 / 1;
+    min-width: 0;
+  }
+
+  .panel[hidden] {
+    display: block;
+    visibility: hidden;
+  }
+
+  .term {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 1rem;
+    padding: 1.25rem 0.75rem 1.25rem 1.25rem;
+  }
+
+  .cmd {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    column-gap: 0.75rem;
+    align-items: center;
+  }
+
+  .p {
+    color: #ffaa3b;
+    user-select: none;
+  }
+
+  .cmd code,
+  .code code {
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+  }
+
+  .cmd code {
+    color: #f2f0ec;
+    white-space: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .note {
+    grid-column: 2 / -1;
+    margin-top: -0.25rem;
+    font-size: 0.75rem;
+    color: #6e6a65;
+  }
+
+  .file {
+    position: relative;
+  }
+
+  .code {
+    margin: 0;
+    padding: 1.25rem 3rem 1.25rem 1.25rem;
+    overflow-x: auto;
+    border: 0;
+    background: none;
+    color: #d6d3ce;
+  }
+
+  .file :global(.copy) {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+  }
+
+  /* Vesper, like the code blocks in the docs. */
+  .code :global(.k) {
+    color: #a0a0a0;
+  }
+  .code :global(.s) {
+    color: #99ffe4;
+  }
+  .code :global(.f) {
+    color: #ffc799;
+  }
+  .code :global(.c) {
+    color: #585858;
+  }
+
+  .win :global(sesame-copy-button) {
+    --sl-color-gray-4: #6e6a65;
+    --sl-color-gray-6: rgb(255 255 255 / 0.08);
+    --sl-color-white: #f2f0ec;
+    --sl-color-accent: #ffaa3b;
+  }
+
+  @media (max-width: 64rem) {
+    .split {
+      column-gap: 2.5rem;
+      grid-template-columns: minmax(0, 15rem) minmax(0, 1fr);
+    }
+  }
+
+  @media (max-width: 48rem) {
+    .split {
+      grid-template-columns: minmax(0, 1fr);
+      row-gap: 2.5rem;
+    }
+
+    .win {
+      font-size: 0.75rem;
+    }
+
+    .term,
+    .code {
+      padding-left: 1rem;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .link span,
+    [role='tab'] {
+      transition: none;
+    }
+  }
+</style>

@@ -5,11 +5,11 @@
  */
 import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro'
 import Features from '../../components/Features.astro'
-import Ledger from '../../prototypes/quick-start/Ledger.astro'
-import Session from '../../prototypes/quick-start/Session.astro'
-import Bookend from '../../prototypes/quick-start/Bookend.astro'
+import Card from '../../prototypes/quick-start/Card.astro'
+import Command from '../../prototypes/quick-start/Command.astro'
+import Tabs from '../../prototypes/quick-start/Tabs.astro'
 
-const names = ['Ledger', 'Session', 'Bookend']
+const names = ['Card', 'Command', 'Tabs']
 ---
 
 <StarlightPage frontmatter={{ title: 'Quick start prototypes', template: 'splash', pagefind: false }}>
@@ -27,15 +27,13 @@ const names = ['Ledger', 'Session', 'Bookend']
 
     <div id="stage"></div>
 
-    <template data-variant><div class="slot"><Ledger /></div></template>
-    <template data-variant><div class="slot"><Session /></div></template>
-    <template data-variant><div class="slot slot-flush"><Bookend /></div></template>
+    <template data-variant><div class="slot"><Card /></div></template>
+    <template data-variant><div class="slot"><Command /></div></template>
+    <template data-variant><div class="slot"><Tabs /></div></template>
 
     <nav class="proto-picker" aria-label="Prototype variants">
       <span class="proto-picker-highlight" aria-hidden="true"></span>
       {names.map((name) => <button class="proto-picker-item">{name}</button>)}
-      <span class="proto-picker-divider" aria-hidden="true"></span>
-      <button class="proto-picker-item proto-picker-replay" aria-label="Replay animation (R)">↻</button>
     </nav>
   </div>
 
@@ -130,11 +128,6 @@ const names = ['Ledger', 'Session', 'Bookend']
 
   #stage :global(.slot) {
     padding-top: clamp(5rem, 10vw, 8rem);
-  }
-
-  /* The band variant ends the page itself. */
-  .proto:has(.slot-flush) {
-    padding-bottom: 0;
   }
 
   /* ---------------------------------------- Picker (PICKER.md, verbatim) */

@@ -8,21 +8,9 @@ export const guide = '/guides/getting-started/'
 export const install = 'node ace add @julr/sesame'
 export const migrate = 'node ace migration:run'
 
-/** What `node ace add` writes, as the Adonis codemods print it. */
-export const installOutput = [
-  ['CREATE', 'config/sesame.ts'],
-  ['CREATE', 'database/migrations/…_create_oauth_*_table.ts', '6 files'],
-  ['UPDATE', 'adonisrc.ts', 'provider, commands'],
-  ['UPDATE', 'start/kernel.ts', 'scopes, anyScope'],
-] as const
-
-export const tables = [
-  'oauth_clients',
-  'oauth_authorization_codes',
-  'oauth_access_tokens',
-  'oauth_refresh_tokens',
-  'oauth_grants',
-  'oauth_pending_authorization_requests',
+export const commands = [
+  { command: install, note: 'config/sesame.ts, migrations, provider, scope middleware' },
+  { command: migrate, note: 'clients, codes, tokens, grants, pending requests' },
 ]
 
 export const routes = `import router from '@adonisjs/core/services/router'
