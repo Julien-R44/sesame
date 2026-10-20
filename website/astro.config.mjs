@@ -34,8 +34,6 @@ export default defineConfig({
       customCss: [
         '@fontsource-variable/geist',
         '@fontsource-variable/geist-mono',
-        '@fontsource-variable/bricolage-grotesque',
-        '@fontsource/instrument-serif/400-italic.css',
         './src/styles/theme.css',
       ],
       components: {
@@ -45,7 +43,7 @@ export default defineConfig({
         Hero: './src/components/Hero.astro',
       },
       expressiveCode: {
-        themes: ['vitesse-dark', 'vitesse-light'],
+        themes: ['vesper', 'github-light'],
         styleOverrides: {
           borderRadius: 'var(--sesame-radius)',
           borderColor: 'var(--sesame-code-border)',

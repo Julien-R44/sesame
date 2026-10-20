@@ -1,0 +1,398 @@
+---
+/**
+ * The authorization code flow as a terminal: four steps on the left, the
+ * real HTTP exchange of the selected step on the right. Steps advance on
+ * their own until the visitor picks one (never with reduced motion).
+ */
+type Line = { text: string; tone?: 'req' | 'res' | 'dim' | 'accent' }
+
+const steps: { label: string; text: string; lines: Line[] }[] = [
+  {
+    label: 'Authorize',
+    text: 'The app redirects the user with an S256 code challenge.',
+    lines: [
+      { text: 'GET /oauth/authorize', tone: 'req' },
+      { text: '  ?client_id=cli_8f2a91' },
+      { text: '  &redirect_uri=https://app.example.com/callback' },
+      { text: '  &response_type=code' },
+      { text: '  &scope=read offline_access' },
+      { text: '  &state=af0ifjsldkj' },
+      { text: '  &code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM', tone: 'accent' },
+      { text: '  &code_challenge_method=S256', tone: 'accent' },
+      { text: '' },
+      { text: '302 Found', tone: 'res' },
+      { text: 'Location: /login?redirect=/oauth/authorize…', tone: 'dim' },
+    ],
+  },
+  {
+    label: 'Consent',
+    text: 'The user logs in and approves the scopes, once.',
+    lines: [
+      { text: '┌─────────────────────────────────────┐', tone: 'dim' },
+      { text: '│                                     │', tone: 'dim' },
+      { text: '│   Acme wants to access your account │' },
+      { text: '│                                     │', tone: 'dim' },
+      { text: '│   [x] read                          │' },
+      { text: '│   [x] offline_access                │' },
+      { text: '│                                     │', tone: 'dim' },
+      { text: '│   [ Deny ]               [ Allow ]  │', tone: 'accent' },
+      { text: '│                                     │', tone: 'dim' },
+      { text: '└─────────────────────────────────────┘', tone: 'dim' },
+      { text: '' },
+      { text: '302 Found', tone: 'res' },
+      { text: 'Location: https://app.example.com/callback?code=SplxlOBe…&state=af0ifjsldkj', tone: 'dim' },
+    ],
+  },
+  {
+    label: 'Exchange',
+    text: 'The code and its verifier become an access and a refresh token.',
+    lines: [
+      { text: 'POST /oauth/token', tone: 'req' },
+      { text: 'Content-Type: application/x-www-form-urlencoded', tone: 'dim' },
+      { text: '' },
+      { text: 'grant_type=authorization_code' },
+      { text: '&code=SplxlOBeZQQYbYS6WxSbIA' },
+      { text: '&code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk', tone: 'accent' },
+      { text: '' },
+      { text: '200 OK', tone: 'res' },
+      { text: '{ "access_token": "at_2YotnFZFEjr1zCsicMWpAA",', tone: 'dim' },
+      { text: '  "refresh_token": "rt_tGzv3JOkF0XG5Qx2TlKWIA",', tone: 'dim' },
+      { text: '  "token_type": "Bearer", "expires_in": 3600 }', tone: 'dim' },
+    ],
+  },
+  {
+    label: 'Call',
+    text: 'The app calls your API with the access token as a Bearer.',
+    lines: [
+      { text: 'GET /api/me', tone: 'req' },
+      { text: 'Authorization: Bearer at_2YotnFZFEjr1zCsicMWpAA', tone: 'accent' },
+      { text: '' },
+      { text: '200 OK', tone: 'res' },
+      { text: '{ "id": 42 }', tone: 'dim' },
+      { text: '' },
+      { text: "// start/routes.ts", tone: 'dim' },
+      { text: "router.get('/api/me', async ({ auth }) => {" },
+      { text: "  const user = await auth.use('oauth').authenticate({ scopes: ['read'] })" },
+      { text: '  return { id: user.id }' },
+      { text: '})' },
+    ],
+  },
+]
+---
+
+<sesame-flow class="flow not-content">
+  <div class="steps" role="tablist" aria-label="Authorization code flow">
+    {
+      steps.map((step, i) => (
+        <button
+          type="button"
+          role="tab"
+          id={`flow-tab-${i}`}
+          aria-controls={`flow-panel-${i}`}
+          aria-selected={i === 0 ? 'true' : 'false'}
+          tabindex={i === 0 ? 0 : -1}
+        >
+          <span class="n">0{i + 1}</span>
+          <span class="body">
+            <span class="label">{step.label}</span>
+            <span class="text">{step.text}</span>
+          </span>
+          <span class="progress" aria-hidden="true" />
+        </button>
+      ))
+    }
+  </div>
+
+  <div class="window">
+    <div class="bar" aria-hidden="true"><span></span><span></span><span></span></div>
+    {
+      steps.map((step, i) => (
+        <pre
+          class="panel"
+          role="tabpanel"
+          id={`flow-panel-${i}`}
+          aria-labelledby={`flow-tab-${i}`}
+          hidden={i !== 0}
+        ><code>{step.lines.map((line) => <span class:list={['line', line.tone]}>{line.text || ' '}{'\n'}</span>)}</code></pre>
+      ))
+    }
+  </div>
+</sesame-flow>
+
+<script>
+  class SesameFlow extends HTMLElement {
+    #timer = 0
+    #auto = !matchMedia('(prefers-reduced-motion: reduce)').matches
+
+    connectedCallback() {
+      const tabs = [...this.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
+      const panels = [...this.querySelectorAll<HTMLElement>('[role="tabpanel"]')]
+      let current = 0
+
+      const select = (i: number, focus = false) => {
+        current = (i + tabs.length) % tabs.length
+        tabs.forEach((tab, j) => {
+          tab.setAttribute('aria-selected', String(j === current))
+          tab.tabIndex = j === current ? 0 : -1
+        })
+        panels.forEach((panel, j) => (panel.hidden = j !== current))
+        if (focus) tabs[current].focus()
+        this.#schedule(() => select(current + 1))
+      }
+
+      const stop = () => {
+        this.#auto = false
+        this.removeAttribute('data-auto')
+        clearTimeout(this.#timer)
+      }
+
+      tabs.forEach((tab, i) =>
+        tab.addEventListener('click', () => {
+          stop()
+          select(i)
+        }),
+      )
+      this.addEventListener('keydown', (e) => {
+        const delta = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key]
+        if (!delta || !(e.target as Element).matches('[role="tab"]')) return
+        e.preventDefault()
+        stop()
+        select(current + delta, true)
+      })
+
+      /* Only advance while the flow is on screen. */
+      new IntersectionObserver(([entry]) => {
+        if (!this.#auto) return
+        this.toggleAttribute('data-auto', entry.isIntersecting)
+        if (entry.isIntersecting) select(current)
+        else clearTimeout(this.#timer)
+      }, { threshold: 0.4 }).observe(this)
+    }
+
+    #schedule(next: () => void) {
+      clearTimeout(this.#timer)
+      if (this.#auto && this.hasAttribute('data-auto')) this.#timer = window.setTimeout(next, 5000)
+    }
+
+    disconnectedCallback() {
+      clearTimeout(this.#timer)
+    }
+  }
+
+  if (!customElements.get('sesame-flow')) customElements.define('sesame-flow', SesameFlow)
+</script>
+
+<style>
+  .flow {
+    display: grid;
+    grid-template-columns: minmax(0, 18rem) minmax(0, 1fr);
+    gap: 1.5rem;
+    align-items: stretch;
+  }
+
+  .steps {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  [role='tab'] {
+    position: relative;
+    display: flex;
+    gap: 1rem;
+    padding: 1rem 1.125rem;
+    overflow: hidden;
+    border: 0;
+    border-radius: 0.625rem;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+    transition: background-color 150ms ease-out;
+  }
+
+  [role='tab']:focus-visible {
+    outline: 2px solid var(--sl-color-accent);
+    outline-offset: -2px;
+  }
+
+  [role='tab'][aria-selected='true'] {
+    background: var(--sesame-surface-raised);
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    [role='tab'][aria-selected='false']:hover {
+      background: var(--sesame-surface);
+    }
+  }
+
+  .n {
+    font-family: var(--sl-font-mono);
+    font-size: 0.75rem;
+    line-height: 1.5rem;
+    color: var(--sl-color-gray-4);
+    transition: color 150ms ease-out;
+  }
+
+  [aria-selected='true'] .n {
+    color: var(--sl-color-accent);
+  }
+
+  .body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .label {
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: 1.5rem;
+    letter-spacing: -0.015em;
+    color: var(--sl-color-gray-3);
+    transition: color 150ms ease-out;
+  }
+
+  [aria-selected='true'] .label {
+    color: var(--sl-color-white);
+  }
+
+  .text {
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--sl-color-gray-3);
+  }
+
+  [aria-selected='false'] .text {
+    display: none;
+  }
+
+  /* Time left before the next step, only while it plays on its own. */
+  .progress {
+    position: absolute;
+    inset: auto 0 0;
+    height: 2px;
+    background: var(--sl-color-accent);
+    transform: scaleX(0);
+    transform-origin: left;
+    opacity: 0;
+  }
+
+  sesame-flow[data-auto] [aria-selected='true'] .progress {
+    opacity: 0.6;
+    animation: flow-progress 5000ms linear both;
+  }
+
+  @keyframes flow-progress {
+    to {
+      transform: scaleX(1);
+    }
+  }
+
+  /* --------------------------------------------------------- terminal -- */
+
+  .window {
+    min-width: 0;
+    border: 1px solid var(--sesame-code-border);
+    border-radius: 0.75rem;
+    background: var(--sesame-code-bg);
+    overflow: hidden;
+  }
+
+  .bar {
+    display: flex;
+    gap: 0.375rem;
+    padding: 0.875rem 1.125rem;
+    border-bottom: 1px solid var(--sesame-code-border);
+  }
+
+  .bar span {
+    width: 0.625rem;
+    height: 0.625rem;
+    border-radius: 50%;
+    background: var(--sesame-code-dots);
+  }
+
+  .panel {
+    min-height: 19rem;
+    margin: 0;
+    padding: 1.25rem 1.375rem 1.5rem;
+    overflow-x: auto;
+    border: 0;
+    background: none;
+    font-family: var(--sl-font-mono);
+    font-size: 0.8125rem;
+    line-height: 1.7;
+    color: var(--sl-color-gray-2);
+    animation: flow-in 200ms var(--sesame-ease-out);
+  }
+
+  .panel code {
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    color: inherit;
+  }
+
+  .req {
+    color: var(--sl-color-white);
+    font-weight: 600;
+  }
+
+  .res {
+    color: var(--sl-color-purple);
+  }
+
+  .dim {
+    color: var(--sl-color-gray-4);
+  }
+
+  .accent {
+    color: var(--sl-color-accent);
+  }
+
+  @keyframes flow-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+  }
+
+  @media (max-width: 50rem) {
+    .flow {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    [role='tab'] {
+      flex-direction: column;
+      gap: 0.25rem;
+      padding: 0.75rem;
+    }
+
+    .text {
+      display: none;
+    }
+
+    .label {
+      font-size: 0.875rem;
+    }
+
+    .panel {
+      min-height: 0;
+      font-size: 0.75rem;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .panel {
+      animation: none;
+    }
+  }
+</style>

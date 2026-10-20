@@ -1,0 +1,295 @@
+---
+/**
+ * The homepage sections under the hero: the authorization code flow, the
+ * capabilities and the quick start.
+ */
+import CopyButton from './CopyButton.astro'
+import Features from './Features.astro'
+import Flow from './Flow.astro'
+
+const flowSection = {
+  title: 'The authorization code flow, in four steps',
+  lead: 'An authorization code flow with PKCE, refresh token rotation, introspection and revocation, out of the box.',
+}
+
+const capabilitiesSection = {
+  title: 'Everything an authorization server needs',
+  lead: 'Built on the OAuth 2.1 specification, with the guard, scopes and token tooling you expect from an AdonisJS package.',
+}
+
+const quickStartSection = {
+  title: 'Two commands to open the door',
+  lead: 'Install Sésame, run the migrations and register your OAuth routes.',
+  guide: '/guides/getting-started/',
+}
+
+const commands = [
+  {
+    command: 'node ace add @julr/sesame',
+    note: 'config/sesame.ts, migrations, provider, scope middleware',
+  },
+  {
+    command: 'node ace migration:run',
+    note: 'clients, codes, tokens, grants, pending requests',
+  },
+]
+
+const routes = `import router from '@adonisjs/core/services/router'
+import sesame from '@julr/sesame/services/main'
+
+router.group(() => {
+  sesame.registerRoutes()
+}).prefix('/oauth')
+
+sesame.registerDiscoveryRoutes()`
+
+const routesHtml = `<span class="k">import</span> router <span class="k">from</span> <span class="s">'@adonisjs/core/services/router'</span>
+<span class="k">import</span> sesame <span class="k">from</span> <span class="s">'@julr/sesame/services/main'</span>
+
+router.<span class="f">group</span>(() =&gt; {
+  sesame.<span class="f">registerRoutes</span>()     <span class="c">// /oauth/authorize, /oauth/token…</span>
+}).<span class="f">prefix</span>(<span class="s">'/oauth'</span>)
+
+sesame.<span class="f">registerDiscoveryRoutes</span>()  <span class="c">// /.well-known/*, JWKS</span>`
+
+---
+
+<div class="sections not-content">
+  <section class="section">
+    <header class="head">
+      <h2>{flowSection.title}</h2>
+      <p class="lead">{flowSection.lead}</p>
+    </header>
+
+    <Flow />
+  </section>
+
+  <section class="section">
+    <header class="head">
+      <h2>{capabilitiesSection.title}</h2>
+      <p class="lead">{capabilitiesSection.lead}</p>
+    </header>
+
+    <Features />
+  </section>
+
+  <section class="section qs">
+    <header class="head">
+      <h2>{quickStartSection.title}</h2>
+      <p class="lead">{quickStartSection.lead}</p>
+      <a class="link" href={quickStartSection.guide}>
+        Read the setup guide <span aria-hidden="true">→</span>
+      </a>
+    </header>
+
+    <div class="term">
+      <div class="cmds">
+        {
+          commands.map((c) => (
+            <div class="cmd">
+              <span class="p" aria-hidden="true">$</span>
+              <code>{c.command}</code>
+              <CopyButton text={c.command} label={`Copy ${c.command}`} />
+              <span class="note">{c.note}</span>
+            </div>
+          ))
+        }
+      </div>
+      <div class="file">
+        <span>start/routes.ts</span>
+        <CopyButton text={routes} label="Copy start/routes.ts" />
+      </div>
+      <pre class="code"><code set:html={routesHtml} /></pre>
+    </div>
+  </section>
+</div>
+
+<style>
+  .sections {
+    padding-bottom: 6rem;
+  }
+
+  .section {
+    padding-top: clamp(5rem, 10vw, 8rem);
+  }
+
+  .section:first-child {
+    padding-top: clamp(2.5rem, 5vw, 4rem);
+  }
+
+  .head {
+    max-width: 38rem;
+    margin-bottom: 3.5rem;
+  }
+
+  h2 {
+    margin: 0;
+    font-size: clamp(1.875rem, 1.4rem + 1.6vw, 2.5rem);
+    font-weight: 600;
+    line-height: 1.1;
+    letter-spacing: -0.035em;
+    color: var(--sl-color-white);
+    text-wrap: balance;
+  }
+
+  .lead {
+    margin: 1rem 0 0;
+    font-size: 1.0625rem;
+    line-height: 1.6;
+    color: var(--sl-color-gray-3);
+    text-wrap: pretty;
+  }
+
+  /* ---------------------------------------------------------- Quick start */
+
+  .qs {
+    display: grid;
+    grid-template-columns: minmax(0, 19rem) minmax(0, 1fr);
+    column-gap: 4rem;
+    align-items: start;
+  }
+
+  .qs .head {
+    margin-bottom: 0;
+  }
+
+  .link {
+    display: inline-flex;
+    gap: 0.375rem;
+    margin-top: 1.75rem;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    color: var(--sl-color-white);
+    text-decoration: none;
+  }
+
+  .link span {
+    color: var(--sl-color-accent);
+    transition: transform 200ms var(--sesame-ease-out);
+  }
+
+  @media (hover: hover) {
+    .link:hover span {
+      transform: translateX(3px);
+    }
+  }
+
+  .term {
+    min-width: 0;
+    border: 1px solid var(--sesame-code-border);
+    background: var(--sesame-code-bg);
+    font-family: var(--sl-font-mono);
+    font-size: 0.8125rem;
+    line-height: 1.7;
+  }
+
+  .cmds {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1.125rem 0.75rem 1.125rem 1.25rem;
+  }
+
+  .cmd {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    column-gap: 0.75rem;
+    align-items: center;
+  }
+
+  .p {
+    color: var(--sl-color-accent);
+    user-select: none;
+  }
+
+  .cmd code {
+    overflow-x: auto;
+    font-family: inherit;
+    color: var(--sl-color-white);
+    white-space: nowrap;
+    scrollbar-width: none;
+  }
+
+  .note {
+    grid-column: 2 / -1;
+    margin-top: -0.25rem;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: var(--sl-color-gray-4);
+  }
+
+  .file {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.25rem 0.75rem 0.25rem 1.25rem;
+    border-block: 1px solid var(--sesame-code-border);
+    background: var(--sesame-code-chrome);
+    font-size: 0.75rem;
+    color: var(--sl-color-gray-3);
+  }
+
+  .code {
+    margin: 0;
+    padding: 1.125rem 1.25rem 1.25rem;
+    overflow-x: auto;
+    font-family: inherit;
+    color: var(--sl-color-gray-2);
+  }
+
+  .code code {
+    font-family: inherit;
+  }
+
+  .code :global(.k) {
+    color: var(--sl-color-accent-high);
+  }
+  .code :global(.s) {
+    color: var(--sl-color-purple);
+  }
+  .code :global(.f) {
+    color: var(--sl-color-white);
+  }
+  .code :global(.c) {
+    color: var(--sl-color-gray-4);
+  }
+
+  /* ------------------------------------------------------------ Responsive */
+
+  @media (max-width: 64rem) {
+    .qs {
+      column-gap: 2.5rem;
+      grid-template-columns: minmax(0, 15rem) minmax(0, 1fr);
+    }
+  }
+
+  @media (max-width: 48rem) {
+    .head {
+      margin-bottom: 2.5rem;
+    }
+
+    .qs {
+      grid-template-columns: minmax(0, 1fr);
+      row-gap: 2.5rem;
+    }
+
+    .term {
+      font-size: 0.75rem;
+    }
+
+    .cmds,
+    .code {
+      padding-inline: 1rem 0.5rem;
+    }
+
+    .file {
+      padding-inline: 1rem 0.5rem;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .link span {
+      transition: none;
+    }
+  }
+</style>

@@ -1,0 +1,140 @@
+---
+/**
+ * An icon button that copies `text` and confirms with a check.
+ */
+interface Props {
+  text: string
+  label: string
+  class?: string
+}
+
+const { text, label, class: className } = Astro.props
+---
+
+<sesame-copy-button class={className} data-text={text}>
+  <button type="button" aria-label={label}>
+    <svg class="i-copy" viewBox="0 0 16 16" aria-hidden="true">
+      <rect x="5.25" y="5.25" width="8" height="8" rx="1.75"></rect>
+      <path d="M10.75 5.25V4A1.75 1.75 0 0 0 9 2.25H4A1.75 1.75 0 0 0 2.25 4v5c0 .97.78 1.75 1.75 1.75h1.25"></path>
+    </svg>
+    <svg class="i-check" viewBox="0 0 16 16" aria-hidden="true">
+      <path d="m3.5 8.5 3 3 6-7"></path>
+    </svg>
+  </button>
+  <span class="sr" role="status" aria-live="polite"></span>
+</sesame-copy-button>
+
+<script>
+  class SesameCopyButton extends HTMLElement {
+    #timer: ReturnType<typeof setTimeout> | undefined
+
+    connectedCallback() {
+      this.querySelector('button')?.addEventListener('click', () => this.#copy())
+    }
+
+    async #copy() {
+      const ok = await navigator.clipboard
+        .writeText(this.dataset.text ?? '')
+        .then(() => true)
+        .catch(() => false)
+      if (!ok) return
+      const status = this.querySelector('[role="status"]')
+      this.toggleAttribute('data-copied', true)
+      if (status) status.textContent = 'Copied to clipboard'
+      clearTimeout(this.#timer)
+      this.#timer = setTimeout(() => {
+        this.removeAttribute('data-copied')
+        if (status) status.textContent = ''
+      }, 1600)
+    }
+  }
+
+  if (!customElements.get('sesame-copy-button')) customElements.define('sesame-copy-button', SesameCopyButton)
+</script>
+
+<style>
+  sesame-copy-button {
+    display: inline-flex;
+    flex-shrink: 0;
+  }
+
+  button {
+    display: grid;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    border: 0;
+    border-radius: var(--sesame-radius-sm);
+    background: transparent;
+    color: var(--sl-color-gray-4);
+    cursor: pointer;
+    transition:
+      background-color 150ms ease-out,
+      color 150ms ease-out,
+      transform 150ms var(--sesame-ease-out);
+  }
+
+  @media (hover: hover) {
+    button:hover {
+      background: var(--sl-color-gray-6);
+      color: var(--sl-color-white);
+    }
+  }
+
+  button:active {
+    transform: scale(0.94);
+  }
+
+  button:focus-visible {
+    outline: 2px solid var(--sl-color-accent);
+    outline-offset: 1px;
+  }
+
+  svg {
+    grid-area: 1 / 1;
+    width: 0.9375rem;
+    height: 0.9375rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition:
+      opacity 200ms var(--sesame-ease-out),
+      transform 200ms var(--sesame-ease-out);
+  }
+
+  .i-check {
+    opacity: 0;
+    transform: scale(0.6);
+    stroke: var(--sl-color-accent);
+    stroke-width: 2;
+  }
+
+  sesame-copy-button[data-copied] .i-copy {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+
+  sesame-copy-button[data-copied] .i-check {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  .sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    button,
+    svg {
+      transition: none;
+    }
+  }
+</style>

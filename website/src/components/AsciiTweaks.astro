@@ -1,0 +1,368 @@
+---
+/**
+ * Dev-only panel to tune the ASCII effect live on the real page (hero or
+ * feature cards). Rendered only under `astro dev`. Toggle with T. "Copy"
+ * exports the settings as `<Ascii … />` props.
+ */
+interface Props {
+  /** Hero images to try, by name. */
+  images?: { name: string; src: string }[]
+}
+
+const { images = [] } = Astro.props
+
+const ramps = [
+  ['Classic', ' .,:;-=+*#%@'],
+  ['Fine', " .'`^,:;-~=+*cxoO0#%@"],
+  ['Blocks', ' ░▒▓█'],
+  ['Dots', ' .·•●'],
+  ['Binary', ' .01'],
+  ['Slashes', ' .,/\\|X#'],
+]
+
+const ranges = [
+  ['size', 'Glyph size', 4, 20, 0.5],
+  ['mobileSize', 'Glyph size (mobile)', 4, 20, 0.5],
+  ['weight', 'Weight', 100, 900, 100],
+  ['black', 'Black point', 0, 0.3, 0.005],
+  ['white', 'White point', 0.1, 1, 0.01],
+  ['gamma', 'Gamma', 0.2, 1.5, 0.01],
+  ['threshold', 'Threshold', 0, 0.6, 0.01],
+  ['place', 'Horizontal position', 0, 1, 0.01],
+  ['y', 'Vertical position', 0, 1, 0.01],
+  ['zoom', 'Zoom', 0.5, 3, 0.05],
+  ['glow', 'Glow', 0, 1, 0.01],
+  ['glowBlur', 'Glow blur', 0, 60, 1],
+  ['glowSaturate', 'Glow saturation', 0, 3, 0.05],
+] as const
+
+const frame = [
+  ['heroHeight', 'Hero height', '--hero-height', 'svh', 30, 100, 50],
+  ['heroFadeX', 'Hero fade sides', '--hero-fade-x', '%', 0, 50, 12],
+  ['heroFadeBottom', 'Hero fade bottom', '--hero-fade-bottom', '%', 0, 90, 27],
+  ['artPadX', 'Card padding sides', '--art-pad-x', 'rem', 0, 5, 2.5],
+  ['artPadY', 'Card padding top', '--art-pad-y', 'rem', 0, 4, 1.75],
+] as const
+---
+
+<sesame-ascii-tweaks data-open>
+  <button type="button" class="toggle">ASCII tweaks <kbd>T</kbd></button>
+  <form onsubmit="return false">
+    <label>
+      <span>Target</span>
+      <select name="target">
+        <option value=".hero">Hero</option>
+        <option value=".features">Feature cards</option>
+      </select>
+    </label>
+    {
+      images.length > 0 && (
+        <label>
+          <span>Hero image</span>
+          <span class="stepper">
+            <button type="button" data-step="-1" aria-label="Previous image">‹</button>
+            <select name="image">{images.map(({ name, src }) => <option value={src}>{name}</option>)}</select>
+            <button type="button" data-step="1" aria-label="Next image">›</button>
+          </span>
+        </label>
+      )
+    }
+    <label>
+      <span>Characters</span>
+      <select name="ramp">{ramps.map(([name, ramp]) => <option value={ramp}>{name}</option>)}</select>
+    </label>
+    {
+      ranges.map(([key, label, min, max, step]) => (
+        <label>
+          <span>
+            {label} <output data-for={key} />
+          </span>
+          <input type="range" name={key} min={min} max={max} step={step} />
+        </label>
+      ))
+    }
+    <p class="legend">Frame</p>
+    {
+      frame.map(([key, label, variable, unit, min, max, value]) => (
+        <label>
+          <span>
+            {label} <output data-for={key} />
+          </span>
+          <input
+            type="range"
+            name={key}
+            data-var={variable}
+            data-unit={unit}
+            min={min}
+            max={max}
+            step={unit === 'rem' ? 0.25 : 1}
+            value={value}
+          />
+        </label>
+      ))
+    }
+    <div class="buttons">
+      <button type="button" data-action="reset">Reset</button>
+      <button type="button" data-action="copy">Copy props</button>
+    </div>
+  </form>
+</sesame-ascii-tweaks>
+
+<script>
+  const keys = [
+    'size', 'mobileSize', 'weight', 'black', 'white', 'gamma', 'threshold',
+    'place', 'y', 'zoom', 'glow', 'glowBlur', 'glowSaturate',
+  ]
+
+  type Ascii = HTMLElement & { settings: Record<string, number | string> }
+
+  class SesameAsciiTweaks extends HTMLElement {
+    #form = this.querySelector('form')!
+    #initial = new Map<Element, string | undefined>()
+
+    connectedCallback() {
+      const toggle = () => this.toggleAttribute('data-open')
+      this.querySelector('.toggle')!.addEventListener('click', toggle)
+      document.addEventListener('keydown', (e) => {
+        const target = e.target as HTMLElement
+        if (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable) return
+        if (!e.metaKey && !e.ctrlKey && !e.altKey && (e.key === 't' || e.key === 'T')) toggle()
+      })
+
+      this.#field('target').addEventListener('change', () => this.#read())
+      this.#form.addEventListener('input', (e) => {
+        const name = (e.target as HTMLElement).getAttribute('name')
+        if (name === 'image') this.#image()
+        else if (name !== 'target') this.#apply()
+      })
+      this.querySelectorAll<HTMLButtonElement>('[data-step]').forEach((button) =>
+        button.addEventListener('click', () => {
+          const select = this.#field('image') as HTMLSelectElement
+          const count = select.options.length
+          select.selectedIndex = (select.selectedIndex + Number(button.dataset.step) + count) % count
+          this.#image()
+        }),
+      )
+      this.querySelector('[data-action="reset"]')!.addEventListener('click', () => this.#reset())
+      this.querySelector('[data-action="copy"]')!.addEventListener('click', (e) =>
+        this.#copy(e.currentTarget as HTMLButtonElement),
+      )
+      customElements.whenDefined('sesame-ascii').then(() => this.#read())
+    }
+
+    #field(name: string) {
+      return this.#form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement
+    }
+
+    get #targets() {
+      return [...document.querySelectorAll<Ascii>(`${this.#field('target').value} sesame-ascii`)]
+    }
+
+    /** Fills the form from the first element of the target. */
+    #read() {
+      const [first] = this.#targets
+      if (!first) return
+      for (const el of this.#targets) if (!this.#initial.has(el)) this.#initial.set(el, el.dataset.settings)
+      const image = this.#form.elements.namedItem('image') as HTMLSelectElement | null
+      const hero = document.querySelector<HTMLElement>('.hero sesame-ascii')
+      if (image && hero) image.value = hero.dataset.src ?? ''
+      const settings = first.settings
+      for (const key of keys) this.#field(key).value = String(settings[key])
+      const ramp = this.#field('ramp') as HTMLSelectElement
+      if (![...ramp.options].some((o) => o.value === settings.ramp)) ramp.add(new Option('Current', String(settings.ramp)))
+      ramp.value = String(settings.ramp)
+      this.#outputs()
+    }
+
+    #values() {
+      const values: Record<string, number | string> = { ramp: this.#field('ramp').value }
+      for (const key of keys) values[key] = Number(this.#field(key).value)
+      return values
+    }
+
+    #outputs() {
+      this.querySelectorAll<HTMLOutputElement>('output[data-for]').forEach((output) => {
+        output.value = this.#field(output.dataset.for!).value
+      })
+    }
+
+    #apply() {
+      this.#outputs()
+      this.querySelectorAll<HTMLInputElement>('input[data-var]').forEach((input) => {
+        document.documentElement.style.setProperty(input.dataset.var!, input.value + input.dataset.unit)
+      })
+      /* Keep each element's own framing (focus) and only override what the panel edits. */
+      const values = this.#values()
+      for (const el of this.#targets) {
+        el.dataset.settings = JSON.stringify({ ...JSON.parse(this.#initial.get(el) ?? '{}'), ...values })
+      }
+    }
+
+    #image() {
+      const hero = document.querySelector<HTMLElement>('.hero sesame-ascii')
+      if (hero) hero.dataset.src = this.#field('image').value
+    }
+
+    #reset() {
+      for (const [el, settings] of this.#initial) {
+        if (settings === undefined) delete (el as HTMLElement).dataset.settings
+        else (el as HTMLElement).dataset.settings = settings
+      }
+      this.querySelectorAll<HTMLInputElement>('input[data-var]').forEach((input) => {
+        input.value = input.defaultValue
+        document.documentElement.style.removeProperty(input.dataset.var!)
+      })
+      this.#read()
+    }
+
+    async #copy(button: HTMLButtonElement) {
+      const v = this.#values()
+      const frame = [...this.querySelectorAll<HTMLInputElement>('input[data-var]')]
+        .map((input) => `${input.dataset.var}: ${input.value}${input.dataset.unit}`)
+        .join(', ')
+      const props = Object.entries(v)
+        .map(([key, value]) => (typeof value === 'string' ? `${key}=${JSON.stringify(value)}` : `${key}={${value}}`))
+        .join(' ')
+      const text = `<Ascii ${props} />\n/* ${this.#field('target').value}  ${frame} */`
+      const copied = await navigator.clipboard.writeText(text).then(() => true, () => false)
+      button.textContent = copied ? 'Copied' : 'Copy failed'
+      setTimeout(() => (button.textContent = 'Copy props'), 1400)
+    }
+  }
+
+  if (!customElements.get('sesame-ascii-tweaks')) customElements.define('sesame-ascii-tweaks', SesameAsciiTweaks)
+</script>
+
+<style>
+  .stepper {
+    display: flex;
+    gap: 4px;
+  }
+
+  .stepper select {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .stepper button {
+    width: 24px;
+    padding: 0;
+  }
+
+  /* Dev chrome: dark glass, system font, independent of the site theme. */
+  sesame-ascii-tweaks {
+    position: fixed;
+    top: calc(var(--sl-nav-height) + 12px);
+    right: 16px;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+    font: 12px/1.3 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    color: rgba(255, 255, 255, 0.85);
+    text-align: start;
+  }
+
+  .toggle,
+  form {
+    background: rgba(10, 10, 10, 0.85);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.08) inset,
+      0 8px 24px rgba(0, 0, 0, 0.3);
+  }
+
+  .toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 28px;
+    padding: 0 6px 0 12px;
+    border: 0;
+    border-radius: 999px;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  kbd {
+    padding: 2px 5px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    font: inherit;
+    font-size: 10px;
+  }
+
+  form {
+    display: none;
+    width: 260px;
+    max-height: calc(100vh - var(--sl-nav-height) - 80px);
+    overflow-y: auto;
+    padding: 12px;
+    border-radius: 12px;
+  }
+
+  sesame-ascii-tweaks[data-open] form {
+    display: block;
+  }
+
+  label {
+    display: grid;
+    gap: 4px;
+    margin-bottom: 10px;
+  }
+
+  label > span {
+    display: flex;
+    justify-content: space-between;
+  }
+
+  output,
+  .legend {
+    color: rgba(255, 255, 255, 0.45);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .legend {
+    margin: 14px 0 8px;
+    font-size: 11px;
+  }
+
+  input[type='range'] {
+    width: 100%;
+    margin: 0;
+    accent-color: #ffaa3b;
+  }
+
+  select {
+    height: 26px;
+    border: 0;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    color: inherit;
+    font: inherit;
+  }
+
+  .buttons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+
+  .buttons button {
+    height: 28px;
+    border: 0;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.1);
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .buttons [data-action='copy'] {
+    background: #f2f0ec;
+    color: #0a0a0a;
+  }
+</style>

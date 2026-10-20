@@ -1,0 +1,279 @@
+---
+/**
+ * An image, always drawn as coloured ASCII on a canvas that fills its parent.
+ * Under the glyphs, a blurred copy of the same crop gives them a glow. A few
+ * lit glyphs flicker by one step on the ramp, unless the user prefers reduced
+ * motion. Used by the hero and the feature cards.
+ */
+import type { ImageMetadata } from 'astro'
+import { getImage } from 'astro:assets'
+
+interface Props {
+  src: ImageMetadata
+  /** Glyph size in px, desktop and under 640px wide. */
+  size?: number
+  mobileSize?: number
+  /** Framing: the subject's x in the image (0–1), where it lands on screen
+      (0–1), which image height sits at the vertical centre, and a zoom over the cover fit. */
+  focus?: number
+  place?: number
+  y?: number
+  zoom?: number
+  /** Levels curve: black point, white point, gamma, and the level under which cells stay empty. */
+  black?: number
+  white?: number
+  gamma?: number
+  threshold?: number
+  /** Characters from dark to bright; the first one is the empty cell. */
+  ramp?: string
+  /** The blurred photo under the glyphs: opacity (0 = off), blur in px, saturation. */
+  glow?: number
+  glowBlur?: number
+  glowSaturate?: number
+}
+
+const { src, class: _class, ...overrides } = Astro.props as Props & { class?: string }
+const sample = await getImage({ src, width: 960, format: 'webp', quality: 80 })
+---
+
+<sesame-ascii data-src={sample.src} data-settings={JSON.stringify(overrides)}>
+  <canvas class="glow"></canvas>
+  <canvas class="glyphs"></canvas>
+</sesame-ascii>
+
+<script>
+  const font = '"Geist Mono Variable", ui-monospace, monospace'
+
+  /** Tuned in the hero prototype; props override them per use. */
+  const defaults = {
+    size: 11,
+    mobileSize: 9.5,
+    weight: 500,
+    /* Levels curve. */
+    black: 0,
+    white: 0.59,
+    gamma: 0.5,
+    threshold: 0.05,
+    /* Framing: the door's x in the image (0–1), where it lands on screen (0–1),
+       which image height sits at the vertical centre, and a zoom over the cover fit. */
+    focus: 0.765,
+    place: 0.77,
+    y: 0.68,
+    zoom: 1.5,
+    ramp: ' .,:;-=+*#%@',
+    glow: 0.35,
+    glowBlur: 18,
+    glowSaturate: 1.2,
+  }
+
+  type Cell = { x: number; y: number; char: string; color: string; level: number }
+
+  const clamp = (v: number, min = 0, max = 1) => Math.min(max, Math.max(min, v))
+  const q = (v: number) => (Math.min(255, Math.max(0, v)) >> 3) << 3
+  /** Quantised, so the canvas switches fillStyle a few dozen times, not thousands. */
+  const rgba = (r: number, g: number, b: number, a: number) =>
+    `rgb(${q(r)} ${q(g)} ${q(b)} / ${Math.min(1, Math.round(a * 20) / 20)})`
+
+  class SesameAscii extends HTMLElement {
+    static observedAttributes = ['data-settings', 'data-src']
+
+    #settings: typeof defaults = { ...defaults, ...JSON.parse(this.dataset.settings ?? '{}') }
+    #glyphs = this.querySelector<HTMLCanvasElement>('canvas.glyphs')!
+    #glow = this.querySelector<HTMLCanvasElement>('canvas.glow')!
+    #context = this.#glyphs.getContext('2d')!
+    #image = new Image()
+    #grid: Cell[] = []
+    #cell = { w: 0, h: 0, font: '' }
+    #frame = 0
+    #visible = true
+    #observers: (ResizeObserver | IntersectionObserver)[] = []
+
+    async connectedCallback() {
+      this.#image.src = this.dataset.src ?? ''
+      try {
+        await Promise.all([this.#image.decode(), document.fonts.load(`${this.#settings.weight} 12px ${font}`)])
+      } catch {
+        return
+      }
+      if (!this.isConnected) return
+
+      this.#render()
+      this.toggleAttribute('data-ready', true)
+
+      let timer = 0
+      const resize = new ResizeObserver(() => {
+        clearTimeout(timer)
+        timer = window.setTimeout(() => this.#render(), 120)
+      })
+      const visibility = new IntersectionObserver(([entry]) => (this.#visible = entry.isIntersecting))
+      resize.observe(this)
+      visibility.observe(this)
+      this.#observers = [resize, visibility]
+    }
+
+    /** The resolved settings, read by the dev tweak panel. */
+    get settings() {
+      return { ...this.#settings }
+    }
+
+    /** Settings or image changed after load (dev tweak panel): draw again. */
+    async attributeChangedCallback(name: string) {
+      if (!this.hasAttribute('data-ready')) return
+      if (name === 'data-src') {
+        this.#image.src = this.dataset.src ?? ''
+        await this.#image.decode().catch(() => {})
+      }
+      this.#settings = { ...defaults, ...JSON.parse(this.dataset.settings ?? '{}') }
+      this.#render()
+    }
+
+    disconnectedCallback() {
+      cancelAnimationFrame(this.#frame)
+      this.#observers.forEach((observer) => observer.disconnect())
+    }
+
+    /** Lays the grid out again and restarts the flicker on the new grid. */
+    #render() {
+      cancelAnimationFrame(this.#frame)
+      if (!this.#layout()) return
+      if (!matchMedia('(prefers-reduced-motion: reduce)').matches) this.#shimmer()
+    }
+
+    #layout() {
+      const { width, height } = this.getBoundingClientRect()
+      if (!width || !height) return false
+      const dpr = Math.min(devicePixelRatio || 1, 2)
+      this.#glyphs.width = Math.round(width * dpr)
+      this.#glyphs.height = Math.round(height * dpr)
+      this.#context.setTransform(dpr, 0, 0, dpr, 0, 0)
+
+      const size = width < 640 ? this.#settings.mobileSize : this.#settings.size
+      const fontSpec = `${this.#settings.weight} ${size}px ${font}`
+      this.#context.font = fontSpec
+      const w = this.#context.measureText('M').width
+      const h = Math.round(size * 1.25)
+      this.#cell = { w, h, font: fontSpec }
+      const cols = Math.ceil(width / w)
+      const rows = Math.ceil(height / h)
+
+      /* Cover crop and zoom, the door at `place` on screen. Unclamped, so position always moves the art. */
+      const image = this.#image
+      const scale = Math.max(width / image.naturalWidth, height / image.naturalHeight) * this.#settings.zoom
+      const sw = width / scale
+      const sh = height / scale
+      const sx = this.#settings.focus * image.naturalWidth - sw * this.#settings.place
+      const sy = this.#settings.y * image.naturalHeight - sh / 2
+
+      this.#glow.width = Math.ceil(width / 4)
+      this.#glow.height = Math.ceil(height / 4)
+      this.#glow.getContext('2d')!.drawImage(image, sx, sy, sw, sh, 0, 0, this.#glow.width, this.#glow.height)
+      this.#glow.style.opacity = String(this.#settings.glow)
+      this.#glow.style.filter = `blur(${this.#settings.glowBlur}px) saturate(${this.#settings.glowSaturate})`
+      const ramp = this.#settings.ramp
+
+      const sampler = document.createElement('canvas')
+      sampler.width = cols
+      sampler.height = rows
+      const sampling = sampler.getContext('2d', { willReadFrequently: true })!
+      sampling.imageSmoothingQuality = 'high'
+      sampling.drawImage(image, sx, sy, sw, sh, 0, 0, cols, rows)
+      const pixels = sampling.getImageData(0, 0, cols, rows).data
+
+      this.#grid = []
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          const i = (row * cols + col) * 4
+          const [r, g, b] = [pixels[i], pixels[i + 1], pixels[i + 2]]
+          const luma = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+          const level = Math.pow(clamp((luma - this.#settings.black) / this.#settings.white), this.#settings.gamma)
+          if (level <= this.#settings.threshold) continue
+          /* The photo's colours pushed up; dark glyphs stay half transparent. */
+          const boost = 1.5 + level * 1.5
+          this.#grid.push({
+            x: col * w,
+            y: row * h,
+            char: ramp[Math.max(1, Math.round(level * (ramp.length - 1)))],
+            color: rgba(r * boost + 20, g * boost + 14, b * boost + 8, 0.35 + level * 0.65),
+            level,
+          })
+        }
+      }
+
+      this.#draw()
+      return true
+    }
+
+    #draw() {
+      const context = this.#context
+      context.clearRect(0, 0, this.#glyphs.width, this.#glyphs.height)
+      context.font = this.#cell.font
+      context.textBaseline = 'top'
+      const byColor = new Map<string, Cell[]>()
+      for (const cell of this.#grid) {
+        let group = byColor.get(cell.color)
+        if (!group) byColor.set(cell.color, (group = []))
+        group.push(cell)
+      }
+      for (const [color, cells] of byColor) {
+        context.fillStyle = color
+        for (const cell of cells) context.fillText(cell.char, cell.x, cell.y)
+      }
+    }
+
+    #paint(cell: Cell, char: string) {
+      this.#context.clearRect(cell.x, cell.y, this.#cell.w + 0.5, this.#cell.h)
+      this.#context.fillStyle = cell.color
+      this.#context.fillText(char, cell.x, cell.y)
+    }
+
+    /** Every 110ms a few lit glyphs move one step on the ramp, then settle back. */
+    #shimmer() {
+      const ramp = this.#settings.ramp
+      const lit = this.#grid.filter((cell) => cell.level > 0.45)
+      let previous: Cell[] = []
+      let last = 0
+      const step = (now: number) => {
+        this.#frame = requestAnimationFrame(step)
+        if (now - last < 110 || !this.#visible || document.hidden || lit.length === 0) return
+        last = now
+        this.#context.font = this.#cell.font
+        this.#context.textBaseline = 'top'
+        for (const cell of previous) this.#paint(cell, cell.char)
+        previous = Array.from({ length: Math.ceil(lit.length / 60) }, () => lit[Math.floor(Math.random() * lit.length)])
+        for (const cell of previous) {
+          const next = ramp.indexOf(cell.char) + (Math.random() < 0.5 ? -1 : 1)
+          this.#paint(cell, ramp[clamp(next, 1, ramp.length - 1)])
+        }
+      }
+      this.#frame = requestAnimationFrame(step)
+    }
+  }
+
+  if (!customElements.get('sesame-ascii')) customElements.define('sesame-ascii', SesameAscii)
+</script>
+
+<style>
+  sesame-ascii {
+    position: absolute;
+    inset: 0;
+    display: block;
+    opacity: 0;
+    transition: opacity 300ms ease-out;
+  }
+
+  sesame-ascii[data-ready] {
+    opacity: 1;
+  }
+
+  canvas {
+    position: absolute;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  .glow {
+    transform: scale(1.05);
+  }
+</style>

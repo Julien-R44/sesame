@@ -4,46 +4,17 @@ description: Sésame turns your AdonisJS application into a full-featured OAuth 
 template: splash
 editUrl: false
 hero:
-  title: Open sesame
-  tagline: Sésame turns your AdonisJS application into a full-featured OAuth 2.1 authorization server, with OpenID Connect when you need identity on top.
+  title: Sésame
+  tagline: Turn your AdonisJS app into a full-featured authorization server. PKCE, token rotation and OIDC included.
   actions:
     - text: Get started
       link: /guides/getting-started/
       variant: primary
-    - text: View on GitHub
+    - text: GitHub
       link: https://github.com/Julien-R44/sesame
       variant: minimal
 ---
 
-import Capabilities from '../../components/Capabilities.astro'
-import FlowDiagram from '../../components/FlowDiagram.astro'
-import QuickStart from '../../components/QuickStart.astro'
-import Section from '../../components/Section.astro'
+import Sections from '../../components/Sections.astro'
 
-<Section
-  kicker="How it works"
-  title="The authorization code flow, in four steps"
-  lead="An authorization code flow with PKCE, refresh token rotation, introspection and revocation, out of the box."
->
-  <FlowDiagram />
-</Section>
-
-<Section
-  kicker="Behind the door"
-  title="Everything an authorization server needs"
-  lead="Built on the OAuth 2.1 specification, with the guard, scopes and token tooling you expect from an AdonisJS package."
->
-  <Capabilities />
-</Section>
-
-<Section
-  kicker="Quick start"
-  title="Two commands to open the door"
-  lead="Install Sésame, run the migrations and register your OAuth routes."
-  split
->
-  <p class="quick-links not-content" slot="aside">
-    <a href="/guides/getting-started/">Full setup guide</a>
-  </p>
-  <QuickStart />
-</Section>
+<Sections />
