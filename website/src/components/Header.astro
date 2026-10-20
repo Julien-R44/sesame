@@ -1,12 +1,11 @@
 ---
 /**
  * Replaces Starlight's header with a calmer bar: wordmark and section links
- * on the left, search and preferences grouped on the right.
+ * on the left, search and GitHub on the right.
  */
 import Search from 'virtual:starlight/components/Search'
 import SiteTitle from 'virtual:starlight/components/SiteTitle'
 import SocialIcons from 'virtual:starlight/components/SocialIcons'
-import ThemeSelect from 'virtual:starlight/components/ThemeSelect'
 
 const { hasSidebar, id } = Astro.locals.starlightRoute
 
@@ -38,7 +37,6 @@ const links = [
       <div class="social">
         <SocialIcons />
       </div>
-      <ThemeSelect />
     </div>
   </div>
 </div>

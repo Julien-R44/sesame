@@ -39,11 +39,12 @@ export default defineConfig({
       components: {
         Header: './src/components/Header.astro',
         SiteTitle: './src/components/SiteTitle.astro',
+        ThemeProvider: './src/components/ThemeProvider.astro',
         ThemeSelect: './src/components/ThemeSelect.astro',
         Hero: './src/components/Hero.astro',
       },
       expressiveCode: {
-        themes: ['vesper', 'github-light'],
+        themes: ['vesper'],
         styleOverrides: {
           borderRadius: 'var(--sesame-radius)',
           borderColor: 'var(--sesame-code-border)',

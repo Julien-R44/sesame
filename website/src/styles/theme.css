@@ -4,8 +4,7 @@
  * Geist for text and headings, Geist Mono only for labels and code.
  *
  * Neutral blacks, sharp corners, monospace labels and a single amber accent:
- * the light that slips through the door when it opens. Light mode keeps the
- * same structure on plain paper.
+ * the light that slips through the door when it opens. Dark only.
  */
 
 /* -------------------------------------------------------------------------- */
@@ -33,7 +32,6 @@
   --sl-text-h4: 1.0625rem;
 }
 
-/* Dark. */
 :root,
 ::backdrop {
   --sl-color-white: #f5f5f4;
@@ -86,52 +84,6 @@
   color-scheme: dark;
 }
 
-/* Light. */
-:root[data-theme='light'],
-[data-theme='light'] ::backdrop {
-  --sl-color-white: #0a0a0a;
-  --sl-color-gray-1: #1f1f1e;
-  --sl-color-gray-2: #3a3a38;
-  --sl-color-gray-3: #5f5f5c;
-  --sl-color-gray-4: #8c8c88;
-  --sl-color-gray-5: #d9d9d6;
-  --sl-color-gray-6: #ededeb;
-  --sl-color-gray-7: #f5f5f4;
-  --sl-color-black: #fcfcfb;
-
-  --sl-color-purple-low: #d9f3e5;
-  --sl-color-purple: #1f9a5e;
-  --sl-color-purple-high: #0b5232;
-  --sl-color-blue-low: #dcebfb;
-  --sl-color-blue: #2a78c8;
-  --sl-color-blue-high: #114a85;
-
-  --sl-color-accent-low: #fbe9cc;
-  --sl-color-accent: #c26a00;
-  --sl-color-accent-high: #8a4700;
-
-  --sl-color-bg-nav: color-mix(in oklab, var(--sl-color-black) 84%, transparent);
-  --sl-color-bg-sidebar: var(--sl-color-black);
-  --sl-color-bg-inline-code: var(--sl-color-gray-6);
-  --sl-color-hairline-light: #e4e4e1;
-  --sl-color-hairline: #e8e8e5;
-  --sl-color-hairline-shade: #e8e8e5;
-  --sl-color-backdrop-overlay: rgb(20 20 20 / 0.4);
-
-  --sesame-surface: #ffffff;
-  --sesame-surface-raised: #ffffff;
-  --sesame-border: #e2e2df;
-  --sesame-border-strong: #c9c9c5;
-  --sesame-glow: 214 120 0;
-
-  --sesame-code-bg: #ffffff;
-  --sesame-code-chrome: #f7f7f5;
-  --sesame-code-border: #e2e2df;
-  --sesame-code-dots: #d9d9d6;
-
-  color-scheme: light;
-}
-
 /* -------------------------------------------------------------------------- */
 /* Base                                                                       */
 /* -------------------------------------------------------------------------- */
@@ -168,11 +120,11 @@ html {
 }
 
 /*
- * Landing page, dark theme: the header floats over the hero image and only
- * gains its background once the page scrolls.
+ * Landing page: the header floats over the hero image and only gains its
+ * background once the page scrolls.
  */
 @supports (animation-timeline: scroll()) {
-  :root[data-has-hero][data-theme='dark'] .page > .header {
+  :root[data-has-hero] .page > .header {
     animation: sesame-header-solid linear both;
     animation-timeline: scroll();
     animation-range: 0 30vh;
@@ -246,8 +198,7 @@ site-search > button[data-open-modal] > kbd {
 }
 
 /* Mobile menu toggle: matches the search button instead of a floating disc. */
-.sl-menu-button,
-:root[data-theme='light'] .sl-menu-button {
+.sl-menu-button {
   top: calc((var(--sl-nav-height) - 2rem) / 2);
   width: 2rem;
   height: 2rem;
@@ -258,8 +209,7 @@ site-search > button[data-open-modal] > kbd {
   box-shadow: none;
 }
 
-.sl-menu-button:has(~ :popover-open),
-:root[data-theme='light'] .sl-menu-button:has(~ :popover-open) {
+.sl-menu-button:has(~ :popover-open) {
   background: var(--sl-color-gray-6);
 }
 
