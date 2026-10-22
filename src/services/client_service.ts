@@ -72,8 +72,12 @@ export class ClientService {
       ? this.parseBasicAuth(options.authorizationHeader)
       : null
 
-    if (basic && options.bodyClientId) {
+    if (basic && options.bodyClientSecret) {
       throw new E_INVALID_REQUEST('Multiple client authentication methods are not allowed')
+    }
+
+    if (basic && options.bodyClientId && options.bodyClientId !== basic.clientId) {
+      throw new E_INVALID_REQUEST('Body client_id does not match HTTP Basic client_id')
     }
 
     if (basic) return basic
