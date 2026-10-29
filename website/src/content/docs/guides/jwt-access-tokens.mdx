@@ -12,13 +12,13 @@ JWT access tokens are signed with the same key as ID tokens. Configure [`jwk`](/
 ```ts title="config/sesame.ts"
 export default defineConfig({
 	// ...
-	jwk: JSON.parse(env.get('OIDC_PRIVATE_JWK')),
+	jwk: JSON.parse(env.get('OIDC_JWK')),
 	accessTokenFormat: 'jwt',
 	accessTokenTtl: '5m',
 })
 ```
 
-Tokens follow [RFC 9068](https://datatracker.ietf.org/doc/html/rfc9068): the header has `typ: at+jwt`, and the payload has `iss`, `sub`, `client_id`, `scope`, `iat`, `exp`, and `jti`. A token bound to a resource also has `aud`.
+Tokens follow [RFC 9068](https://datatracker.ietf.org/doc/html/rfc9068): the header has `typ: at+jwt`, and the payload has `iss`, `sub`, `client_id`, `scope`, `iat`, `exp`, and `jti`. `aud` is the resource the token is bound to, or the issuer for an unbound token.
 
 Sésame still stores only the token hash. Revocation, introspection, UserInfo, and the OAuth guard work as with opaque tokens. A resource server that verifies the signature alone accepts a revoked token until it expires, so keep `accessTokenTtl` short.
 

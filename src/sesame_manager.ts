@@ -133,6 +133,27 @@ export class SesameManager {
     return this.#resources.get(this.resourceIdentifier(resource)) ?? []
   }
 
+  /**
+   * Whether `/jwks` publishes the signing key: needed to verify ID
+   * tokens (OIDC) and JWT access tokens.
+   */
+  get publishesJwks(): boolean {
+    return this.isOidcEnabled || this.#config.accessTokenFormat === 'jwt'
+  }
+
+  /**
+   * Audience of an access token bound to `resource`. RFC 9068 requires
+   * `aud` on JWT access tokens, so unbound ones default to the issuer;
+   * unbound opaque tokens keep no audience.
+   *
+   * @see https://datatracker.ietf.org/doc/html/rfc9068#section-3
+   */
+  accessTokenAudience(resource: string | null): string | null {
+    if (resource) return resource
+
+    return this.#config.accessTokenFormat === 'jwt' ? this.resourceIdentifier() : null
+  }
+
   get isOidcEnabled(): boolean {
     return this.#keyService !== null && this.#config.oidcProvider !== undefined
   }

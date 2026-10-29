@@ -642,6 +642,7 @@ export interface AuthServerMetadata {
   registration_endpoint?: string
   introspection_endpoint?: string
   revocation_endpoint?: string
+  jwks_uri?: string
   scopes_supported: string[]
   response_types_supported: string[]
   response_modes_supported: string[]

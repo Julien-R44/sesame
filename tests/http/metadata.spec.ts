@@ -66,6 +66,25 @@ test.group('HTTP | Metadata Endpoints', (group) => {
   })
 })
 
+test.group('HTTP | Metadata — JWT access tokens without OIDC', (group) => {
+  const ctx = setupHttpGroup(group, { jwk, accessTokenFormat: 'jwt' })
+
+  test('publishes the signing key and its jwks_uri', async ({ client, assert }) => {
+    const jwks = await client.get(`${ctx.baseUrl}/jwks`)
+    jwks.assertStatus(200)
+    assert.lengthOf(jwks.body().keys, 1)
+
+    const metadata = await client.get(`${ctx.baseUrl}/.well-known/oauth-authorization-server`)
+    metadata.assertBodyContains({ jwks_uri: 'https://auth.example.com/jwks' })
+  })
+
+  test('keeps OIDC discovery disabled', async ({ client }) => {
+    const response = await client.get(`${ctx.baseUrl}/.well-known/openid-configuration`)
+
+    response.assertStatus(404)
+  })
+})
+
 test.group('HTTP | Metadata — protected resource with minimal scopes', (group) => {
   const ctx = setupHttpGroup(group, { scopes: { 'mcp:full': 'Full MCP access' } })
 

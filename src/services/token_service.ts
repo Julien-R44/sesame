@@ -64,14 +64,19 @@ export class TokenService {
   }
 
   /**
-   * Sign an RFC 9068 access token. `aud` is the bound resource; an
-   * unbound token has no audience.
+   * Sign an RFC 9068 access token. `aud` is the bound resource, or the
+   * issuer for an unbound token. The hook gets a copy of the context, so
+   * it cannot change the protocol claims.
    *
    * @see https://datatracker.ietf.org/doc/html/rfc9068#section-2.2
    */
   async #signAccessToken(options: CreateAccessTokenOptions): Promise<string> {
     const { expiresAt, ...context } = options
-    const extraClaims = (await this.#manager.config.accessTokenClaims?.(context)) ?? {}
+    const extraClaims =
+      (await this.#manager.config.accessTokenClaims?.({
+        ...context,
+        scopes: [...context.scopes],
+      })) ?? {}
     const now = Math.floor(Date.now() / 1000)
 
     const payload: Record<string, unknown> = {
@@ -87,7 +92,8 @@ export class TokenService {
       jti: randomUUID(),
     }
 
-    if (context.resource) payload.aud = context.resource
+    const audience = this.#manager.accessTokenAudience(context.resource)
+    if (audience) payload.aud = audience
 
     return this.#manager.keyService.sign(payload, 'at+jwt')
   }

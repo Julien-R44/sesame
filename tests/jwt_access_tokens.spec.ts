@@ -106,7 +106,7 @@ test.group('JWT access tokens | issuance', (group) => {
     assert.equal(stored.tokenHash, new TokenService(manager).hashToken(result.access_token))
   })
 
-  test('omits aud for a token bound to no resource', async ({ assert }) => {
+  test('defaults the audience of an unbound token to the issuer', async ({ assert }) => {
     const manager = await createJwtManager()
     const client = await createTestClient()
     const { rawCode, codeVerifier, redirectUri } = await createAuthCodeExchange({ manager })
@@ -118,8 +118,68 @@ test.group('JWT access tokens | issuance', (group) => {
       codeVerifier,
     })
 
+    const jwks = createLocalJWKSet(manager.keyService.getPublicJwks())
+    const { payload } = await jwtVerify(result.access_token, jwks, {
+      issuer: 'https://auth.example.com',
+      audience: 'https://auth.example.com',
+      typ: 'at+jwt',
+    })
+    assert.equal(payload.aud, 'https://auth.example.com')
+  })
+
+  test('ignores every reserved claim returned by the hook', async ({ assert }) => {
+    const reserved = ['iss', 'sub', 'aud', 'exp', 'iat', 'nbf', 'jti', 'client_id', 'scope']
+    const manager = await createJwtManager({
+      accessTokenClaims: () => ({
+        ...Object.fromEntries(reserved.map((claim) => [claim, 'spoofed'])),
+        tenant: 't-1',
+      }),
+    })
+    const client = await createTestClient()
+    const { rawCode, codeVerifier, redirectUri } = await createAuthCodeExchange({ manager })
+
+    const result = await new ExchangeAuthorizationCodeAction().execute(manager, {
+      client,
+      code: rawCode,
+      redirectUri,
+      codeVerifier,
+    })
+
     const { payload } = await verifyAsResourceServer(manager, result.access_token)
-    assert.notProperty(payload, 'aud')
+    assert.equal(payload.tenant, 't-1')
+    for (const claim of reserved) assert.notEqual(payload[claim], 'spoofed', claim)
+  })
+
+  test('cannot change the token through the hook context', async ({ assert }) => {
+    const manager = await createJwtManager({
+      accessTokenClaims: (context: AccessTokenClaimsContext) => {
+        context.userId = 'attacker'
+        context.clientId = 'other-client'
+        context.resource = 'https://evil.example.com'
+        context.scopes.push('admin')
+        return {}
+      },
+    })
+    const client = await createTestClient()
+    const { rawCode, codeVerifier, redirectUri } = await createAuthCodeExchange({
+      manager,
+      scopes: ['read'],
+    })
+
+    const result = await new ExchangeAuthorizationCodeAction().execute(manager, {
+      client,
+      code: rawCode,
+      redirectUri,
+      codeVerifier,
+    })
+
+    const { payload } = await verifyAsResourceServer(manager, result.access_token)
+    assert.equal(payload.sub, 'user-1')
+    assert.equal(payload.client_id, 'test-client')
+    assert.equal(payload.scope, 'read')
+    assert.equal(payload.aud, 'https://auth.example.com')
+    const stored = await OAuthAccessToken.query().where('userId', 'user-1').firstOrFail()
+    assert.deepEqual(stored.scopes, ['read'])
   })
 
   test('binds a token to an external resource requested at the token endpoint', async ({
