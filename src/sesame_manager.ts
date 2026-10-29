@@ -215,6 +215,14 @@ export class SesameManager {
   }
 
   /**
+   * Check whether a resource identifier stored on a token is served by
+   * this application, as opposed to an external resource server.
+   */
+  servesResource(identifier: string): boolean {
+    return this.#resources.has(identifier)
+  }
+
+  /**
    * Audience of tokens issued for the resource served under `path`.
    *
    * Uses the same matching as the `resource` parameter, so an unregistered

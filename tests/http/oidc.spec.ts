@@ -48,6 +48,25 @@ test.group('HTTP | UserInfo Endpoint', (group) => {
     response.assertBodyContains({ error: 'insufficient_scope' })
   })
 
+  test('rejects a token issued for an external resource', async ({ client }) => {
+    const external = await createTestAccessToken({
+      scopes: ['openid', 'read'],
+      resource: 'https://partner.example',
+    })
+    const local = await createTestAccessToken({
+      scopes: ['openid', 'read'],
+      resource: 'https://auth.example.com',
+    })
+
+    const rejected = await client.get(`${ctx.baseUrl}/oauth/userinfo`).bearerToken(external.raw)
+    const accepted = await client.get(`${ctx.baseUrl}/oauth/userinfo`).bearerToken(local.raw)
+
+    rejected.assertStatus(401)
+    rejected.assertBodyContains({ error: 'invalid_token' })
+    accepted.assertStatus(200)
+    accepted.assertBodyContains({ sub: 'user-1' })
+  })
+
   test('rejects token when the OIDC user can no longer be resolved', async ({ client }) => {
     const { raw } = await createTestAccessToken({
       scopes: ['openid', 'read'],

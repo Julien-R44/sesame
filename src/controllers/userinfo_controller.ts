@@ -34,6 +34,14 @@ export default class UserinfoController {
     if (token.expiresAt.toJSDate() < new Date())
       throw new E_INVALID_TOKEN('Access token has expired')
     if (!hasActiveGrant(token)) throw new E_INVALID_TOKEN('Access token has been revoked')
+
+    /**
+     * A token bound to another resource server must not be replayable
+     * here to read the user's claims (RFC 8707 §3, RFC 9700 §2.3).
+     */
+    if (token.resource && !manager.servesResource(token.resource)) {
+      throw new E_INVALID_TOKEN('Access token was not issued for this server')
+    }
     if (!token.scopes.includes('openid')) {
       throw new E_INSUFFICIENT_SCOPE(['openid'], 'Token does not have openid scope')
     }
