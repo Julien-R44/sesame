@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { importJWK, SignJWT, type JWK, type CryptoKey } from 'jose'
 
 /**
- * Manages the RSA key pair used to sign ID tokens.
+ * Manages the RSA key pair used to sign ID tokens and JWT access tokens.
  * Accepts a JWK from config, caches the imported private key
  * and public JWK for JWKS export.
  */
@@ -35,12 +35,14 @@ export class KeyService {
     return this.#privateKey
   }
 
-  async sign(payload: Record<string, unknown>): Promise<string> {
+  /**
+   * Sign a JWT. `typ` defaults to `JWT`; access tokens use `at+jwt`
+   * (RFC 9068 §2.1) so they cannot be mistaken for ID tokens.
+   */
+  async sign(payload: Record<string, unknown>, typ = 'JWT'): Promise<string> {
     const key = await this.#getPrivateKey()
 
-    return new SignJWT(payload)
-      .setProtectedHeader({ alg: 'RS256', kid: this.#kid, typ: 'JWT' })
-      .sign(key)
+    return new SignJWT(payload).setProtectedHeader({ alg: 'RS256', kid: this.#kid, typ }).sign(key)
   }
 
   getPublicJwks(): { keys: JWK[] } {

@@ -42,6 +42,7 @@ function resolveClientIdMetadataDocuments(
  * - `allowDynamicRegistration`: `false`
  * - `allowPublicRegistration`: `false`
  * - `clientIdMetadataDocuments`: disabled
+ * - `accessTokenFormat`: `'opaque'`
  */
 export function defineConfig<const TScopes extends Record<string, string>>(
   config: Omit<SesameConfig, 'scopes' | 'defaultScopes'> & {
@@ -50,6 +51,9 @@ export function defineConfig<const TScopes extends Record<string, string>>(
   }
 ): Omit<ResolvedSesameConfig, 'scopes'> & { scopes: TScopes } {
   if (!config.store) throw new InvalidArgumentsException('Missing "store" in Sesame config')
+  if (config.accessTokenFormat === 'jwt' && !config.jwk) {
+    throw new InvalidArgumentsException('"accessTokenFormat: jwt" requires "jwk" in Sesame config')
+  }
 
   return {
     store: config.store,
@@ -72,5 +76,7 @@ export function defineConfig<const TScopes extends Record<string, string>>(
     jwk: config.jwk,
     oidcProvider: config.oidcProvider,
     idTokenTtl: config.idTokenTtl ?? '1h',
+    accessTokenFormat: config.accessTokenFormat ?? 'opaque',
+    accessTokenClaims: config.accessTokenClaims,
   } as Omit<ResolvedSesameConfig, 'scopes'> & { scopes: TScopes }
 }

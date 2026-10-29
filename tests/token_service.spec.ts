@@ -3,11 +3,18 @@ import { TokenService } from '../src/services/token_service.ts'
 import { createManager } from './helpers/app.ts'
 
 test.group('TokenService', () => {
-  test('creates an opaque access token', ({ assert }) => {
+  test('creates an opaque access token', async ({ assert }) => {
     const manager = createManager()
     const service = new TokenService(manager)
 
-    const { raw, hash, expiresAt } = service.createAccessToken()
+    const { raw, hash, expiresAt } = await service.createAccessToken({
+      userId: 'user-1',
+      clientId: 'test-client',
+      scopes: ['read'],
+      resource: null,
+      grantId: null,
+      expiresAt: service.accessTokenExpiresAt(),
+    })
 
     assert.isString(raw)
     assert.isString(hash)

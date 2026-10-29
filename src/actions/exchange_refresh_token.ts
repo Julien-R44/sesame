@@ -144,8 +144,20 @@ export class ExchangeRefreshTokenAction {
     const scopes = this.#resolveScopes(manager, input, refreshToken, clientService)
     const resource = this.#resolveResource(manager, input, refreshToken)
 
-    const accessToken = tokenService.createAccessToken()
     const newRefreshToken = this.#prepareRefreshToken(manager, tokenService)
+    const grant = this.#resolveGrant(manager, {
+      refreshToken,
+      accessTokenExpiresAt: tokenService.accessTokenExpiresAt(),
+      refreshTokenExpiresAt: newRefreshToken.expiresAt,
+    })
+    const accessToken = await tokenService.createAccessToken({
+      userId: refreshToken.userId,
+      clientId: input.client.clientId,
+      scopes,
+      resource,
+      grantId: grant.grantId,
+      expiresAt: grant.accessTokenExpiresAt,
+    })
     const idToken = await this.#prepareIdToken(
       manager,
       scopes,
@@ -153,12 +165,6 @@ export class ExchangeRefreshTokenAction {
       input.client,
       accessToken.raw
     )
-
-    const grant = this.#resolveGrant(manager, {
-      refreshToken,
-      accessTokenExpiresAt: accessToken.expiresAt,
-      refreshTokenExpiresAt: newRefreshToken.expiresAt,
-    })
     const rotated = await this.#atomicRotation(manager, {
       client: input.client,
       oldRefreshToken: refreshToken,
@@ -242,8 +248,21 @@ export class ExchangeRefreshTokenAction {
     const scopes = this.#resolveScopes(manager, input, revokedRefreshToken, clientService)
     const resource = this.#resolveResource(manager, input, revokedRefreshToken)
 
-    const accessToken = tokenService.createAccessToken()
     const newRefreshToken = this.#prepareRefreshToken(manager, tokenService)
+    const accessTokenId = crypto.randomUUID()
+    const grant = this.#resolveGrant(manager, {
+      refreshToken: revokedRefreshToken,
+      accessTokenExpiresAt: tokenService.accessTokenExpiresAt(),
+      refreshTokenExpiresAt: newRefreshToken.expiresAt,
+    })
+    const accessToken = await tokenService.createAccessToken({
+      userId: revokedRefreshToken.userId,
+      clientId: input.client.clientId,
+      scopes,
+      resource,
+      grantId: grant.grantId,
+      expiresAt: grant.accessTokenExpiresAt,
+    })
     const idToken = await this.#prepareIdToken(
       manager,
       scopes,
@@ -251,13 +270,6 @@ export class ExchangeRefreshTokenAction {
       input.client,
       accessToken.raw
     )
-
-    const accessTokenId = crypto.randomUUID()
-    const grant = this.#resolveGrant(manager, {
-      refreshToken: revokedRefreshToken,
-      accessTokenExpiresAt: accessToken.expiresAt,
-      refreshTokenExpiresAt: newRefreshToken.expiresAt,
-    })
 
     const store = manager.store
     const issued = await store.issueTokenPair({
@@ -303,10 +315,13 @@ export class ExchangeRefreshTokenAction {
    * them expires, adopting legacy tokens (and the presented refresh
    * token with its access token) into a new grant.
    */
-  #resolveGrant(manager: SesameManager, options: GrantResolution): ResolvedTokenGrant {
+  #resolveGrant(
+    manager: SesameManager,
+    options: GrantResolution
+  ): ResolvedTokenGrant & { accessTokenExpiresAt: Date } {
     const { refreshToken } = options
 
-    return new GrantService(manager).resolveTokenGrant({
+    const grant = new GrantService(manager).resolveTokenGrant({
       grantId: refreshToken.grantId,
       clientId: refreshToken.clientId,
       userId: refreshToken.userId,
@@ -317,6 +332,8 @@ export class ExchangeRefreshTokenAction {
       ),
       adopt: { refreshTokenId: refreshToken.id, accessTokenId: refreshToken.accessTokenId },
     })
+
+    return { ...grant, accessTokenExpiresAt: options.accessTokenExpiresAt }
   }
 
   /**

@@ -55,8 +55,17 @@ export class ExchangeClientCredentialsAction {
 
     const tokenService = new TokenService(manager)
     const ttlSeconds = string.seconds.parse(manager.config.clientCredentialsAccessTokenTtl)
-    const { raw: accessTokenRaw, hash: tokenHash } = tokenService.createAccessToken()
-    const expiresAt = new Date(Date.now() + ttlSeconds * 1000)
+    const expiresAt = tokenService.accessTokenExpiresAt(
+      manager.config.clientCredentialsAccessTokenTtl
+    )
+    const { raw: accessTokenRaw, hash: tokenHash } = await tokenService.createAccessToken({
+      userId: input.client.userId,
+      clientId: input.client.clientId,
+      scopes,
+      resource,
+      grantId: null,
+      expiresAt,
+    })
 
     const store = manager.store
     await markFirstAuthorization({ store, client: input.client })

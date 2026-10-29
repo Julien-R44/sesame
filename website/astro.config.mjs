@@ -89,6 +89,7 @@ export default defineConfig({
             { slug: 'guides/manage-grants' },
             { slug: 'guides/manage-tokens' },
             { slug: 'guides/enable-oidc' },
+            { slug: 'guides/jwt-access-tokens' },
             { slug: 'guides/client-credentials' },
             { slug: 'guides/mcp' },
           ],

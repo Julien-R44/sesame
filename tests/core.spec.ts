@@ -25,11 +25,18 @@ test.group('Integration | OAuth Error Handling', () => {
 })
 
 test.group('Integration | TokenService', () => {
-  test('createAccessToken returns raw, hash and expiresAt', ({ assert }) => {
+  test('createAccessToken returns raw, hash and expiresAt', async ({ assert }) => {
     const manager = createManager()
     const tokenService = new TokenService(manager)
 
-    const { raw, hash, expiresAt } = tokenService.createAccessToken()
+    const { raw, hash, expiresAt } = await tokenService.createAccessToken({
+      userId: 'user-1',
+      clientId: 'test-client',
+      scopes: ['read'],
+      resource: null,
+      grantId: null,
+      expiresAt: tokenService.accessTokenExpiresAt(),
+    })
 
     assert.isString(raw)
     assert.isString(hash)
