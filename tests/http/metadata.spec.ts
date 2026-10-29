@@ -85,6 +85,18 @@ test.group('HTTP | Metadata — JWT access tokens without OIDC', (group) => {
   })
 })
 
+test.group('HTTP | Metadata — key kept after switching back to opaque tokens', (group) => {
+  const ctx = setupHttpGroup(group, { jwk, accessTokenFormat: 'opaque' })
+
+  test('still publishes the signing key for outstanding JWTs', async ({ client }) => {
+    const jwks = await client.get(`${ctx.baseUrl}/jwks`)
+    jwks.assertStatus(200)
+
+    const metadata = await client.get(`${ctx.baseUrl}/.well-known/oauth-authorization-server`)
+    metadata.assertBodyContains({ jwks_uri: 'https://auth.example.com/jwks' })
+  })
+})
+
 test.group('HTTP | Metadata — protected resource with minimal scopes', (group) => {
   const ctx = setupHttpGroup(group, { scopes: { 'mcp:full': 'Full MCP access' } })
 

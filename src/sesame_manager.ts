@@ -134,11 +134,12 @@ export class SesameManager {
   }
 
   /**
-   * Whether `/jwks` publishes the signing key: needed to verify ID
-   * tokens (OIDC) and JWT access tokens.
+   * Whether `/jwks` publishes the signing key. It does whenever a key is
+   * configured, independent of the current access token format, so JWTs
+   * issued before switching back to opaque tokens stay verifiable.
    */
   get publishesJwks(): boolean {
-    return this.isOidcEnabled || this.#config.accessTokenFormat === 'jwt'
+    return this.#keyService !== null
   }
 
   get isOidcEnabled(): boolean {
