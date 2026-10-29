@@ -1,7 +1,7 @@
 import { test } from '@japa/runner'
 import { createHash } from 'node:crypto'
 import { DateTime } from 'luxon'
-import { jwtVerify } from 'jose'
+import { decodeProtectedHeader, exportJWK, generateKeyPair, importJWK, jwtVerify } from 'jose'
 import { createManager, setupIntegrationGroup } from './helpers/app.ts'
 import { getTestJwk, FakeUserProvider, type FakeUser } from './helpers/fakes.ts'
 import { createTestClient } from './helpers/create_test_client.ts'
@@ -68,6 +68,34 @@ test.group('KeyService', () => {
 
     assert.equal(service.kid, 'my-custom-kid')
     assert.equal(service.getPublicJwks().keys[0].kid, 'my-custom-kid')
+  })
+
+  test('signs with the current key and publishes previous keys after it', async ({ assert }) => {
+    const jwk = await getTestJwk()
+    const { privateKey } = await generateKeyPair('RS256', { extractable: true })
+    const previousJwk = await exportJWK(privateKey)
+    const service = new KeyService(jwk, [{ ...previousJwk, kid: 'old-key' }])
+
+    const keys = service.getPublicJwks().keys
+    assert.deepEqual(
+      keys.map((key) => key.kid),
+      [KeyService.computeKid(jwk), 'old-key']
+    )
+    assert.equal(keys[1].n, previousJwk.n)
+    assert.notProperty(keys[1], 'd')
+
+    const token = await service.sign({ sub: 'user-1' })
+    assert.equal(decodeProtectedHeader(token).kid, KeyService.computeKid(jwk))
+    // The signature must come from the current private key, not only the header.
+    await jwtVerify(token, await importJWK(keys[0], 'RS256'))
+  })
+
+  test('rejects keys sharing a kid', async ({ assert }) => {
+    const jwk = await getTestJwk()
+    const { publicKey } = await generateKeyPair('RS256', { extractable: true })
+    const previousJwk = { ...(await exportJWK(publicKey)), kid: 'main' }
+
+    assert.throws(() => new KeyService({ ...jwk, kid: 'main' }, [previousJwk]), /distinct `kid`/)
   })
 })
 

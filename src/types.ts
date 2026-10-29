@@ -547,6 +547,14 @@ export interface SesameConfig {
   jwk?: JWK
 
   /**
+   * Keys that signed tokens before the current `jwk`. They are published
+   * in the JWKS so resource servers and relying parties keep accepting
+   * tokens they signed during a key rotation, but never sign new tokens.
+   * Public JWKs are enough. Requires `jwk`. Defaults to `[]`.
+   */
+  previousJwks?: JWK[]
+
+  /**
    * User provider used by OIDC flows to resolve the subject for
    * `id_token` emission and `/userinfo`.
    *
@@ -617,6 +625,7 @@ export interface ResolvedSesameConfig {
   allowPublicRegistration: boolean
   clientIdMetadataDocuments: ResolvedClientIdMetadataDocumentsConfig | null
   jwk?: JWK
+  previousJwks: JWK[]
   oidcProvider?: OAuthUserProviderContract<unknown>
   idTokenTtl: string
   accessTokenFormat: 'opaque' | 'jwt'
