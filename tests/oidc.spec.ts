@@ -462,7 +462,8 @@ test.group('Refresh Token Grant — OIDC', (group) => {
     })
 
     const tokenService = new TokenService(manager)
-    const { hash: oldAccessTokenHash, expiresAt } = tokenService.createAccessToken()
+    const oldAccessTokenHash = tokenService.hashToken(tokenService.generateOpaqueToken())
+    const expiresAt = tokenService.accessTokenExpiresAt()
     const { raw: refreshTokenRaw, hash: refreshTokenHash } = tokenService.createRefreshToken()
 
     const oldAccessTokenId = crypto.randomUUID()
@@ -514,7 +515,8 @@ test.group('Refresh Token Grant — OIDC', (group) => {
     })
 
     const tokenService = new TokenService(manager)
-    const { hash: oldAccessTokenHash, expiresAt } = tokenService.createAccessToken()
+    const oldAccessTokenHash = tokenService.hashToken(tokenService.generateOpaqueToken())
+    const expiresAt = tokenService.accessTokenExpiresAt()
     const { raw: refreshTokenRaw, hash: refreshTokenHash } = tokenService.createRefreshToken()
 
     const oldAccessTokenId2 = crypto.randomUUID()

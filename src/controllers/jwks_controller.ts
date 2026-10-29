@@ -3,7 +3,7 @@ import { SesameManager } from '../sesame_manager.ts'
 
 /**
  * Serves the JSON Web Key Set (JWKS) containing public keys
- * used to verify ID token signatures.
+ * used to verify ID token and JWT access token signatures.
  *
  * @see https://datatracker.ietf.org/doc/html/rfc7517
  */
@@ -11,9 +11,9 @@ export default class JwksController {
   async handle(ctx: HttpContext) {
     const manager = await ctx.containerResolver.make(SesameManager)
 
-    if (!manager.isOidcEnabled) {
+    if (!manager.publishesJwks) {
       ctx.response.status(404)
-      return { error: 'OIDC is not configured' }
+      return { error: 'No signing key is published' }
     }
 
     ctx.response.header('Cache-Control', 'public, max-age=900')

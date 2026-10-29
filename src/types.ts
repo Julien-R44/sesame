@@ -120,6 +120,37 @@ export const RESERVED_OIDC_CLAIMS = new Set([
 ])
 
 /**
+ * Protocol-managed claims of JWT access tokens that `accessTokenClaims`
+ * cannot override.
+ *
+ * @see https://datatracker.ietf.org/doc/html/rfc9068#section-2.2
+ */
+export const RESERVED_ACCESS_TOKEN_CLAIMS = new Set([
+  'iss',
+  'sub',
+  'aud',
+  'exp',
+  'iat',
+  'nbf',
+  'jti',
+  'client_id',
+  'scope',
+])
+
+/**
+ * What an access token is issued for, passed to `accessTokenClaims`.
+ * `grantId` is null for client_credentials tokens; `resource` is null
+ * for tokens not bound to a resource indicator.
+ */
+export interface AccessTokenClaimsContext {
+  userId: string
+  clientId: string
+  scopes: string[]
+  resource: string | null
+  grantId: string | null
+}
+
+/**
  * Interface for User models that provide OIDC claims.
  * Implement this on your User model to include custom claims
  * in id_tokens and /userinfo responses.
@@ -530,6 +561,38 @@ export interface SesameConfig {
    * Defaults to '1h'.
    */
   idTokenTtl?: string
+
+  /**
+   * Resource servers hosted outside this application whose tokens Sésame
+   * issues, as absolute http(s) URIs (for example `https://api.example.com`).
+   * Clients request one with the `resource` parameter (RFC 8707), and it
+   * becomes the `aud` of JWT access tokens. Resources served by this
+   * application are registered with `registerProtectedResource()` instead.
+   *
+   * @see https://datatracker.ietf.org/doc/html/rfc8707
+   */
+  externalResources?: string[]
+
+  /**
+   * Format of issued access tokens. `'opaque'` issues random strings;
+   * `'jwt'` issues RFC 9068 JWTs signed with `jwk`, which resource
+   * servers can verify against the JWKS without calling Sésame.
+   * Either way, only the token hash is stored, so revocation,
+   * introspection, and the guard behave the same.
+   * Defaults to `'opaque'`.
+   *
+   * @see https://datatracker.ietf.org/doc/html/rfc9068
+   */
+  accessTokenFormat?: 'opaque' | 'jwt'
+
+  /**
+   * Extra claims for JWT access tokens. Protocol claims (`iss`, `sub`,
+   * `aud`, `exp`, `iat`, `nbf`, `jti`, `client_id`, `scope`) cannot be
+   * overridden. Ignored for opaque tokens.
+   */
+  accessTokenClaims?: (
+    context: AccessTokenClaimsContext
+  ) => Record<string, unknown> | Promise<Record<string, unknown>>
 }
 
 /**
@@ -556,6 +619,12 @@ export interface ResolvedSesameConfig {
   jwk?: JWK
   oidcProvider?: OAuthUserProviderContract<unknown>
   idTokenTtl: string
+  accessTokenFormat: 'opaque' | 'jwt'
+  accessTokenClaims?: SesameConfig['accessTokenClaims']
+  /**
+   * Normalized external resource identifiers.
+   */
+  externalResources: string[]
 }
 
 /**
@@ -573,6 +642,7 @@ export interface AuthServerMetadata {
   registration_endpoint?: string
   introspection_endpoint?: string
   revocation_endpoint?: string
+  jwks_uri?: string
   scopes_supported: string[]
   response_types_supported: string[]
   response_modes_supported: string[]

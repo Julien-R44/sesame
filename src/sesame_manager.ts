@@ -133,6 +133,15 @@ export class SesameManager {
     return this.#resources.get(this.resourceIdentifier(resource)) ?? []
   }
 
+  /**
+   * Whether `/jwks` publishes the signing key. It does whenever a key is
+   * configured, independent of the current access token format, so JWTs
+   * issued before switching back to opaque tokens stay verifiable.
+   */
+  get publishesJwks(): boolean {
+    return this.#keyService !== null
+  }
+
   get isOidcEnabled(): boolean {
     return this.#keyService !== null && this.#config.oidcProvider !== undefined
   }
@@ -206,6 +215,14 @@ export class SesameManager {
   }
 
   /**
+   * Check whether a resource identifier stored on a token is served by
+   * this application, as opposed to an external resource server.
+   */
+  servesResource(identifier: string): boolean {
+    return this.#resources.has(identifier)
+  }
+
+  /**
    * Audience of tokens issued for the resource served under `path`.
    *
    * Uses the same matching as the `resource` parameter, so an unregistered
@@ -222,9 +239,9 @@ export class SesameManager {
 
   /**
    * Resolve a raw `resource` request parameter (RFC 8707) to a registered
-   * resource identifier. Returns null when the parameter is absent, and
-   * throws `invalid_target` when it is repeated, malformed, or not served
-   * by this authorization server.
+   * or external resource identifier. Returns null when the parameter is
+   * absent, and throws `invalid_target` when it is repeated, malformed, or
+   * unknown to this authorization server.
    *
    * @see https://datatracker.ietf.org/doc/html/rfc8707#section-2
    */
@@ -238,7 +255,10 @@ export class SesameManager {
       )
     }
 
-    const matched = matchResourceIndicator({ value: resource, resources: this.#resources.keys() })
+    const matched = matchResourceIndicator({
+      value: resource,
+      resources: [...this.#resources.keys(), ...this.#config.externalResources],
+    })
     if (!matched) {
       throw new E_INVALID_TARGET(
         'The requested resource is not served by this authorization server'

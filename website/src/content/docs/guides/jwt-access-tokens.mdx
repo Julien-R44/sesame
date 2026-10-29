@@ -1,0 +1,71 @@
+---
+title: Issue JWT access tokens
+description: Let resource servers verify access tokens with your JWKS instead of calling Sésame.
+---
+
+By default, Sésame issues opaque access tokens: an API checks them with the OAuth guard or the introspection endpoint. An API that runs elsewhere, in another language or without access to your database, can instead verify a JWT access token against your published keys.
+
+## Enable JWT access tokens
+
+JWT access tokens are signed with the same key as ID tokens. Configure [`jwk`](/guides/enable-oidc/) first, then set the format:
+
+```ts title="config/sesame.ts"
+export default defineConfig({
+	// ...
+	jwk: JSON.parse(env.get('OIDC_JWK')),
+	accessTokenFormat: 'jwt',
+	accessTokenTtl: '5m',
+})
+```
+
+Tokens follow [RFC 9068](https://datatracker.ietf.org/doc/html/rfc9068): the header has `typ: at+jwt`, and the payload has `iss`, `sub`, `client_id`, `scope`, `iat`, `exp`, and `jti`. `aud` is the resource the token is bound to, or the issuer for an unbound token.
+
+Sésame still stores only the token hash. Revocation, introspection, UserInfo, and the OAuth guard work as with opaque tokens. A resource server that verifies the signature alone accepts a revoked token until it expires, so keep `accessTokenTtl` short.
+
+## Add claims
+
+Add claims your APIs need with `accessTokenClaims`:
+
+```ts title="config/sesame.ts"
+export default defineConfig({
+	// ...
+	accessTokenClaims: async ({ userId, clientId, scopes, resource, grantId }) => {
+		return { tenant_id: await findTenantId(userId) }
+	},
+})
+```
+
+`grantId` is null for client credentials tokens, and `resource` is null for unbound tokens. The hook cannot override `iss`, `sub`, `aud`, `exp`, `iat`, `nbf`, `jti`, `client_id`, or `scope`.
+
+## Verify a token in a resource server
+
+Fetch the keys from `/.well-known/openid-configuration` or `/jwks` and cache them. With [jose](https://github.com/panva/jose):
+
+```ts
+import { createRemoteJWKSet, jwtVerify } from 'jose'
+
+const jwks = createRemoteJWKSet(new URL('https://auth.example.com/jwks'))
+
+const { payload } = await jwtVerify(token, jwks, {
+	issuer: 'https://auth.example.com',
+	audience: 'https://api.example.com',
+	typ: 'at+jwt',
+})
+```
+
+Check `typ`, so an ID token cannot be used as an access token, and check `aud`, so a token issued for another API is rejected.
+
+## Issue tokens for external APIs
+
+[Protected resources](/guides/protect-api/#enforce-a-resource-audience) are paths of the application that runs Sésame. To bind tokens to an API hosted elsewhere, list it in `externalResources`:
+
+```ts title="config/sesame.ts"
+export default defineConfig({
+	// ...
+	externalResources: ['https://api.example.com'],
+})
+```
+
+A client requests it with `resource=https://api.example.com` in the authorization request, and the token's `aud` is that URI. A more specific URI, such as `https://api.example.com/orders`, maps to the listed resource. Any other resource returns `invalid_target`.
+
+Sésame normalizes the listed URIs at boot and fails on an invalid one, such as a value that is not an absolute http(s) URI.

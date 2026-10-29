@@ -116,6 +116,9 @@ export default class MetadataController {
         : undefined,
       introspection_endpoint: router.makeUrl('sesame.introspect', {}, { prefixUrl }),
       revocation_endpoint: router.makeUrl('sesame.revoke', {}, { prefixUrl }),
+      ...(manager.publishesJwks
+        ? { jwks_uri: router.makeUrl('sesame.jwks', {}, { prefixUrl }) }
+        : {}),
       scopes_supported: this.#supportedScopes(manager),
       response_types_supported: ['code'],
       response_modes_supported: ['query'],

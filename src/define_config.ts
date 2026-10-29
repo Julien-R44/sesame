@@ -1,4 +1,5 @@
 import { InvalidArgumentsException } from '@adonisjs/core/exceptions'
+import { normalizeResourceIndicator } from './resource_indicators.ts'
 import type {
   ClientIdMetadataDocumentsConfig,
   ResolvedClientIdMetadataDocumentsConfig,
@@ -29,6 +30,23 @@ function resolveClientIdMetadataDocuments(
 }
 
 /**
+ * Normalize external resource identifiers, rejecting invalid ones at boot
+ * rather than when a client first requests them.
+ */
+function resolveExternalResources(resources: string[] = []): string[] {
+  return resources.map((resource) => {
+    const normalized = normalizeResourceIndicator(resource)
+    if (!normalized) {
+      throw new InvalidArgumentsException(
+        `Invalid external resource "${resource}": use an absolute http(s) URI without a fragment`
+      )
+    }
+
+    return normalized
+  })
+}
+
+/**
  * Resolve user-supplied `SesameConfig` into a `ResolvedSesameConfig`
  * by applying sensible defaults for all optional fields.
  *
@@ -42,6 +60,7 @@ function resolveClientIdMetadataDocuments(
  * - `allowDynamicRegistration`: `false`
  * - `allowPublicRegistration`: `false`
  * - `clientIdMetadataDocuments`: disabled
+ * - `accessTokenFormat`: `'opaque'`
  */
 export function defineConfig<const TScopes extends Record<string, string>>(
   config: Omit<SesameConfig, 'scopes' | 'defaultScopes'> & {
@@ -50,6 +69,9 @@ export function defineConfig<const TScopes extends Record<string, string>>(
   }
 ): Omit<ResolvedSesameConfig, 'scopes'> & { scopes: TScopes } {
   if (!config.store) throw new InvalidArgumentsException('Missing "store" in Sesame config')
+  if (config.accessTokenFormat === 'jwt' && !config.jwk) {
+    throw new InvalidArgumentsException('"accessTokenFormat: jwt" requires "jwk" in Sesame config')
+  }
 
   return {
     store: config.store,
@@ -72,5 +94,8 @@ export function defineConfig<const TScopes extends Record<string, string>>(
     jwk: config.jwk,
     oidcProvider: config.oidcProvider,
     idTokenTtl: config.idTokenTtl ?? '1h',
+    accessTokenFormat: config.accessTokenFormat ?? 'opaque',
+    accessTokenClaims: config.accessTokenClaims,
+    externalResources: resolveExternalResources(config.externalResources),
   } as Omit<ResolvedSesameConfig, 'scopes'> & { scopes: TScopes }
 }

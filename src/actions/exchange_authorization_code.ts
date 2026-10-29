@@ -42,7 +42,7 @@ export interface ExchangeAuthorizationCodeInput {
 interface CodeExchange {
   client: OAuthClientRecord
   authCode: OAuthAuthorizationCodeRecord
-  accessToken: { raw: string; hash: string; expiresAt: Date }
+  accessToken: { raw: string; hash: string; expiresAt: Date; resource: string | null }
   refreshToken: { raw: string; hash: string; expiresAt: DateTime } | null
   grant: ResolvedTokenGrant
   resource: string | null
@@ -87,12 +87,8 @@ export class ExchangeAuthorizationCodeAction {
     const grantService = new GrantService(manager)
     await grantService.assertActive(authCode.grantId)
 
-    const accessToken = tokenService.createAccessToken()
-
     const refreshToken = this.#prepareRefreshToken(manager, tokenService)
-    const idToken = await this.#prepareIdToken(manager, authCode, input.client, accessToken.raw)
-
-    const accessTokenExpiresAt = DateTime.fromJSDate(accessToken.expiresAt)
+    const accessTokenExpiresAt = DateTime.fromJSDate(tokenService.accessTokenExpiresAt())
     const grant = grantService.resolveTokenGrant({
       grantId: authCode.grantId,
       clientId: input.client.clientId,
@@ -103,6 +99,16 @@ export class ExchangeAuthorizationCodeAction {
         : accessTokenExpiresAt,
       adopt: { codeId: authCode.id },
     })
+
+    const accessToken = await tokenService.createAccessToken({
+      userId: authCode.userId,
+      clientId: input.client.clientId,
+      scopes: authCode.scopes,
+      resource,
+      grantId: grant.grantId,
+      expiresAt: accessTokenExpiresAt.toJSDate(),
+    })
+    const idToken = await this.#prepareIdToken(manager, authCode, input.client, accessToken.raw)
 
     /**
      * The code and its PKCE proof are valid: the client completed an authorization.
@@ -279,7 +285,7 @@ export class ExchangeAuthorizationCodeAction {
         userId: authCode.userId,
         grantId: grant.grantId,
         scopes: authCode.scopes,
-        resource,
+        resource: accessToken.resource,
         expiresAt: DateTime.fromJSDate(accessToken.expiresAt),
       },
       refreshToken: refreshToken

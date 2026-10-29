@@ -25,7 +25,8 @@ export async function createTestAccessToken(options?: {
 }) {
   const manager = options?.manager ?? createManager()
   const tokenService = new TokenService(manager)
-  const { raw, hash } = tokenService.createAccessToken()
+  const raw = tokenService.generateOpaqueToken()
+  const hash = tokenService.hashToken(raw)
   const id = crypto.randomUUID()
 
   await OAuthAccessToken.create({
