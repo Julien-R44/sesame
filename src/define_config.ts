@@ -60,6 +60,7 @@ function resolveExternalResources(resources: string[] = []): string[] {
  * - `allowDynamicRegistration`: `false`
  * - `allowPublicRegistration`: `false`
  * - `clientIdMetadataDocuments`: disabled
+ * - `previousJwks`: `[]`
  * - `accessTokenFormat`: `'opaque'`
  */
 export function defineConfig<const TScopes extends Record<string, string>>(
@@ -71,6 +72,9 @@ export function defineConfig<const TScopes extends Record<string, string>>(
   if (!config.store) throw new InvalidArgumentsException('Missing "store" in Sesame config')
   if (config.accessTokenFormat === 'jwt' && !config.jwk) {
     throw new InvalidArgumentsException('"accessTokenFormat: jwt" requires "jwk" in Sesame config')
+  }
+  if (config.previousJwks?.length && !config.jwk) {
+    throw new InvalidArgumentsException('"previousJwks" requires "jwk" in Sesame config')
   }
 
   return {
@@ -92,6 +96,7 @@ export function defineConfig<const TScopes extends Record<string, string>>(
     allowPublicRegistration: config.allowPublicRegistration ?? false,
     clientIdMetadataDocuments: resolveClientIdMetadataDocuments(config.clientIdMetadataDocuments),
     jwk: config.jwk,
+    previousJwks: config.previousJwks ?? [],
     oidcProvider: config.oidcProvider,
     idTokenTtl: config.idTokenTtl ?? '1h',
     accessTokenFormat: config.accessTokenFormat ?? 'opaque',

@@ -55,6 +55,8 @@ const { payload } = await jwtVerify(token, jwks, {
 
 Check `typ`, so an ID token cannot be used as an access token, and check `aud`, so a token issued for another API is rejected.
 
+`createRemoteJWKSet` selects the key by the token's `kid` and refetches the set when the `kid` is unknown, at most once every 30 seconds by default. During a [key rotation](/guides/enable-oidc/#rotate-the-signing-key), `/jwks` also publishes the previous keys, so tokens signed before the rotation keep verifying until they expire.
+
 ## Issue tokens for external APIs
 
 [Protected resources](/guides/protect-api/#enforce-a-resource-audience) are paths of the application that runs Sésame. To bind tokens to an API hosted elsewhere, list it in `externalResources`:

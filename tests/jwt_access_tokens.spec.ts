@@ -1,6 +1,12 @@
 import { test } from '@japa/runner'
 import { HttpContextFactory, RequestFactory } from '@adonisjs/core/factories/http'
-import { createLocalJWKSet, decodeProtectedHeader, jwtVerify } from 'jose'
+import {
+  createLocalJWKSet,
+  decodeProtectedHeader,
+  exportJWK,
+  generateKeyPair,
+  jwtVerify,
+} from 'jose'
 import { createManager, createTestConfig, setupIntegrationGroup } from './helpers/app.ts'
 import { SesameManager } from '../src/sesame_manager.ts'
 import { lucidStore } from '../src/storage/drivers/lucid.ts'
@@ -39,6 +45,13 @@ test.group('JWT access tokens | config', () => {
     assert.throws(
       () => createTestConfig({ accessTokenFormat: 'jwt', jwk: undefined }),
       /requires "jwk"/
+    )
+  })
+
+  test('requires a jwk for previous keys', async ({ assert }) => {
+    assert.throws(
+      () => createTestConfig({ previousJwks: [{ kty: 'RSA' }] }),
+      /"previousJwks" requires "jwk"/
     )
   })
 
@@ -310,6 +323,32 @@ test.group('JWT access tokens | issuance', (group) => {
     const { payload } = await verifyAsResourceServer(manager, result.access_token)
     assert.equal(payload.sub, 'user-1')
     assert.deepEqual(grantIds, [grantId])
+  })
+
+  test('keeps tokens signed with a previous key verifiable after a rotation', async ({
+    assert,
+  }) => {
+    const oldJwk = await getTestJwk()
+    const { privateKey } = await generateKeyPair('RS256', { extractable: true })
+    const newJwk = await exportJWK(privateKey)
+    const oldTokenService = new TokenService(await createJwtManager())
+    const { raw: oldToken } = await oldTokenService.createAccessToken({
+      userId: 'user-1',
+      clientId: 'test-client',
+      scopes: ['read'],
+      resource: null,
+      grantId: null,
+      expiresAt: oldTokenService.accessTokenExpiresAt(),
+    })
+
+    // Previous keys only verify, so their public half is enough.
+    const oldPublicJwk = { kty: oldJwk.kty, n: oldJwk.n, e: oldJwk.e }
+    const rotated = await createJwtManager({ jwk: newJwk, previousJwks: [oldPublicJwk] })
+    const { payload } = await verifyAsResourceServer(rotated, oldToken)
+    assert.equal(payload.sub, 'user-1')
+
+    const withoutPrevious = await createJwtManager({ jwk: newJwk })
+    await assert.rejects(() => verifyAsResourceServer(withoutPrevious, oldToken))
   })
 
   test('authenticates a JWT access token with OAuthGuard', async ({ assert }) => {

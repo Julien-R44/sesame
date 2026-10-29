@@ -61,6 +61,25 @@ The token response includes an RS256-signed `id_token`. `profile` and `email` re
 
 Verify the ID token's signature and expected issuer, audience, expiration, and nonce in the relying party. Use the public key from `/jwks`.
 
+## Rotate the signing key
+
+Relying parties and resource servers reject a token whose `kid` is missing from `/jwks`. To replace the key without invalidating tokens already issued, keep publishing the old key until those tokens expire.
+
+Copy the current `OIDC_JWK` value to `OIDC_PREVIOUS_JWK`, then generate a new key with `node ace sesame:key --write-env`. List the old key in `previousJwks`:
+
+```ts title="config/sesame.ts"
+jwk: JSON.parse(env.get('OIDC_JWK')),
+previousJwks: [JSON.parse(env.get('OIDC_PREVIOUS_JWK'))],
+```
+
+Sésame signs new tokens with `jwk` only. `/jwks` publishes `jwk` first, then each previous key, so tokens signed with the old key still verify. Previous keys only need their public components, so you can store the old key without `d` and the other private members.
+
+Each key keeps its `kid`: the `kid` member of the JWK, or a hash of its public components. Keys must have distinct `kid` values.
+
+Remove the old key once every token it signed has expired: wait, from the last token the old key signed, for the longest of `idTokenTtl`, `accessTokenTtl`, and `clientCredentialsAccessTokenTtl`.
+
+Verifiers cache `/jwks`, which Sésame serves with a 15-minute cache lifetime, so some may reject tokens signed with the new key until they refetch the set. `createRemoteJWKSet` from jose refetches when it meets an unknown `kid`, but at most once every 30 seconds by default. When no token may be rejected, publish the new key before signing with it: add its public JWK to `previousJwks`, wait for verifier caches to expire, then make it the `jwk` and move the old key to `previousJwks`.
+
 ## Verify discovery and UserInfo
 
 Request OIDC discovery:

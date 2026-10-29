@@ -65,7 +65,7 @@ export class SesameManager {
     this.#config = config
     this.#router = router
     this.#store = store
-    this.#keyService = config.jwk ? new KeyService(config.jwk) : null
+    this.#keyService = config.jwk ? new KeyService(config.jwk, config.previousJwks) : null
     this.#resources.set(this.resourceIdentifier(), [])
   }
 

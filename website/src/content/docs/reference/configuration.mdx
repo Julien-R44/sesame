@@ -33,6 +33,7 @@ A page function receives `(ctx: HttpContext, params: URLSearchParams)` and retur
 | `allowPublicRegistration`         | `false`                                   | Permits registration without an authenticated user.                                               |
 | `clientIdMetadataDocuments`       | Disabled                                  | `true` or document resolution options.                                                            |
 | `jwk`                             | `undefined`                               | RSA private JWK for RS256 ID token signing.                                                       |
+| `previousJwks`                    | `[]`                                      | Earlier signing keys published in `/jwks` for verification only. Requires `jwk`.                  |
 | `oidcProvider`                    | `undefined`                               | User provider for OIDC subjects and claims.                                                       |
 | `idTokenTtl`                      | `'1h'`                                    | ID token lifetime.                                                                                |
 | `accessTokenFormat`               | `'opaque'`                                | `'jwt'` issues RFC 9068 JWT access tokens signed with `jwk`.                                      |
