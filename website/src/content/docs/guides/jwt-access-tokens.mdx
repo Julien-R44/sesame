@@ -54,3 +54,18 @@ const { payload } = await jwtVerify(token, jwks, {
 ```
 
 Check `typ`, so an ID token cannot be used as an access token, and check `aud`, so a token issued for another API is rejected.
+
+## Issue tokens for external APIs
+
+[Protected resources](/guides/protect-api/#enforce-a-resource-audience) are paths of the application that runs Sésame. To bind tokens to an API hosted elsewhere, list it in `externalResources`:
+
+```ts title="config/sesame.ts"
+export default defineConfig({
+	// ...
+	externalResources: ['https://api.example.com'],
+})
+```
+
+A client requests it with `resource=https://api.example.com` in the authorization request, and the token's `aud` is that URI. A more specific URI, such as `https://api.example.com/orders`, maps to the listed resource. Any other resource returns `invalid_target`.
+
+Sésame normalizes the listed URIs at boot and fails on an invalid one, such as a value that is not an absolute http(s) URI.

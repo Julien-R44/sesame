@@ -1,4 +1,5 @@
 import { InvalidArgumentsException } from '@adonisjs/core/exceptions'
+import { normalizeResourceIndicator } from './resource_indicators.ts'
 import type {
   ClientIdMetadataDocumentsConfig,
   ResolvedClientIdMetadataDocumentsConfig,
@@ -26,6 +27,23 @@ function resolveClientIdMetadataDocuments(
     fetchTimeout: options.fetchTimeout ?? '5s',
     maxResponseSize: options.maxResponseSize ?? 5120,
   }
+}
+
+/**
+ * Normalize external resource identifiers, rejecting invalid ones at boot
+ * rather than when a client first requests them.
+ */
+function resolveExternalResources(resources: string[] = []): string[] {
+  return resources.map((resource) => {
+    const normalized = normalizeResourceIndicator(resource)
+    if (!normalized) {
+      throw new InvalidArgumentsException(
+        `Invalid external resource "${resource}": use an absolute http(s) URI without a fragment`
+      )
+    }
+
+    return normalized
+  })
 }
 
 /**
@@ -78,5 +96,6 @@ export function defineConfig<const TScopes extends Record<string, string>>(
     idTokenTtl: config.idTokenTtl ?? '1h',
     accessTokenFormat: config.accessTokenFormat ?? 'opaque',
     accessTokenClaims: config.accessTokenClaims,
+    externalResources: resolveExternalResources(config.externalResources),
   } as Omit<ResolvedSesameConfig, 'scopes'> & { scopes: TScopes }
 }

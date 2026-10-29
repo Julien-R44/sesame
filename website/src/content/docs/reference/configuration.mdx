@@ -37,6 +37,7 @@ A page function receives `(ctx: HttpContext, params: URLSearchParams)` and retur
 | `idTokenTtl`                      | `'1h'`                                    | ID token lifetime.                                                                                |
 | `accessTokenFormat`               | `'opaque'`                                | `'jwt'` issues RFC 9068 JWT access tokens signed with `jwk`.                                      |
 | `accessTokenClaims`               | `undefined`                               | Returns extra claims for JWT access tokens.                                                       |
+| `externalResources`               | `[]`                                      | URIs of APIs hosted elsewhere that clients can request as `resource`.                             |
 
 Lifetime fields accept duration strings, such as `'30m'`, `'1h'`, and `'30d'`. The refresh rotation grace period is a number of seconds.
 

@@ -222,9 +222,9 @@ export class SesameManager {
 
   /**
    * Resolve a raw `resource` request parameter (RFC 8707) to a registered
-   * resource identifier. Returns null when the parameter is absent, and
-   * throws `invalid_target` when it is repeated, malformed, or not served
-   * by this authorization server.
+   * or external resource identifier. Returns null when the parameter is
+   * absent, and throws `invalid_target` when it is repeated, malformed, or
+   * unknown to this authorization server.
    *
    * @see https://datatracker.ietf.org/doc/html/rfc8707#section-2
    */
@@ -238,7 +238,10 @@ export class SesameManager {
       )
     }
 
-    const matched = matchResourceIndicator({ value: resource, resources: this.#resources.keys() })
+    const matched = matchResourceIndicator({
+      value: resource,
+      resources: [...this.#resources.keys(), ...this.#config.externalResources],
+    })
     if (!matched) {
       throw new E_INVALID_TARGET(
         'The requested resource is not served by this authorization server'

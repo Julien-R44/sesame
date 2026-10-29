@@ -563,6 +563,17 @@ export interface SesameConfig {
   idTokenTtl?: string
 
   /**
+   * Resource servers hosted outside this application whose tokens Sésame
+   * issues, as absolute http(s) URIs (for example `https://api.example.com`).
+   * Clients request one with the `resource` parameter (RFC 8707), and it
+   * becomes the `aud` of JWT access tokens. Resources served by this
+   * application are registered with `registerProtectedResource()` instead.
+   *
+   * @see https://datatracker.ietf.org/doc/html/rfc8707
+   */
+  externalResources?: string[]
+
+  /**
    * Format of issued access tokens. `'opaque'` issues random strings;
    * `'jwt'` issues RFC 9068 JWTs signed with `jwk`, which resource
    * servers can verify against the JWKS without calling Sésame.
@@ -610,6 +621,10 @@ export interface ResolvedSesameConfig {
   idTokenTtl: string
   accessTokenFormat: 'opaque' | 'jwt'
   accessTokenClaims?: SesameConfig['accessTokenClaims']
+  /**
+   * Normalized external resource identifiers.
+   */
+  externalResources: string[]
 }
 
 /**

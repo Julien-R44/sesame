@@ -6,6 +6,7 @@ import { createTestClient } from './helpers/create_test_client.ts'
 import { createAuthCodeExchange } from './helpers/create_auth_code_exchange.ts'
 import { createTestRefreshToken } from './helpers/create_test_refresh_token.ts'
 import { createFakeEmitter, FakeUserProvider, getTestJwk } from './helpers/fakes.ts'
+import { assertOAuthError } from './helpers/assert_oauth_error.ts'
 import { OAuthAccessToken } from '../src/models/oauth_access_token.ts'
 import { OAuthGuard } from '../src/guard/guard.ts'
 import { TokenService } from '../src/services/token_service.ts'
@@ -35,6 +36,13 @@ test.group('JWT access tokens | config', () => {
     assert.throws(
       () => createTestConfig({ accessTokenFormat: 'jwt', jwk: undefined }),
       /requires "jwk"/
+    )
+  })
+
+  test('rejects an invalid external resource', ({ assert }) => {
+    assert.throws(
+      () => createTestConfig({ externalResources: ['vis'] }),
+      /Invalid external resource "vis"/
     )
   })
 
@@ -112,6 +120,45 @@ test.group('JWT access tokens | issuance', (group) => {
 
     const { payload } = await verifyAsResourceServer(manager, result.access_token)
     assert.notProperty(payload, 'aud')
+  })
+
+  test('binds a token to an external resource requested at the token endpoint', async ({
+    assert,
+  }) => {
+    const manager = await createJwtManager({ externalResources: ['https://API.example.org/'] })
+    const client = await createTestClient()
+    const { rawCode, codeVerifier, redirectUri } = await createAuthCodeExchange({ manager })
+
+    const result = await new ExchangeAuthorizationCodeAction().execute(manager, {
+      client,
+      code: rawCode,
+      redirectUri,
+      codeVerifier,
+      resource: 'https://api.example.org/vis',
+    })
+
+    // RFC 8707 lets a resource map to the more general one configured.
+    const { payload } = await verifyAsResourceServer(manager, result.access_token)
+    assert.equal(payload.aud, 'https://api.example.org')
+  })
+
+  test('rejects a resource that is neither served nor external', async ({ assert }) => {
+    const manager = await createJwtManager({ externalResources: ['https://api.example.org'] })
+    const client = await createTestClient()
+    const { rawCode, codeVerifier, redirectUri } = await createAuthCodeExchange({ manager })
+
+    await assertOAuthError(
+      assert,
+      () =>
+        new ExchangeAuthorizationCodeAction().execute(manager, {
+          client,
+          code: rawCode,
+          redirectUri,
+          codeVerifier,
+          resource: 'https://api.example.org.evil.com',
+        }),
+      'invalid_target'
+    )
   })
 
   test('issues a JWT on refresh, in the refreshed grant', async ({ assert }) => {
