@@ -58,7 +58,11 @@ export class ExchangeClientCredentialsAction {
     const expiresAt = tokenService.accessTokenExpiresAt(
       manager.config.clientCredentialsAccessTokenTtl
     )
-    const { raw: accessTokenRaw, hash: tokenHash } = await tokenService.createAccessToken({
+    const {
+      raw: accessTokenRaw,
+      hash: tokenHash,
+      resource: tokenResource,
+    } = await tokenService.createAccessToken({
       userId: input.client.userId,
       clientId: input.client.clientId,
       scopes,
@@ -75,7 +79,7 @@ export class ExchangeClientCredentialsAction {
       clientId: input.client.clientId,
       userId: input.client.userId,
       scopes,
-      resource,
+      resource: tokenResource,
       expiresAt: DateTime.fromJSDate(expiresAt),
     })
 

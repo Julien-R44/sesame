@@ -42,7 +42,7 @@ interface GrantResolution {
 interface RefreshRotation {
   client: OAuthClientRecord
   oldRefreshToken: OAuthRefreshTokenRecord
-  accessToken: { raw: string; hash: string; expiresAt: Date }
+  accessToken: { raw: string; hash: string; expiresAt: Date; resource: string | null }
   newRefreshToken: { raw: string; hash: string; expiresAt: DateTime }
   scopes: string[]
   grant: ResolvedTokenGrant
@@ -281,7 +281,7 @@ export class ExchangeRefreshTokenAction {
         userId: revokedRefreshToken.userId,
         grantId: grant.grantId,
         scopes,
-        resource,
+        resource: accessToken.resource,
         expiresAt: DateTime.fromJSDate(accessToken.expiresAt),
       },
       refreshToken: {
@@ -453,7 +453,7 @@ export class ExchangeRefreshTokenAction {
         userId: oldRefreshToken.userId,
         grantId: grant.grantId,
         scopes,
-        resource,
+        resource: accessToken.resource,
         expiresAt: DateTime.fromJSDate(accessToken.expiresAt),
       },
       refreshToken: {

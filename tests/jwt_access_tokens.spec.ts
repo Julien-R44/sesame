@@ -2,6 +2,9 @@ import { test } from '@japa/runner'
 import { HttpContextFactory, RequestFactory } from '@adonisjs/core/factories/http'
 import { createLocalJWKSet, decodeProtectedHeader, jwtVerify } from 'jose'
 import { createManager, createTestConfig, setupIntegrationGroup } from './helpers/app.ts'
+import { SesameManager } from '../src/sesame_manager.ts'
+import { lucidStore } from '../src/storage/drivers/lucid.ts'
+import { OAuthRefreshToken } from '../src/models/oauth_refresh_token.ts'
 import { createTestClient } from './helpers/create_test_client.ts'
 import { createAuthCodeExchange } from './helpers/create_auth_code_exchange.ts'
 import { createTestRefreshToken } from './helpers/create_test_refresh_token.ts'
@@ -125,6 +128,73 @@ test.group('JWT access tokens | issuance', (group) => {
       typ: 'at+jwt',
     })
     assert.equal(payload.aud, 'https://auth.example.com')
+  })
+
+  test('stores the default audience so guards agree with the signed aud', async ({ assert }) => {
+    const manager = new SesameManager(
+      createTestConfig({ jwk: await getTestJwk(), accessTokenFormat: 'jwt' }),
+      { get: () => {} } as any,
+      lucidStore()
+    )
+    manager.registerProtectedResource({ resource: '/api-a' })
+    const client = await createTestClient()
+    const { rawCode, codeVerifier, redirectUri } = await createAuthCodeExchange({ manager })
+
+    const result = await new ExchangeAuthorizationCodeAction().execute(manager, {
+      client,
+      code: rawCode,
+      redirectUri,
+      codeVerifier,
+    })
+
+    // The access token is bound to the issuer; the refresh token stays unbound.
+    const stored = await OAuthAccessToken.query().where('userId', 'user-1').firstOrFail()
+    assert.equal(stored.resource, 'https://auth.example.com')
+    const refresh = await OAuthRefreshToken.query().where('userId', 'user-1').firstOrFail()
+    assert.isNull(refresh.resource)
+
+    const authenticate = (resource: string) => {
+      const request = new RequestFactory().merge({ url: '/' }).create()
+      request.request.headers.authorization = `Bearer ${result.access_token}`
+      const ctx = new HttpContextFactory().merge({ request }).create()
+      const provider = new FakeUserProvider([{ id: 'user-1', name: 'Jane' }])
+      return new OAuthGuard('oauth', ctx, createFakeEmitter(), provider, manager, {
+        resource,
+        requireAudience: resource === '/',
+      }).check()
+    }
+
+    assert.isTrue(await authenticate('/'))
+    assert.isFalse(await authenticate('/api-a'))
+  })
+
+  test('keeps the stored audience when the token format changes', async ({ assert }) => {
+    const jwtManager = await createJwtManager()
+    const client = await createTestClient()
+    const { rawCode, codeVerifier, redirectUri } = await createAuthCodeExchange({
+      manager: jwtManager,
+    })
+    await new ExchangeAuthorizationCodeAction().execute(jwtManager, {
+      client,
+      code: rawCode,
+      redirectUri,
+      codeVerifier,
+    })
+
+    // Opaque issuance before the switch stays unbound, the JWT stays bound.
+    const opaqueManager = createManager({ jwk: await getTestJwk() })
+    const opaque = await createAuthCodeExchange({ manager: opaqueManager, userId: 'user-2' })
+    await new ExchangeAuthorizationCodeAction().execute(opaqueManager, {
+      client,
+      code: opaque.rawCode,
+      redirectUri: opaque.redirectUri,
+      codeVerifier: opaque.codeVerifier,
+    })
+
+    const jwtRow = await OAuthAccessToken.query().where('userId', 'user-1').firstOrFail()
+    const opaqueRow = await OAuthAccessToken.query().where('userId', 'user-2').firstOrFail()
+    assert.equal(jwtRow.resource, 'https://auth.example.com')
+    assert.isNull(opaqueRow.resource)
   })
 
   test('ignores every reserved claim returned by the hook', async ({ assert }) => {

@@ -393,7 +393,12 @@ export class OAuthGuard<
     const userId = String((user as any).id ?? (user as any).getId?.() ?? 'test-user')
     const grantId = crypto.randomUUID()
     const resource = this.#resource === undefined ? null : this.#expectedAudience(this.#resource)
-    const { raw, hash, expiresAt } = await tokenService.createAccessToken({
+    const {
+      raw,
+      hash,
+      expiresAt,
+      resource: tokenResource,
+    } = await tokenService.createAccessToken({
       userId,
       clientId: testClient.clientId,
       scopes,
@@ -417,7 +422,7 @@ export class OAuthGuard<
       userId,
       grantId,
       scopes,
-      resource,
+      resource: tokenResource,
       expiresAt: DateTime.fromJSDate(expiresAt),
     })
 

@@ -57,9 +57,7 @@ export default class IntrospectController {
           client_id: record.clientId,
           sub: record.userId || undefined,
           scope: record.scopes.join(' '),
-          ...(manager.accessTokenAudience(record.resource)
-            ? { aud: manager.accessTokenAudience(record.resource) }
-            : {}),
+          ...(record.resource ? { aud: record.resource } : {}),
           iss: manager.config.issuer,
           iat: Math.floor(record.createdAt.toMillis() / 1000),
           exp: Math.floor(record.expiresAt.toMillis() / 1000),

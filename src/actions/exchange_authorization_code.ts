@@ -42,7 +42,7 @@ export interface ExchangeAuthorizationCodeInput {
 interface CodeExchange {
   client: OAuthClientRecord
   authCode: OAuthAuthorizationCodeRecord
-  accessToken: { raw: string; hash: string; expiresAt: Date }
+  accessToken: { raw: string; hash: string; expiresAt: Date; resource: string | null }
   refreshToken: { raw: string; hash: string; expiresAt: DateTime } | null
   grant: ResolvedTokenGrant
   resource: string | null
@@ -285,7 +285,7 @@ export class ExchangeAuthorizationCodeAction {
         userId: authCode.userId,
         grantId: grant.grantId,
         scopes: authCode.scopes,
-        resource,
+        resource: accessToken.resource,
         expiresAt: DateTime.fromJSDate(accessToken.expiresAt),
       },
       refreshToken: refreshToken

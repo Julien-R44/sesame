@@ -33,17 +33,31 @@ export class TokenService {
 
   /**
    * Create an access token. Returns the raw token (sent to the
-   * client), its SHA-256 hash (stored in DB), and its expiration date.
+   * client), its SHA-256 hash (stored in DB), its expiration date, and
+   * the resource to store with it. RFC 9068 requires `aud` on JWT access
+   * tokens, so an unbound JWT is bound to the issuer, and that audience
+   * is stored so guards and introspection agree with the signed claim.
+   * Unbound opaque tokens stay unbound.
+   *
+   * @see https://datatracker.ietf.org/doc/html/rfc9068#section-3
    */
   async createAccessToken(
     options: CreateAccessTokenOptions
-  ): Promise<{ raw: string; hash: string; expiresAt: Date }> {
-    const raw =
-      this.#manager.config.accessTokenFormat === 'jwt'
-        ? await this.#signAccessToken(options)
-        : this.generateOpaqueToken()
+  ): Promise<{ raw: string; hash: string; expiresAt: Date; resource: string | null }> {
+    if (this.#manager.config.accessTokenFormat !== 'jwt') {
+      const raw = this.generateOpaqueToken()
+      return {
+        raw,
+        hash: this.hashToken(raw),
+        expiresAt: options.expiresAt,
+        resource: options.resource,
+      }
+    }
 
-    return { raw, hash: this.hashToken(raw), expiresAt: options.expiresAt }
+    const resource = options.resource ?? this.#manager.resourceIdentifier()
+    const raw = await this.#signAccessToken(options, resource)
+
+    return { raw, hash: this.hashToken(raw), expiresAt: options.expiresAt, resource }
   }
 
   /**
@@ -64,13 +78,12 @@ export class TokenService {
   }
 
   /**
-   * Sign an RFC 9068 access token. `aud` is the bound resource, or the
-   * issuer for an unbound token. The hook gets a copy of the context, so
-   * it cannot change the protocol claims.
+   * Sign an RFC 9068 access token for `audience`. The hook gets a copy
+   * of the context, so it cannot change the protocol claims.
    *
    * @see https://datatracker.ietf.org/doc/html/rfc9068#section-2.2
    */
-  async #signAccessToken(options: CreateAccessTokenOptions): Promise<string> {
+  async #signAccessToken(options: CreateAccessTokenOptions, audience: string): Promise<string> {
     const { expiresAt, ...context } = options
     const extraClaims =
       (await this.#manager.config.accessTokenClaims?.({
@@ -90,10 +103,8 @@ export class TokenService {
       iat: now,
       exp: Math.floor(expiresAt.getTime() / 1000),
       jti: randomUUID(),
+      aud: audience,
     }
-
-    const audience = this.#manager.accessTokenAudience(context.resource)
-    if (audience) payload.aud = audience
 
     return this.#manager.keyService.sign(payload, 'at+jwt')
   }
