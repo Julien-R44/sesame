@@ -45,6 +45,12 @@ export default class SesamePurge extends BaseCommand {
   declare clientDays: number
 
   async run() {
+    if (!Number.isFinite(this.hours) || this.hours < 0) {
+      this.logger.error('--hours must be a positive number')
+      this.exitCode = 1
+      return
+    }
+
     const invalidClientDays = !Number.isInteger(this.clientDays) || this.clientDays < 1
     if (this.clients && invalidClientDays) {
       this.logger.error('--client-days must be a positive integer')

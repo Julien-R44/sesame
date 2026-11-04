@@ -546,6 +546,13 @@ test.group('sesame:purge command', () => {
     }
   })
 
+  test('rejects a negative --hours before purging anything', async ({ assert }) => {
+    const { command, calls } = await runPurge(['--hours=-1000'])
+
+    assert.equal(command.exitCode, 1)
+    assert.deepEqual(calls, [])
+  })
+
   test('defaults --client-days to 30', async ({ assert }) => {
     const { calls } = await runPurge(['--clients'])
 
