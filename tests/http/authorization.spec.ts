@@ -536,3 +536,30 @@ test.group('HTTP | Authorization Flow (openid)', (group) => {
     assert.include(url.searchParams.get('error_description')!, 'set jwk and oidcProvider')
   })
 })
+
+test.group('HTTP | Login page with a query string', (group) => {
+  const ctx = setupHttpGroup(group, { loginPage: '/login?tenant=blue' })
+
+  test('appends the authorization parameters to the existing query', async ({ client, assert }) => {
+    await createTestClient()
+    const { codeChallenge } = createPkce()
+
+    const response = await client
+      .get(`${ctx.baseUrl}/oauth/authorize`)
+      .qs({
+        client_id: 'test-client',
+        response_type: 'code',
+        redirect_uri: 'https://app.example.com/callback',
+        scope: 'read',
+        code_challenge: codeChallenge,
+        code_challenge_method: 'S256',
+      })
+      .redirects(0)
+
+    response.assertStatus(302)
+    const url = new URL(response.header('location')!, 'https://auth.example.com')
+    assert.equal(url.pathname, '/login')
+    assert.equal(url.searchParams.get('tenant'), 'blue')
+    assert.equal(url.searchParams.get('client_id'), 'test-client')
+  })
+})

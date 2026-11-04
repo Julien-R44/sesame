@@ -128,6 +128,6 @@ export default class AuthorizeController {
     params: URLSearchParams
   ) {
     if (typeof page === 'function') return page(ctx, params)
-    return `${page}?${params.toString()}`
+    return `${page}${page.includes('?') ? '&' : '?'}${params.toString()}`
   }
 }
