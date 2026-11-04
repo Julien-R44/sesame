@@ -1,4 +1,6 @@
 import { test } from '@japa/runner'
+import { AceFactory } from '@adonisjs/core/factories'
+import SesameClient from '../commands/sesame_client.ts'
 import { createManager, createTestConfig, setupIntegrationGroup } from './helpers/app.ts'
 import { createTestClient } from './helpers/create_test_client.ts'
 import { OAuthClient } from '../src/models/oauth_client.ts'
@@ -413,5 +415,40 @@ test.group('SesameManager | client CRUD on case-insensitive stores', (group) => 
 
     const stored = await manager.findClient('test-client')
     assert.equal(stored?.name, 'Test Client')
+  })
+})
+
+test.group('sesame:client command', () => {
+  test('splits comma-separated list flags', async ({ assert }) => {
+    let created: any
+    const fakeManager = {
+      async createClient(options: any) {
+        created = options
+        return { client: { clientId: 'cli-client' }, clientSecret: null }
+      },
+    }
+
+    const ace = await new AceFactory().make(new URL('./', import.meta.url))
+    await ace.boot()
+    ace.app.container.singleton(SesameManager, () => fakeManager as any)
+
+    const command = await ace.create(SesameClient, [
+      '--name=CLI App',
+      '--public',
+      '--redirect-uris=https://a.example/cb, https://b.example/cb',
+      '--redirect-uris=https://c.example/cb',
+      '--scopes=read,write',
+      '--grant-types=authorization_code,refresh_token',
+    ])
+    await command.exec()
+
+    assert.equal(command.exitCode, 0)
+    assert.deepEqual(created.redirectUris, [
+      'https://a.example/cb',
+      'https://b.example/cb',
+      'https://c.example/cb',
+    ])
+    assert.deepEqual(created.scopes, ['read', 'write'])
+    assert.deepEqual(created.grantTypes, ['authorization_code', 'refresh_token'])
   })
 })
