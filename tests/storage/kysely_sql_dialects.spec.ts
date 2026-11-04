@@ -13,7 +13,8 @@ import * as kyselyV07 from '../fixtures/migrations_0_7/kysely.ts'
 import { SesameManager } from '../../src/sesame_manager.ts'
 import { findClientByExactId } from '../../src/storage/find_client_by_exact_id.ts'
 import { ClientIdMetadataDocumentService } from '../../src/services/client_id_metadata_document_service.ts'
-import { createTestConfig } from '../helpers/app.ts'
+import { createApp, createTestConfig, setupDatabase, teardownDatabase } from '../helpers/app.ts'
+import { lucidStore } from '../../src/storage/drivers/lucid.ts'
 import { TokenService } from '../../src/services/token_service.ts'
 import { ExchangeRefreshTokenAction } from '../../src/actions/exchange_refresh_token.ts'
 import { FakeClientMetadataDocumentFetcher } from '../helpers/fake_client_metadata_fetcher.ts'
@@ -480,6 +481,35 @@ for (const dialect of ['postgres', 'mysql', 'mariadb'] as const) {
   })
 
   // Real servers run dozens of DDL statements (fresh schema plus the 0.7 upgrade cycle)
+  sqlTest.timeout(30_000)
+  if (!connectionUrl) sqlTest.skip()
+}
+
+for (const dialect of ['postgres', 'mysql', 'mariadb'] as const) {
+  const connectionUrl = process.env[`SESAME_TEST_${dialect.toUpperCase()}_URL`]
+  const sqlTest = test(`Lucid ${dialect} | migration and OAuth persistence`, async ({ assert }) => {
+    const app = await createApp({
+      connection: {
+        name: dialect,
+        config: { client: dialect === 'postgres' ? 'pg' : 'mysql2', connection: connectionUrl },
+      },
+    })
+
+    try {
+      await setupDatabase(app)
+      const store = lucidStore()
+      const clientId = await testClientRecords(store, assert)
+      await testConsent(store, clientId, assert)
+      await testTokenExchange(store, clientId, assert)
+      await testConcurrentRefresh(store, clientId, assert)
+      await testCleanup(store, clientId, assert)
+      await testUnusedClientPurge(store, assert)
+      await testClientIdCollation(store, assert)
+    } finally {
+      await teardownDatabase(app)
+    }
+  })
+
   sqlTest.timeout(30_000)
   if (!connectionUrl) sqlTest.skip()
 }

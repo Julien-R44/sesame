@@ -74,6 +74,17 @@ export class LucidStore implements SesameStore {
   }
 
   /**
+   * Format a date for query-builder writes and comparisons the way Lucid
+   * formats `@column.dateTime()` values. MySQL and MariaDB reject the
+   * offset suffix that `DateTime.toSQL()` appends.
+   */
+  #sqlDate(value: DateTime): string {
+    const client = this.#client ?? OAuthClient.query().client
+
+    return value.toFormat(client.dialect.dateTimeFormat)
+  }
+
+  /**
    * Bind a model query to this store's transaction when present.
    */
   #query(model: typeof BaseModel) {
@@ -175,7 +186,7 @@ export class LucidStore implements SesameStore {
     const now = DateTime.now()
     const query = this.#query(OAuthGrant)
       .where('id', write.id)
-      .where('expiresAt', '>', now.toSQL()!)
+      .where('expiresAt', '>', this.#sqlDate(now))
     const isSqlite = String(this.#client?.dialect?.name ?? '').includes('sqlite')
     const grant = await (isSqlite ? query : query.forUpdate()).first()
     if (!grant) throw new InactiveGrantError()
@@ -183,7 +194,7 @@ export class LucidStore implements SesameStore {
 
     await this.#query(OAuthGrant)
       .where('id', write.id)
-      .update({ expiresAt: write.expiresAt.toSQL(), updatedAt: now.toSQL() })
+      .update({ expiresAt: this.#sqlDate(write.expiresAt), updatedAt: this.#sqlDate(now) })
   }
 
   /**
@@ -220,7 +231,7 @@ export class LucidStore implements SesameStore {
     await this.#query(OAuthAccessToken)
       .whereIn('grantId', ids)
       .whereNull('revokedAt')
-      .update({ revokedAt: now.toSQL(), updatedAt: now.toSQL() })
+      .update({ revokedAt: this.#sqlDate(now), updatedAt: this.#sqlDate(now) })
 
     return count
   }
@@ -281,7 +292,7 @@ export class LucidStore implements SesameStore {
       values.metadata = data.metadata === null ? null : JSON.stringify(data.metadata)
     if (Object.keys(values).length === 0) return
 
-    values.updatedAt = DateTime.now().toSQL()
+    values.updatedAt = this.#sqlDate(DateTime.now())
     await this.#query(OAuthClient).where('id', options.id).update(values)
   }
 
@@ -289,10 +300,12 @@ export class LucidStore implements SesameStore {
    * Replace a confidential client's stored secret hash.
    */
   async updateClientSecret(options: { id: string; secret: string }): Promise<void> {
-    await this.#query(OAuthClient).where('id', options.id).update({
-      clientSecret: options.secret,
-      updatedAt: DateTime.now().toSQL(),
-    })
+    await this.#query(OAuthClient)
+      .where('id', options.id)
+      .update({
+        clientSecret: options.secret,
+        updatedAt: this.#sqlDate(DateTime.now()),
+      })
   }
 
   /**
@@ -367,7 +380,7 @@ export class LucidStore implements SesameStore {
       .where('tokenHash', options.hash)
       .where('clientId', options.clientId)
       .whereNull('revokedAt')
-      .update({ revokedAt: options.now.toSQL(), updatedAt: options.now.toSQL() })
+      .update({ revokedAt: this.#sqlDate(options.now), updatedAt: this.#sqlDate(options.now) })
 
     return this.#affectedRows(result) === 1
   }
@@ -407,7 +420,7 @@ export class LucidStore implements SesameStore {
       await store.#query(OAuthAccessToken)
         .where('id', token.accessTokenId)
         .whereNull('revokedAt')
-        .update({ revokedAt: options.now.toSQL(), updatedAt: options.now.toSQL() })
+        .update({ revokedAt: this.#sqlDate(options.now), updatedAt: this.#sqlDate(options.now) })
     })
   }
 
@@ -430,7 +443,7 @@ export class LucidStore implements SesameStore {
         .where('userId', options.userId)
         .whereNull('grantId')
         .whereNull('revokedAt')
-        .update({ revokedAt: options.now.toSQL(), updatedAt: options.now.toSQL() })
+        .update({ revokedAt: this.#sqlDate(options.now), updatedAt: this.#sqlDate(options.now) })
     })
   }
 
@@ -483,8 +496,8 @@ export class LucidStore implements SesameStore {
             .where('id', options.codeId)
             .whereNull('consumedAt')
             .update({
-              consumedAt: options.consumedAt.toSQL(),
-              updatedAt: options.consumedAt.toSQL(),
+              consumedAt: this.#sqlDate(options.consumedAt),
+              updatedAt: this.#sqlDate(options.consumedAt),
             })
         )
         if (consumed !== 1) return false
@@ -524,7 +537,7 @@ export class LucidStore implements SesameStore {
       .where('userId', options.userId)
       .orderBy('createdAt', 'desc')
     if (options.clientId) query.where('clientId', options.clientId)
-    if (options.activeAt) query.where('expiresAt', '>', options.activeAt.toSQL()!)
+    if (options.activeAt) query.where('expiresAt', '>', this.#sqlDate(options.activeAt))
 
     const grants = await query
 
@@ -540,7 +553,7 @@ export class LucidStore implements SesameStore {
     const context = options.data.context === null ? null : JSON.stringify(options.data.context)
     await this.#query(OAuthGrant)
       .where('id', options.id)
-      .update({ context, updatedAt: DateTime.now().toSQL() })
+      .update({ context, updatedAt: this.#sqlDate(DateTime.now()) })
   }
 
   /**
@@ -596,7 +609,7 @@ export class LucidStore implements SesameStore {
     const row = await this.#query(OAuthPendingAuthorizationRequest)
       .where('token', options.token)
       .where('userId', options.userId)
-      .where('expiresAt', '>', options.now.toSQL()!)
+      .where('expiresAt', '>', this.#sqlDate(options.now))
       .first()
     if (!row) return null
 
@@ -651,14 +664,20 @@ export class LucidStore implements SesameStore {
           await store.#query(OAuthRefreshToken)
             .where('id', options.oldRefreshTokenId)
             .whereNull('revokedAt')
-            .update({ revokedAt: options.revokedAt.toSQL(), updatedAt: options.revokedAt.toSQL() })
+            .update({
+              revokedAt: this.#sqlDate(options.revokedAt),
+              updatedAt: this.#sqlDate(options.revokedAt),
+            })
         )
         if (updated !== 1) return false
 
         await store.#query(OAuthAccessToken)
           .where('id', options.oldAccessTokenId)
           .whereNull('revokedAt')
-          .update({ revokedAt: options.revokedAt.toSQL(), updatedAt: options.revokedAt.toSQL() })
+          .update({
+            revokedAt: this.#sqlDate(options.revokedAt),
+            updatedAt: this.#sqlDate(options.revokedAt),
+          })
         await store.#applyGrantWrite(options.grant)
         await store.createAccessToken(options.accessToken)
         await OAuthRefreshToken.create(options.refreshToken, { client: store.#client })
@@ -676,7 +695,7 @@ export class LucidStore implements SesameStore {
       await store.#query(OAuthAccessToken)
         .where('userId', options.userId)
         .whereNull('revokedAt')
-        .update({ revokedAt: options.now.toSQL(), updatedAt: options.now.toSQL() })
+        .update({ revokedAt: this.#sqlDate(options.now), updatedAt: this.#sqlDate(options.now) })
       await store.#query(OAuthRefreshToken).where('userId', options.userId).delete()
       await store.#query(OAuthAuthorizationCode).where('userId', options.userId).delete()
       await store.#query(OAuthPendingAuthorizationRequest).where('userId', options.userId).delete()
@@ -703,7 +722,7 @@ export class LucidStore implements SesameStore {
         )
         counts.refreshTokens += this.#affectedRows(
           await store.#query(OAuthRefreshToken)
-            .where('revokedAt', '<', options.cutoff.toSQL()!)
+            .where('revokedAt', '<', this.#sqlDate(options.cutoff))
             .delete()
         )
       }
@@ -711,29 +730,31 @@ export class LucidStore implements SesameStore {
       if (options.purgeExpired) {
         counts.accessTokens += this.#affectedRows(
           await store.#query(OAuthAccessToken)
-            .where('expiresAt', '<', options.cutoff.toSQL()!)
+            .where('expiresAt', '<', this.#sqlDate(options.cutoff))
             .whereNull('revokedAt')
             .delete()
         )
         counts.refreshTokens += this.#affectedRows(
           await store.#query(OAuthRefreshToken)
-            .where('expiresAt', '<', options.cutoff.toSQL()!)
+            .where('expiresAt', '<', this.#sqlDate(options.cutoff))
             .whereNull('revokedAt')
             .delete()
         )
         counts.authorizationCodes += this.#affectedRows(
           await store.#query(OAuthAuthorizationCode)
-            .where('expiresAt', '<', options.cutoff.toSQL()!)
+            .where('expiresAt', '<', this.#sqlDate(options.cutoff))
             .delete()
         )
         counts.grants += this.#affectedRows(
-          await store.#query(OAuthGrant).where('expiresAt', '<', options.cutoff.toSQL()!).delete()
+          await store.#query(OAuthGrant)
+            .where('expiresAt', '<', this.#sqlDate(options.cutoff))
+            .delete()
         )
       }
 
       counts.pendingRequests += this.#affectedRows(
         await store.#query(OAuthPendingAuthorizationRequest)
-          .where('expiresAt', '<', options.now.toSQL()!)
+          .where('expiresAt', '<', this.#sqlDate(options.now))
           .delete()
       )
 
@@ -749,7 +770,7 @@ export class LucidStore implements SesameStore {
       const candidates = await store.#unusedClientsQuery().where(
         'createdAt',
         '<',
-        options.createdBefore.toSQL()!
+        this.#sqlDate(options.createdBefore)
       )
 
       const clientIds = candidates

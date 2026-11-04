@@ -53,10 +53,23 @@ export function createManager(overrides?: Record<string, any>) {
 }
 
 /**
- * Boots an AdonisJS app with in-memory SQLite for integration tests.
- * Runs the test migrations unless other `migrationsPaths` are given.
+ * Boots an AdonisJS app with in-memory SQLite, or the given `connection`,
+ * for integration tests. Runs the test migrations unless other
+ * `migrationsPaths` are given.
  */
-export async function createApp(options?: { migrationsPaths?: string[] }) {
+export async function createApp(options?: {
+  migrationsPaths?: string[]
+  connection?: { name: string; config: Record<string, any> }
+}) {
+  const connection = options?.connection ?? {
+    name: 'sqlite',
+    config: {
+      client: 'better-sqlite3',
+      connection: { filename: ':memory:' },
+      useNullAsDefault: true,
+    },
+  }
+
   const ignitor = new IgnitorFactory()
     .withCoreProviders()
     .withCoreConfig()
@@ -69,12 +82,10 @@ export async function createApp(options?: { migrationsPaths?: string[] }) {
       },
       config: {
         database: {
-          connection: 'sqlite',
+          connection: connection.name,
           connections: {
-            sqlite: {
-              client: 'better-sqlite3',
-              connection: { filename: ':memory:' },
-              useNullAsDefault: true,
+            [connection.name]: {
+              ...connection.config,
               migrations: {
                 paths: options?.migrationsPaths ?? [
                   resolve(import.meta.dirname!, '..', 'migrations'),
@@ -103,9 +114,10 @@ export async function setupDatabase(app: ApplicationService) {
 
   const runner = new MigrationRunner(db, app, {
     direction: 'up',
-    connectionName: 'sqlite',
+    connectionName: db.primaryConnectionName,
   })
   await runner.run()
+  if (runner.error) throw runner.error
 
   return db
 }
@@ -118,7 +130,7 @@ export async function teardownDatabase(app: ApplicationService) {
 
   const runner = new MigrationRunner(db, app, {
     direction: 'down',
-    connectionName: 'sqlite',
+    connectionName: db.primaryConnectionName,
     batch: 0,
   })
   await runner.run()
