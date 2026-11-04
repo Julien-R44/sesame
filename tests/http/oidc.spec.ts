@@ -23,6 +23,19 @@ test.group('HTTP | UserInfo Endpoint', (group) => {
     response.assertBodyContains({ sub: 'user-1' })
   })
 
+  test('accepts the {scheme} authorization scheme')
+    .with([{ scheme: 'bearer' }, { scheme: 'BEARER' }])
+    .run(async ({ client }, { scheme }) => {
+      const { raw } = await createTestAccessToken({ scopes: ['openid', 'read'] })
+
+      const response = await client
+        .get(`${ctx.baseUrl}/oauth/userinfo`)
+        .header('authorization', `${scheme} ${raw}`)
+
+      response.assertStatus(200)
+      response.assertBodyContains({ sub: 'user-1' })
+    })
+
   test('accepts POST body access_token', async ({ client }) => {
     const { raw } = await createTestAccessToken({ scopes: ['openid', 'read'] })
 

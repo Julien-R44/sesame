@@ -18,7 +18,8 @@ export default class UserinfoController {
     const manager = await ctx.containerResolver.make(SesameManager)
 
     const authHeader = ctx.request.header('authorization')
-    const rawToken = authHeader?.startsWith('Bearer ')
+    // Auth schemes are case-insensitive (RFC 9110 §11.1)
+    const rawToken = authHeader?.toLowerCase().startsWith('bearer ')
       ? authHeader.slice(7)
       : ctx.request.body().access_token
 
