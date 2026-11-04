@@ -214,4 +214,14 @@ test.group('Resource indicators | SesameManager.resolveResource', () => {
     assert.equal(manager.resourceIdentifier(), 'https://auth.example.com')
     assert.equal(manager.resourceIdentifier('/mcp/'), 'https://auth.example.com/mcp')
   })
+
+  test('joins resource paths to an issuer with a trailing slash', ({ assert }) => {
+    const manager = new SesameManager(
+      createTestConfig({ issuer: 'https://auth.example.com/' }),
+      {} as any,
+      lucidStore()
+    )
+
+    assert.equal(manager.resourceIdentifier('/mcp'), 'https://auth.example.com/mcp')
+  })
 })

@@ -201,7 +201,10 @@ export class SesameManager {
    * @see https://datatracker.ietf.org/doc/html/rfc8707#section-2
    */
   resourceIdentifier(path?: string): string {
-    const resource = `${this.#config.issuer}${path ?? ''}`
+    const issuer = path?.startsWith('/')
+      ? this.#config.issuer.replace(/\/+$/, '')
+      : this.#config.issuer
+    const resource = `${issuer}${path ?? ''}`
 
     return normalizeResourceIndicator(resource) ?? resource
   }
@@ -631,7 +634,7 @@ export class SesameManager {
       )
 
       return {
-        resource: `${this.#config.issuer}${options.resource}`,
+        resource: `${this.#config.issuer.replace(/\/+$/, '')}${options.resource}`,
         authorization_servers: [this.#config.issuer],
         scopes_supported: [
           ...(options.scopes ?? Object.keys(this.#config.scopes)),
