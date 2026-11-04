@@ -45,7 +45,7 @@ export class IdTokenService {
   ): Promise<Record<string, unknown>> {
     const rawClaims =
       typeof (user as any)?.getOidcClaims === 'function'
-        ? await (user as any).getOidcClaims(scopes)
+        ? await (user as any).getOidcClaims([...scopes])
         : {}
 
     return IdTokenService.filterReservedClaims(rawClaims)

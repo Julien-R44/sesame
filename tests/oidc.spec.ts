@@ -218,6 +218,20 @@ test.group('IdTokenService', () => {
     assert.equal(payload.email, 'julien@example.com')
   })
 
+  test('getOidcClaims cannot change the granted scopes', async ({ assert }) => {
+    const scopes = ['openid', 'read']
+    const user = {
+      getOidcClaims(received: string[]) {
+        received.push('admin')
+        return {}
+      },
+    }
+
+    await IdTokenService.resolveUserClaims(user, scopes)
+
+    assert.deepEqual(scopes, ['openid', 'read'])
+  })
+
   test('reserved claims from getOidcClaims are filtered out', async ({ assert }) => {
     const jwk = await getTestJwk()
     const manager = createManager({ jwk })
