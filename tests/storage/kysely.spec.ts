@@ -2,7 +2,7 @@ import { test } from '@japa/runner'
 import { HttpContextFactory, RequestFactory } from '@adonisjs/core/factories/http'
 import { IgnitorFactory } from '@adonisjs/core/factories'
 import Database from 'better-sqlite3'
-import { Kysely, SqliteDialect } from 'kysely'
+import { CamelCasePlugin, Kysely, SqliteDialect } from 'kysely'
 import { DateTime } from 'luxon'
 import { defineConfig } from '../../src/define_config.ts'
 import { SesameManager } from '../../src/sesame_manager.ts'
@@ -202,6 +202,33 @@ test.group('Kysely store | OAuth flows', () => {
       assert.isNotNull(await store.consumePendingAuthorizationRequest(request))
       assert.isNull(await store.consumePendingAuthorizationRequest(request))
       assert.isNull(await store.findPendingAuthorizationRequest(request))
+    } finally {
+      await db.destroy()
+    }
+  })
+
+  test('reads grants through a connection using CamelCasePlugin', async ({ assert }) => {
+    const db = new Kysely<any>({
+      dialect: new SqliteDialect({ database: new Database(':memory:') }),
+    })
+    await up(db)
+    const store = kyselyStore({ db: db.withPlugin(new CamelCasePlugin()) })
+
+    try {
+      const client = await store.createClient({
+        id: crypto.randomUUID(),
+        clientId: 'camel-client',
+        name: 'Camel App',
+        redirectUris: [],
+        scopes: ['read'],
+        grantTypes: ['authorization_code', 'refresh_token'],
+        isPublic: true,
+        isDisabled: false,
+        requirePkce: true,
+        metadata: null,
+      })
+      await testGrantRecords(store, client.clientId, assert)
+      await testGrantRevocation(store, client.clientId, assert)
     } finally {
       await db.destroy()
     }

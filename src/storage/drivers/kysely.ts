@@ -113,6 +113,7 @@ const tables = {
 
 /**
  * Grant columns selected alongside an access token, prefixed to avoid clashes.
+ * The prefix has no underscore so `CamelCasePlugin` keeps it intact.
  */
 const GRANT_COLUMNS = [
   'id',
@@ -124,7 +125,7 @@ const GRANT_COLUMNS = [
   'created_at',
   'updated_at',
 ]
-const GRANT_PREFIX = 'grant__'
+const GRANT_PREFIX = 'grant$'
 
 /**
  * Translate record fields to database column names.
@@ -331,7 +332,8 @@ export class KyselyStore implements SesameStore {
       .where('expires_at', '>', encodeValue(now, 'expiresAt', tables.grants, this.#dialect))
     const row = await (this.#dialect === 'sqlite' ? query : query.forUpdate()).executeTakeFirst()
     if (!row) throw new InactiveGrantError()
-    if (toDateTime(row.expires_at) >= write.expiresAt) return
+    const { expiresAt } = decodeRow<{ expiresAt: DateTime }>(row, tables.grants)
+    if (expiresAt >= write.expiresAt) return
 
     await this.#db
       .updateTable(tables.grants.name)
