@@ -211,6 +211,25 @@ test.group('Integration | Refresh Token Grant', (group) => {
     assert.equal(results.filter((result) => result.status === 'rejected').length, 1)
   })
 
+  test('rejects scopes removed from the server config when scope is omitted', async ({
+    assert,
+  }) => {
+    const client = await createTestClient()
+    const manager = createManager({ scopes: { write: 'Write access' } })
+    const { rawRefreshToken } = await createTestRefreshToken({ manager, scopes: ['read'] })
+
+    await assertOAuthError(
+      assert,
+      () =>
+        new ExchangeRefreshTokenAction().execute(manager, {
+          client,
+          refreshToken: rawRefreshToken,
+        }),
+      'invalid_scope',
+      ['read']
+    )
+  })
+
   test('rejects expired refresh token', async ({ assert }) => {
     const client = await createTestClient()
     const { rawRefreshToken, manager } = await createTestRefreshToken({

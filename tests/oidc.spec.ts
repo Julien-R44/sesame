@@ -482,7 +482,7 @@ test.group('Refresh Token Grant — OIDC', (group) => {
 
   test('rejects openid refresh when OIDC user cannot be resolved', async ({ assert }) => {
     const jwk = await getTestJwk()
-    const manager = createManager({ jwk })
+    const manager = createManager({ jwk, oidcProvider: new FakeUserProvider([]) })
 
     const client = await createTestClient({
       clientId: 'client-refresh-missing-user',

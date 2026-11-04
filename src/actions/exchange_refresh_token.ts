@@ -362,12 +362,7 @@ export class ExchangeRefreshTokenAction {
     refreshToken: OAuthRefreshTokenRecord,
     clientService: ClientService
   ): string[] {
-    if (!input.scope) {
-      clientService.validateClientScopes(refreshToken.scopes, input.client.scopes)
-      return refreshToken.scopes
-    }
-
-    const requested = input.scope.split(' ')
+    const requested = input.scope ? input.scope.split(' ') : refreshToken.scopes
     const originalSet = new Set(refreshToken.scopes)
     const invalid = requested.filter((s: string) => !originalSet.has(s))
     if (invalid.length > 0) {
