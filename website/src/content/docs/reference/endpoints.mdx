@@ -91,7 +91,7 @@ Codes and tokens store the resolved resource. A token exchange cannot change a b
 
 ## Introspection and revocation
 
-Both accept body `token` and optional `token_type_hint`, with `access_token` or `refresh_token` values. Lookup is limited to the authenticated client's records. A provided hint selects that token type. Without a hint, access token lookup precedes refresh token lookup.
+Both accept body `token` and optional `token_type_hint`, with `access_token` or `refresh_token` values. Lookup is limited to the authenticated client's records. The hint only sets the lookup order: `refresh_token` looks up refresh tokens first, anything else looks up access tokens first. When the first lookup finds nothing, the other token type is tried.
 
 Introspection returns `{ active: false }` for missing, invalid, expired, revoked, or other-client tokens. Active responses include `active`, `token_type`, `client_id`, `sub`, `scope`, `iss`, `iat`, and `exp`, plus `aud` for bound resources. A missing, revoked, or expired grant makes its tokens inactive.
 

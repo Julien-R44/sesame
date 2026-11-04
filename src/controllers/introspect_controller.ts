@@ -22,10 +22,58 @@ const INACTIVE = { active: false }
  * @see https://datatracker.ietf.org/doc/html/rfc7662
  */
 export default class IntrospectController {
+  /**
+   * Describe an active access token, or return null.
+   */
+  async #introspectAccessToken(
+    manager: SesameManager,
+    options: { hash: string; clientId: string }
+  ) {
+    const record = await manager.store.findAccessToken(options)
+    if (!record || record.revokedAt) return null
+    if (record.expiresAt.toJSDate() < new Date() || !hasActiveGrant(record)) return null
+
+    return {
+      active: true,
+      token_type: 'Bearer',
+      client_id: record.clientId,
+      sub: record.userId || undefined,
+      scope: record.scopes.join(' '),
+      ...(record.resource ? { aud: record.resource } : {}),
+      iss: manager.config.issuer,
+      iat: Math.floor(record.createdAt.toMillis() / 1000),
+      exp: Math.floor(record.expiresAt.toMillis() / 1000),
+    }
+  }
+
+  /**
+   * Describe an active refresh token, or return null.
+   */
+  async #introspectRefreshToken(
+    manager: SesameManager,
+    options: { hash: string; clientId: string }
+  ) {
+    const refreshToken = await manager.store.findRefreshToken(options)
+    if (!refreshToken || refreshToken.revokedAt) return null
+    if (refreshToken.expiresAt.toJSDate() < new Date()) return null
+    if (!(await new GrantService(manager).isActive(refreshToken.grantId))) return null
+
+    return {
+      active: true,
+      token_type: 'refresh_token',
+      client_id: refreshToken.clientId,
+      sub: refreshToken.userId,
+      scope: refreshToken.scopes.join(' '),
+      ...(refreshToken.resource ? { aud: refreshToken.resource } : {}),
+      iss: manager.config.issuer,
+      iat: Math.floor(refreshToken.createdAt.toMillis() / 1000),
+      exp: Math.floor(refreshToken.expiresAt.toMillis() / 1000),
+    }
+  }
+
   async handle(ctx: HttpContext) {
     const manager = await ctx.containerResolver.make(SesameManager)
     const clientService = new ClientService(manager)
-    const store = manager.store
 
     // Authenticate the requesting client
     const client = await clientService.authenticateClient({
@@ -37,58 +85,20 @@ export default class IntrospectController {
     const token = ctx.request.body().token
     if (!token) return INACTIVE
 
-    const tokenTypeHint = ctx.request.body().token_type_hint
-    const tokenService = new TokenService(manager)
-    const hashed = tokenService.hashToken(token)
+    const hashed = new TokenService(manager).hashToken(token)
+    const options = { hash: hashed, clientId: client.clientId }
 
-    // Try as access token
-    if (!tokenTypeHint || tokenTypeHint === 'access_token') {
-      const record = await store.findAccessToken({ hash: hashed, clientId: client.clientId })
+    /**
+     * The hint only orders the lookups. A wrong or unknown hint still
+     * finds the token (RFC 7662 §2.1).
+     */
+    const accessToken = () => this.#introspectAccessToken(manager, options)
+    const refreshToken = () => this.#introspectRefreshToken(manager, options)
+    const [first, second] =
+      ctx.request.body().token_type_hint === 'refresh_token'
+        ? [refreshToken, accessToken]
+        : [accessToken, refreshToken]
 
-      const active =
-        record &&
-        !record.revokedAt &&
-        record.expiresAt.toJSDate() >= new Date() &&
-        hasActiveGrant(record)
-      if (record && active) {
-        return {
-          active: true,
-          token_type: 'Bearer',
-          client_id: record.clientId,
-          sub: record.userId || undefined,
-          scope: record.scopes.join(' '),
-          ...(record.resource ? { aud: record.resource } : {}),
-          iss: manager.config.issuer,
-          iat: Math.floor(record.createdAt.toMillis() / 1000),
-          exp: Math.floor(record.expiresAt.toMillis() / 1000),
-        }
-      }
-
-      if (tokenTypeHint === 'access_token') return INACTIVE
-    }
-
-    // Try as refresh token
-    if (!tokenTypeHint || tokenTypeHint === 'refresh_token') {
-      const refreshToken = await store.findRefreshToken({ hash: hashed, clientId: client.clientId })
-
-      if (!refreshToken) return INACTIVE
-      if (refreshToken.revokedAt) return INACTIVE
-      if (refreshToken.expiresAt.toJSDate() < new Date()) return INACTIVE
-      if (!(await new GrantService(manager).isActive(refreshToken.grantId))) return INACTIVE
-
-      return {
-        active: true,
-        token_type: 'refresh_token',
-        client_id: refreshToken.clientId,
-        sub: refreshToken.userId,
-        scope: refreshToken.scopes.join(' '),
-        ...(refreshToken.resource ? { aud: refreshToken.resource } : {}),
-        iss: manager.config.issuer,
-        iat: Math.floor(refreshToken.createdAt.toMillis() / 1000),
-        exp: Math.floor(refreshToken.expiresAt.toMillis() / 1000),
-      }
-    }
-
-    return INACTIVE
+    return (await first()) ?? (await second()) ?? INACTIVE
   }
 }

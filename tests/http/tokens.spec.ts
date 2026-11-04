@@ -340,6 +340,36 @@ test.group('HTTP | Revocation', (group) => {
     assert.isNotNull(access.revokedAt)
   })
 
+  test('revokes a {kind} sent with the hint {hint}')
+    .with([
+      { kind: 'access token', hint: 'refresh_token' },
+      { kind: 'access token', hint: 'unknown' },
+      { kind: 'refresh token', hint: 'access_token' },
+    ])
+    .run(async ({ client }, { kind, hint }) => {
+      await createTestClient()
+      const token =
+        kind === 'access token'
+          ? (await createTestAccessToken({ scopes: ['read'] })).raw
+          : (await createTestRefreshToken({ scopes: ['read'] })).rawRefreshToken
+      const credentials = { client_id: 'test-client', client_secret: 'test-secret' }
+
+      const introspected = await client
+        .post(`${ctx.baseUrl}/oauth/introspect`)
+        .json({ token, token_type_hint: hint, ...credentials })
+      introspected.assertBodyContains({ active: true })
+
+      const revoked = await client
+        .post(`${ctx.baseUrl}/oauth/revoke`)
+        .json({ token, token_type_hint: hint, ...credentials })
+      revoked.assertStatus(200)
+
+      const after = await client
+        .post(`${ctx.baseUrl}/oauth/introspect`)
+        .json({ token, ...credentials })
+      after.assertBodyContains({ active: false })
+    })
+
   test('returns 200 even for unknown tokens', async ({ client }) => {
     await createTestClient()
 

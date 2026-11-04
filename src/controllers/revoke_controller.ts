@@ -28,14 +28,15 @@ export default class RevokeController {
     const store = manager.store
     const now = DateTime.now()
     const refreshToken = await store.findRefreshToken(options)
-    if (!refreshToken) return
+    if (!refreshToken) return false
 
     if (refreshToken.grantId) {
       await store.revokeGrant({ id: refreshToken.grantId, now })
-      return
+      return true
     }
 
     await store.revokeRefreshToken({ ...options, now })
+    return true
   }
 
   async handle(ctx: HttpContext) {
@@ -54,26 +55,20 @@ export default class RevokeController {
     const token = ctx.request.body().token
     if (!token) return ctx.response.ok({})
 
-    const tokenTypeHint = ctx.request.body().token_type_hint
-    const tokenService = new TokenService(manager)
-    const hashed = tokenService.hashToken(token)
+    const hashed = new TokenService(manager).hashToken(token)
+    const options = { hash: hashed, clientId: client.clientId }
+    const revokeAccessToken = () => store.revokeAccessToken({ ...options, now: DateTime.now() })
+    const revokeRefreshToken = () => this.#revokeRefreshToken(manager, options)
 
-    // Try revoking as access token
-    if (!tokenTypeHint || tokenTypeHint === 'access_token') {
-      const revoked = await store.revokeAccessToken({
-        hash: hashed,
-        clientId: client.clientId,
-        now: DateTime.now(),
-      })
-      if (revoked) return ctx.response.ok({})
-
-      if (tokenTypeHint === 'access_token') return ctx.response.ok({})
-    }
-
-    // Try revoking as refresh token
-    if (!tokenTypeHint || tokenTypeHint === 'refresh_token') {
-      await this.#revokeRefreshToken(manager, { hash: hashed, clientId: client.clientId })
-    }
+    /**
+     * The hint only orders the lookups. A wrong or unknown hint still
+     * revokes the token (RFC 7009 §2.1).
+     */
+    const [first, second] =
+      ctx.request.body().token_type_hint === 'refresh_token'
+        ? [revokeRefreshToken, revokeAccessToken]
+        : [revokeAccessToken, revokeRefreshToken]
+    if (!(await first())) await second()
 
     return ctx.response.ok({})
   }
